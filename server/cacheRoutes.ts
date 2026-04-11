@@ -110,7 +110,7 @@ export function registerCacheRoutes(app: Express): void {
           totalHits,
           overallHitRate,
           estimatedSavingsUSD: stats.estimatedCostSavings,
-          totalTokensSaved: stats.exact.tokensSaved + stats.semantic.tokensSaved,
+          totalTokensSaved: (stats.exact.estimatedBytesSaved || 0) + (stats.semantic.estimatedBytesSaved || 0),
         },
         tiers: {
           exact: stats.exact,
@@ -118,8 +118,8 @@ export function registerCacheRoutes(app: Express): void {
           semantic: stats.semantic,
         },
         memory,
-        modelBreakdown: stats.modelBreakdown,
-        rollingWindows: stats.rollingWindows,
+        modelBreakdown: stats.perModel ?? {},
+        rollingWindows: stats.rollingWindow ?? {},
       });
     } catch (err) {
       console.error("[CacheRoutes] Failed to get dashboard:", err);

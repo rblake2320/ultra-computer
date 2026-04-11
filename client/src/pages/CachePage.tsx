@@ -134,8 +134,10 @@ function TierCard({
   stats: TierStats;
   variant: "exact" | "prefix" | "semantic";
 }) {
-  const total = stats.hits + (stats.misses ?? 0);
-  const hitRate = total > 0 ? (stats.hits / total) * 100 : 0;
+  const hits = stats.hits ?? 0;
+  const misses = stats.misses ?? 0;
+  const total = hits + misses;
+  const hitRate = total > 0 ? (hits / total) * 100 : 0;
 
   return (
     <Card className="p-4">
@@ -150,13 +152,13 @@ function TierCard({
             <div className="space-y-1">
               <p className="text-[10px] text-muted-foreground">Est. Hits Generated</p>
               <p className="text-lg font-bold text-emerald-400">
-                {(stats.estimatedHits ?? 0).toLocaleString()}
+                {(stats.estimatedHits ?? (stats as Record<string, number>).estimatedHitsGenerated ?? 0).toLocaleString()}
               </p>
             </div>
             <div className="space-y-1">
               <p className="text-[10px] text-muted-foreground">Prefixes Tracked</p>
               <p className="text-lg font-bold">
-                {(stats.prefixesTracked ?? 0).toLocaleString()}
+                {(stats.prefixesTracked ?? stats.entries ?? 0).toLocaleString()}
               </p>
             </div>
           </div>
@@ -169,7 +171,7 @@ function TierCard({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <p className="text-[10px] text-muted-foreground">Hits</p>
-              <p className="text-lg font-bold text-emerald-400">{stats.hits.toLocaleString()}</p>
+              <p className="text-lg font-bold text-emerald-400">{hits.toLocaleString()}</p>
             </div>
             <div className="space-y-1">
               <p className="text-[10px] text-muted-foreground">Misses</p>
@@ -213,15 +215,26 @@ function TierCard({
 
 // ─── Memory Section ──────────────────────────────────────────────────────────
 
-function MemorySection({ memory }: { memory: MemoryUsage }) {
-  const usedPct = memory.budgetBytes > 0
-    ? Math.min((memory.totalBytes / memory.budgetBytes) * 100, 100)
+function MemorySection({ memory }: { memory: Record<string, unknown> }) {
+  // Handle both expected shapes from the API
+  const mem = memory as Record<string, unknown>;
+  const totalBytes = (mem.totalBytes ?? mem.totalEstimatedBytes ?? 0) as number;
+  const budgetBytes = (mem.budgetBytes ?? mem.limitBytes ?? 268435456) as number;
+  const usedPct = budgetBytes > 0
+    ? Math.min((totalBytes / budgetBytes) * 100, 100)
     : 0;
 
+  // Extract per-tier bytes (may be nested objects with estimatedBytes)
+  const extractBytes = (v: unknown): number => {
+    if (typeof v === "number") return v;
+    if (v && typeof v === "object" && "estimatedBytes" in v) return (v as Record<string, number>).estimatedBytes ?? 0;
+    return 0;
+  };
+
   const tiers = [
-    { label: "Exact Cache", bytes: memory.exact ?? 0, color: "bg-blue-500" },
-    { label: "Prefix Optimizer", bytes: memory.prefix ?? 0, color: "bg-violet-500" },
-    { label: "Semantic Cache", bytes: memory.semantic ?? 0, color: "bg-emerald-500" },
+    { label: "Exact Cache", bytes: extractBytes(mem.exact), color: "bg-blue-500" },
+    { label: "Prefix Optimizer", bytes: extractBytes(mem.prefix), color: "bg-violet-500" },
+    { label: "Semantic Cache", bytes: extractBytes(mem.semantic), color: "bg-emerald-500" },
   ];
 
   return (
@@ -230,7 +243,7 @@ function MemorySection({ memory }: { memory: MemoryUsage }) {
         <MemoryStick className="w-4 h-4 text-muted-foreground" />
         <span className="text-xs font-semibold">Memory Usage</span>
         <Badge variant="outline" className="text-[10px] ml-auto">
-          {formatBytes(memory.totalBytes)} / {formatBytes(memory.budgetBytes)}
+          {formatBytes(totalBytes)} / {formatBytes(budgetBytes)}
         </Badge>
       </div>
 
@@ -244,8 +257,8 @@ function MemorySection({ memory }: { memory: MemoryUsage }) {
 
       <div className="space-y-2">
         {tiers.map((tier) => {
-          const pct = memory.budgetBytes > 0
-            ? Math.min((tier.bytes / memory.budgetBytes) * 100, 100)
+          const pct = budgetBytes > 0
+            ? Math.min((tier.bytes / budgetBytes) * 100, 100)
             : 0;
           return (
             <div key={tier.label} className="space-y-1">
@@ -537,8 +550,16 @@ export function CachePage() {
     return <LoadingSkeleton />;
   }
 
-  const { overview, tiers, memory, modelBreakdown } = dashboard;
-  const hitRatePct = overview.overallHitRate * 100;
+  const { overview, tiers, memory, modelBreakdown: rawBreakdown } = dashboard;
+  const modelBreakdown = rawBreakdown ?? {};
+  const safeOverview = {
+    totalRequests: overview?.totalRequests ?? 0,
+    totalHits: overview?.totalHits ?? 0,
+    overallHitRate: overview?.overallHitRate ?? 0,
+    estimatedSavingsUSD: overview?.estimatedSavingsUSD ?? 0,
+    totalTokensSaved: overview?.totalTokensSaved ?? 0,
+  };
+  const hitRatePct = safeOverview.overallHitRate * 100;
 
   return (
     <div className="flex flex-col h-full">
@@ -567,7 +588,7 @@ export function CachePage() {
           <OverviewCard
             icon={BarChart3}
             label="Total Requests"
-            value={overview.totalRequests.toLocaleString()}
+            value={safeOverview.totalRequests.toLocaleString()}
             testId="card-total-requests"
           />
           <OverviewCard
@@ -580,14 +601,14 @@ export function CachePage() {
           <OverviewCard
             icon={Database}
             label="Tokens Saved"
-            value={overview.totalTokensSaved.toLocaleString()}
+            value={safeOverview.totalTokensSaved.toLocaleString()}
             colorClass="text-violet-400"
             testId="card-tokens-saved"
           />
           <OverviewCard
             icon={DollarSign}
             label="Est. Cost Savings"
-            value={`$${overview.estimatedSavingsUSD.toFixed(2)}`}
+            value={`$${safeOverview.estimatedSavingsUSD.toFixed(2)}`}
             colorClass="text-emerald-400"
             testId="card-cost-savings"
           />
