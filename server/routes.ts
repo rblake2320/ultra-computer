@@ -222,6 +222,12 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.json(storage.getConversations());
   });
 
+  app.get("/api/conversations/:id", (req, res) => {
+    const conv = storage.getConversation(req.params.id);
+    if (!conv) return res.status(404).json({ error: "Not found" });
+    res.json(conv);
+  });
+
   app.post("/api/conversations", (req, res) => {
     const rawTitle = req.body.title || "New Session";
     const title = typeof rawTitle === "string" ? rawTitle.slice(0, 200) : "New Session";
@@ -249,6 +255,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.delete("/api/conversations/:id", (req, res) => {
+    const existing = storage.getConversation(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Not found" });
     storage.deleteConversation(req.params.id);
     res.json({ ok: true });
   });
@@ -892,6 +900,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.delete("/api/knowledge/:id", (req, res) => {
+    const existing = storage.getKnowledgeEntry(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Not found" });
     storage.deleteKnowledgeEntry(req.params.id);
     res.json({ ok: true });
   });
