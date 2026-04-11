@@ -151,11 +151,13 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
 
 // ─── Tool Executors ──────────────────────────────────────────────────────────
 
-export async function executeTool(name: string, args: Record<string, string>): Promise<ToolResult> {
+export async function executeTool(name: string, args: Record<string, string>, sessionId?: string): Promise<ToolResult> {
+  // Use the provided sessionId if given, otherwise fall back to the global currentSessionId
+  const effectiveSessionId = sessionId ?? currentSessionId;
   const start = Date.now();
   try {
     switch (name) {
-      case "bash": return await executeBash(args.command, start);
+      case "bash": return await executeBash(args.command, start, effectiveSessionId);
       case "write_file": return executeWriteFile(args.filename, args.content, start);
       case "read_file": return executeReadFile(args.filename, start);
       case "list_files": return executeListFiles(args.directory, start);
@@ -180,20 +182,20 @@ export async function executeTool(name: string, args: Record<string, string>): P
 }
 
 // ─── bash ─────────────────────────────────────────────────────────────────────
-async function executeBash(command: string, start: number): Promise<ToolResult> {
+async function executeBash(command: string, start: number, sessionId: string = currentSessionId): Promise<ToolResult> {
   if (!command) return { success: false, output: "", error: "No command provided", durationMs: 0 };
 
   // Try Docker sandbox first, fall back to host process
   if (await dockerSandbox.isActive()) {
-    return executeBashDocker(command, start);
+    return executeBashDocker(command, start, sessionId);
   }
   return executeBashHost(command, start);
 }
 
 /** Execute in Docker container — full isolation */
-async function executeBashDocker(command: string, start: number): Promise<ToolResult> {
+async function executeBashDocker(command: string, start: number, sessionId: string = currentSessionId): Promise<ToolResult> {
   try {
-    const result = await dockerSandbox.exec(currentSessionId, command, SANDBOX_DIR);
+    const result = await dockerSandbox.exec(sessionId, command, SANDBOX_DIR);
 
     const output = result.stdout + (result.stderr ? `\n[stderr]: ${result.stderr}` : "");
 

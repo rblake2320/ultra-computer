@@ -21,6 +21,7 @@ import {
   ChevronRight, History, Terminal
 } from "lucide-react";
 import type { SkillScript, SkillScriptVersion } from "../../../shared/schema";
+import { safeJsonParse } from "../lib/safeJson";
 
 const LANG_ICONS: Record<string, typeof Terminal> = {
   bash: Terminal,
@@ -85,6 +86,7 @@ export function SkillLibraryPage() {
       setEditingId(null);
       toast({ title: "Script updated" });
     },
+    onError: () => toast({ title: "Error", description: "Operation failed", variant: "destructive" }),
   });
 
   const deleteScript = useMutation({
@@ -94,6 +96,7 @@ export function SkillLibraryPage() {
       if (selectedId) setSelectedId(null);
       toast({ title: "Script deleted" });
     },
+    onError: () => toast({ title: "Error", description: "Operation failed", variant: "destructive" }),
   });
 
   const toggleFavorite = useMutation({
@@ -141,7 +144,7 @@ export function SkillLibraryPage() {
       description: script.description,
       language: script.language,
       content: script.content,
-      tags: JSON.parse(script.tags || "[]"),
+      tags: safeJsonParse(script.tags, [] as string[]),
       version: script.version,
       exportedAt: new Date().toISOString(),
     };
@@ -328,7 +331,7 @@ export function SkillLibraryPage() {
                       <span className={LANG_COLORS[script.language]}>{script.language}</span>
                       <span>v{script.version}</span>
                       {script.usageCount > 0 && <span>{script.usageCount}x used</span>}
-                      {(JSON.parse(script.tags || "[]") as string[]).slice(0, 2).map(t => (
+                      {safeJsonParse(script.tags, [] as string[]).slice(0, 2).map(t => (
                         <Badge key={t} variant="secondary" className="text-[9px] px-1 py-0 h-3.5">{t}</Badge>
                       ))}
                     </div>
@@ -352,7 +355,7 @@ export function SkillLibraryPage() {
                 description: selected.description,
                 language: selected.language,
                 content: selected.content,
-                tags: (JSON.parse(selected.tags || "[]") as string[]).join(", "),
+                tags: safeJsonParse(selected.tags, [] as string[]).join(", "),
               });
             }}
             onDelete={() => deleteScript.mutate(selected.id)}
@@ -425,7 +428,7 @@ function ScriptDetail({
   showVersions, versions, editing, editForm, setEditForm, onSaveEdit, onCancelEdit, onRestoreVersion,
 }: ScriptDetailProps) {
   const LangIcon = LANG_ICONS[script.language] || Terminal;
-  const tags = JSON.parse(script.tags || "[]") as string[];
+  const tags = safeJsonParse(script.tags, [] as string[]);
 
   return (
     <>

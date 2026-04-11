@@ -107,8 +107,9 @@ Output ONLY valid JSON.`,
           }
         }
       }
-    } catch {
-      // Memory extraction is non-critical — fail silently
+    } catch (error) {
+      // Memory extraction is non-critical — log but don't rethrow
+      console.error('[MemoryManager]', error);
     }
   }
 

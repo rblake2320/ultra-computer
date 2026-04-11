@@ -425,55 +425,42 @@ export function TokenDashboardPage() {
   const [dateRange, setDateRange] = useState<"today" | "week" | "all">("all");
   const [modelFilter, setModelFilter] = useState<string>("all");
 
-  // Fetch all conversations
+  // Fetch all conversations (for session titles)
   const { data: conversations = [], isLoading: loadingConvs } = useQuery<Conversation[]>({
     queryKey: ["/api/conversations"],
   });
 
-  // Fetch agent runs for each conversation (parallel)
-  const runQueries = useQuery<{ conversationId: string; runs: AgentRun[] }[]>({
-    queryKey: ["/api/all-agent-runs", conversations.map(c => c.id).join(",")],
-    enabled: conversations.length > 0,
-    queryFn: async () => {
-      const results = await Promise.all(
-        conversations.map(async (conv) => {
-          try {
-            const runs: AgentRun[] = await apiRequest("GET", `/api/conversations/${conv.id}/agent-runs`);
-            return { conversationId: conv.id, runs };
-          } catch {
-            return { conversationId: conv.id, runs: [] as AgentRun[] };
-          }
-        })
-      );
-      return results;
-    },
+  // Fetch all agent runs in a single request
+  const { data: allRuns = [], isLoading: loadingRuns } = useQuery<AgentRun[]>({
+    queryKey: ["/api/all-agent-runs"],
+    queryFn: () => apiRequest("GET", "/api/all-agent-runs"),
     staleTime: 30_000,
   });
 
-  const loading = loadingConvs || runQueries.isLoading;
+  const loading = loadingConvs || loadingRuns;
 
   // Enrich runs with session title, task info, usage
   const enrichedRuns = useMemo<EnrichedRun[]>(() => {
-    if (!runQueries.data) return [];
+    if (!allRuns.length) return [];
 
     const convMap = new Map(conversations.map(c => [c.id, c]));
 
-    return runQueries.data
-      .flatMap(({ conversationId, runs }) => {
-        const conv = convMap.get(conversationId);
-        return runs.map((run) => ({
+    return allRuns
+      .map((run) => {
+        const conv = run.conversationId ? convMap.get(run.conversationId) : undefined;
+        return {
           ...run,
           usage: parseUsage(run.tokenUsage),
-          sessionTitle: conv?.title ?? `Session ${conversationId.slice(0, 8)}`,
+          sessionTitle: conv?.title ?? (run.conversationId ? `Session ${run.conversationId.slice(0, 8)}` : "—"),
           taskTitle: run.taskId ? `Task ${run.taskId.slice(0, 8)}` : "—",
           durationMs:
             run.completedAt && run.startedAt
               ? run.completedAt - run.startedAt
               : null,
-        }));
+        };
       })
       .sort((a, b) => b.startedAt - a.startedAt); // most recent first
-  }, [runQueries.data, conversations]);
+  }, [allRuns, conversations]);
 
   // Filter by date range
   const dateFilteredRuns = useMemo(() => {

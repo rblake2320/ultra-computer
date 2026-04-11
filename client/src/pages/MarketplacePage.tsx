@@ -156,6 +156,9 @@ const TIER_CONFIG: Record<string, { label: string; color: string; icon: typeof A
   unranked: { label: "Unranked", color: "text-muted-foreground", icon: Gauge, bg: "bg-muted/50 border-border text-muted-foreground" },
 };
 
+// Stable per-session anonymous user ID
+const localUserId = `user-${window.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)}`;
+
 function TierBadge({ tier, score, size = "sm" }: { tier: string | null; score: number | null; size?: "sm" | "md" }) {
   const t = TIER_CONFIG[tier || "unranked"] || TIER_CONFIG.unranked;
   const TierIcon = t.icon;
@@ -419,7 +422,7 @@ function SkillDetailView({ skillId, onBack }: { skillId: string; onBack: () => v
 
   const rateMutation = useMutation({
     mutationFn: (data: { rating: number; review?: string }) =>
-      apiRequest("POST", `/api/marketplace/skills/${skillId}/rate`, { ...data, userId: "local-user" }),
+      apiRequest("POST", `/api/marketplace/skills/${skillId}/rate`, { ...data, userId: localUserId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/marketplace/skills", skillId] });
       qc.invalidateQueries({ queryKey: ["/api/marketplace/skills", skillId, "score"] });

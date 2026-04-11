@@ -9,6 +9,7 @@ import { Badge } from "../components/ui/badge";
 import { useToast } from "../hooks/use-toast";
 import { Plus, Trash2, BookOpen, Lock, ToggleLeft, ToggleRight, Zap } from "lucide-react";
 import type { Skill } from "../../../shared/schema";
+import { safeJsonParse } from "../lib/safeJson";
 
 export function SkillsPage() {
   const { toast } = useToast();
@@ -121,7 +122,7 @@ export function SkillsPage() {
                       </div>
                       <p className="text-xs text-muted-foreground">{skill.description}</p>
                       <div className="flex flex-wrap gap-1 mt-1.5">
-                        {(JSON.parse(skill.triggerKeywords || "[]") as string[]).slice(0, 8).map(kw => (
+                        {safeJsonParse(skill.triggerKeywords, [] as string[]).slice(0, 8).map(kw => (
                           <span key={kw} className="text-[10px] px-1.5 py-0.5 bg-muted rounded-full text-muted-foreground">{kw}</span>
                         ))}
                       </div>

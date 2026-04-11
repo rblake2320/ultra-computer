@@ -246,7 +246,7 @@ function FilePreview({ entry }: { entry: FileEntry }) {
 
   if (data.binary) {
     if (IMAGE_EXTS.has(entry.ext)) {
-      const base = (import.meta as any).env?.VITE_API_BASE || "__PORT_5000__";
+      const base = (import.meta as any).env?.VITE_API_BASE || "";
       const src = `${base}/api/sandbox/files/${encodePath(entry.path)}/download`;
       return (
         <div className="flex items-center justify-center h-full p-4">
@@ -351,7 +351,7 @@ export function FileBrowserPage() {
     }
     if (destination) formData.append("destination", destination);
 
-    const base = (import.meta as any).env?.VITE_API_BASE || "__PORT_5000__";
+    const base = (import.meta as any).env?.VITE_API_BASE || "";
     const res = await fetch(`${base}/api/sandbox/files/upload`, {
       method: "POST",
       body: formData,
@@ -375,7 +375,7 @@ export function FileBrowserPage() {
 
   const handleDownload = useCallback((entry: FileEntry) => {
     if (entry.type === "dir") return;
-    const base = (import.meta as any).env?.VITE_API_BASE || "__PORT_5000__";
+    const base = (import.meta as any).env?.VITE_API_BASE || "";
     window.open(base + "/api/sandbox/files/" + encodePath(entry.path) + "/download");
   }, []);
 

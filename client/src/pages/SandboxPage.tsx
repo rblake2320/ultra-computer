@@ -5,6 +5,7 @@ import { Badge } from "../components/ui/badge";
 import { Switch } from "../components/ui/switch";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { useToast } from "../hooks/use-toast";
 // Layout wrapper is provided by App.tsx route
 import { useState, useEffect } from "react";
 import { Container, Shield, Cpu, HardDrive, Network, Clock, RefreshCw, Trash2, Download, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
@@ -36,6 +37,7 @@ interface SandboxConfig {
 
 export function SandboxPage() {
   const qc = useQueryClient();
+  const { toast } = useToast();
 
   const { data: status, isLoading: statusLoading } = useQuery<SandboxStatus>({
     queryKey: ["/api/sandbox/status"],
@@ -58,6 +60,7 @@ export function SandboxPage() {
       qc.invalidateQueries({ queryKey: ["/api/sandbox/config"] });
       qc.invalidateQueries({ queryKey: ["/api/sandbox/status"] });
     },
+    onError: () => toast({ title: "Error", description: "Operation failed", variant: "destructive" }),
   });
 
   const pullImage = useMutation({
@@ -69,6 +72,7 @@ export function SandboxPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/sandbox/status"] });
     },
+    onError: () => toast({ title: "Error", description: "Operation failed", variant: "destructive" }),
   });
 
   const cleanup = useMutation({
@@ -76,6 +80,7 @@ export function SandboxPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/sandbox/status"] });
     },
+    onError: () => toast({ title: "Error", description: "Operation failed", variant: "destructive" }),
   });
 
   const handleSave = () => {

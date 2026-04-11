@@ -15,6 +15,7 @@ import {
   Wind, Users, Layers, Bot, Settings,
 } from "lucide-react";
 import type { Model } from "../../../shared/schema";
+import { safeJsonParse } from "../lib/safeJson";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -315,7 +316,7 @@ export function ModelsPage() {
                         </div>
                         <div className="flex items-center gap-3 mt-0.5">
                           <p className="text-xs text-muted-foreground">
-                            {(JSON.parse(model.capabilities || "[]") as string[]).join(", ")} · {model.contextWindow.toLocaleString()} ctx
+                            {safeJsonParse(model.capabilities, [] as string[]).join(", ")} · {model.contextWindow.toLocaleString()} ctx
                           </p>
                           <Badge variant="outline" className="text-[9px] gap-1 px-1.5 py-0">
                             {authMethod === "api_key" && <><Key className="w-2 h-2" /> API Key</>}

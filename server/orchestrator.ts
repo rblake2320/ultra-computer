@@ -23,6 +23,7 @@ import { compactContext } from "./contextCompactor.js";
 import { detectChain, buildChainPlan } from "./skillChaining.js";
 import { withRetryAndFallback } from "./errorRecovery.js";
 import { analyzeTaskComplexity, routeToOptimalModel } from "./modelSpeedRouter.js";
+import { logExecution } from "./selfLearning.js";
 import type { Task } from "@shared/schema";
 
 // IPC directory for filesystem-based inter-agent communication
@@ -412,6 +413,8 @@ async function runWorkerAgent(
     status: "running",
   });
 
+  const agentRunStart = Date.now();
+
   // Write input to IPC file (filesystem-based IPC)
   fs.writeFileSync(ipcPath, JSON.stringify({
     taskId: task.id,
@@ -419,7 +422,7 @@ async function runWorkerAgent(
     input: inputContext,
     toolCalls: [],
     status: "started",
-    startedAt: Date.now(),
+    startedAt: agentRunStart,
   }));
 
   // Build the conversation history for the tool-calling loop
@@ -583,6 +586,24 @@ async function runWorkerAgent(
     status: "complete",
     completedAt: Date.now(),
     tokenUsage: tokenUsageJson,
+  });
+
+  // Log execution for self-learning / continuous improvement
+  const outcome = (finalOutput.includes("[FAILED:") || finalOutput.includes("[LLM call failed"))
+    ? "failure"
+    : "success";
+  logExecution({
+    conversationId,
+    taskType: task.taskType ?? "general",
+    taskDescription: task.description,
+    skillsUsed: [],
+    modelUsed: model.id,
+    outcome,
+    durationMs: Date.now() - agentRunStart,
+    retryCount: 0,
+    inputTokenEstimate: totalPromptTokens,
+    outputTokenEstimate: totalCompletionTokens,
+    toolCallCount: toolCallLog.length,
   });
 
   emit(conversationId, {

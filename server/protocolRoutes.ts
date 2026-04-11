@@ -145,7 +145,15 @@ export function registerProtocolRoutes(app: Express) {
    */
   app.post("/api/protocols/mcp/rpc", async (req: Request, res: Response) => {
     try {
-            const result = await mcpProtocol.handleMCPRequest(req.body);
+      // Enforce bearer token authentication for MCP server access
+      if (!mcpProtocol.validateMCPAuthHeader(req.headers.authorization as string | undefined)) {
+        return res.status(401).json({
+          jsonrpc: "2.0",
+          id: req.body?.id ?? null,
+          error: { code: -32000, message: "Unauthorized: valid Bearer token required" },
+        });
+      }
+      const result = await mcpProtocol.handleMCPRequest(req.body);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({

@@ -11,6 +11,7 @@
 
 import { v4 as uuidv4 } from "uuid";
 import { storage } from "./storage.js";
+import { runOrchestrator, subscribeToConversation, unsubscribeFromConversation } from "./orchestrator.js";
 
 // ---------------------------------------------------------------------------
 // A2A Type Definitions
@@ -395,19 +396,15 @@ async function handleMessageSend(
     // Extract user text to process
     const userText = extractTextFromParts(message.parts);
 
-    // Process the message. We dynamically import the orchestrator here to
-    // avoid circular dependencies since the orchestrator may import tools etc.
+    // Process the message through the orchestrator.
     let responseText = "";
     try {
-      const { runOrchestrator } = await import("./orchestrator.js");
-
       // runOrchestrator is conversation-centric, so we create a temporary
       // synthetic conversation ID scoped to this A2A task
       const synthConvId = `a2a-${task.taskId}`;
 
       // Collect streamed events until the orchestrator signals completion
       await new Promise<void>((resolve, reject) => {
-        const { subscribeToConversation, unsubscribeFromConversation } = require("./orchestrator.js");
         const chunks: string[] = [];
 
         const cb = (event: { type: string; content?: string; error?: string }) => {
@@ -500,9 +497,6 @@ export async function* handleMessageStream(
     const chunks: string[] = [];
 
     try {
-      const orchestratorMod = await import("./orchestrator.js");
-      const { runOrchestrator, subscribeToConversation, unsubscribeFromConversation } =
-        orchestratorMod;
       const synthConvId = `a2a-stream-${task.taskId}`;
 
       // Buffer events via a promise-queue so we can yield them in order

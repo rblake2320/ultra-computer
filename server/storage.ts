@@ -24,6 +24,10 @@ import {
 const sqlite = new Database("ultra_computer.db");
 export const db = drizzle(sqlite);
 
+// Enable WAL mode for better concurrency and durability
+sqlite.pragma("journal_mode = WAL");
+sqlite.pragma("foreign_keys = ON");
+
 // Create tables
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS models (
@@ -265,6 +269,7 @@ export interface IStorage {
 
   // Agent Runs
   getAgentRuns(conversationId: string): AgentRun[];
+  getAllAgentRuns(): AgentRun[];
   createAgentRun(data: InsertAgentRun): AgentRun;
   updateAgentRun(id: string, data: Partial<InsertAgentRun>): AgentRun | undefined;
 
@@ -352,7 +357,13 @@ export class SQLiteStorage implements IStorage {
   updateConversation(id: string, data: Partial<InsertConversation>): Conversation | undefined {
     return db.update(conversations).set({ ...data, updatedAt: Date.now() }).where(eq(conversations.id, id)).returning().get();
   }
-  deleteConversation(id: string): void { db.delete(conversations).where(eq(conversations.id, id)).run(); }
+  deleteConversation(id: string): void {
+    // Cascade delete associated messages, tasks, and agentRuns
+    db.delete(messages).where(eq(messages.conversationId, id)).run();
+    db.delete(tasks).where(eq(tasks.conversationId, id)).run();
+    db.delete(agentRuns).where(eq(agentRuns.conversationId, id)).run();
+    db.delete(conversations).where(eq(conversations.id, id)).run();
+  }
 
   getMessages(conversationId: string): Message[] {
     return db.select().from(messages).where(eq(messages.conversationId, conversationId)).orderBy(messages.createdAt).all();
@@ -375,6 +386,9 @@ export class SQLiteStorage implements IStorage {
   getAgentRuns(conversationId: string): AgentRun[] {
     return db.select().from(agentRuns).where(eq(agentRuns.conversationId, conversationId)).orderBy(agentRuns.startedAt).all();
   }
+  getAllAgentRuns(): AgentRun[] {
+    return db.select().from(agentRuns).orderBy(desc(agentRuns.startedAt)).all();
+  }
   createAgentRun(data: InsertAgentRun): AgentRun { return db.insert(agentRuns).values({ ...data, startedAt: Date.now() }).returning().get(); }
   updateAgentRun(id: string, data: Partial<InsertAgentRun>): AgentRun | undefined {
     return db.update(agentRuns).set(data).where(eq(agentRuns.id, id)).returning().get();
@@ -388,8 +402,7 @@ export class SQLiteStorage implements IStorage {
   }
   deleteSkill(id: string): void { db.delete(skills).where(eq(skills.id, id)).run(); }
   incrementSkillUsage(id: string): void {
-    const s = this.getSkill(id);
-    if (s) db.update(skills).set({ usageCount: s.usageCount + 1 }).where(eq(skills.id, id)).run();
+    sqlite.prepare("UPDATE skills SET usage_count = usage_count + 1 WHERE id = ?").run(id);
   }
 
   getConnectors(): Connector[] { return db.select().from(connectors).orderBy(connectors.name).all(); }
@@ -433,8 +446,7 @@ export class SQLiteStorage implements IStorage {
     db.delete(skillScripts).where(eq(skillScripts.id, id)).run();
   }
   incrementSkillScriptUsage(id: string): void {
-    const s = this.getSkillScript(id);
-    if (s) db.update(skillScripts).set({ usageCount: s.usageCount + 1, updatedAt: Date.now() }).where(eq(skillScripts.id, id)).run();
+    sqlite.prepare("UPDATE skill_scripts SET usage_count = usage_count + 1, updated_at = ? WHERE id = ?").run(Date.now(), id);
   }
   searchSkillScripts(query: string): SkillScript[] {
     const all = db.select().from(skillScripts).orderBy(desc(skillScripts.updatedAt)).all();
@@ -529,21 +541,15 @@ export class SQLiteStorage implements IStorage {
   }
 
   incrementMarketplaceInstallCount(id: string): void {
-    const s = this.getMarketplaceSkill(id);
-    if (s) db.update(marketplaceSkills).set({ installCount: s.installCount + 1 }).where(eq(marketplaceSkills.id, id)).run();
+    sqlite.prepare("UPDATE marketplace_skills SET install_count = install_count + 1 WHERE id = ?").run(id);
   }
 
   updateMarketplaceRating(id: string, ratingDelta: number, countDelta: number): void {
-    const s = this.getMarketplaceSkill(id);
-    if (s) db.update(marketplaceSkills).set({
-      ratingSum: s.ratingSum + ratingDelta,
-      ratingCount: s.ratingCount + countDelta,
-    }).where(eq(marketplaceSkills.id, id)).run();
+    sqlite.prepare("UPDATE marketplace_skills SET rating_sum = rating_sum + ?, rating_count = rating_count + ? WHERE id = ?").run(ratingDelta, countDelta, id);
   }
 
   incrementMarketplaceForkCount(id: string): void {
-    const s = this.getMarketplaceSkill(id);
-    if (s) db.update(marketplaceSkills).set({ forkCount: s.forkCount + 1 }).where(eq(marketplaceSkills.id, id)).run();
+    sqlite.prepare("UPDATE marketplace_skills SET fork_count = fork_count + 1 WHERE id = ?").run(id);
   }
 
   getMarketplaceVersions(skillId: string): MarketplaceVersion[] {

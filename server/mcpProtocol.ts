@@ -16,12 +16,42 @@
 import { v4 as uuidv4 } from "uuid";
 import { storage } from "./storage.js";
 import { TOOL_SCHEMAS, executeTool } from "./tools.js";
+import crypto from "crypto";
 
 // ─── MCP Protocol Version ─────────────────────────────────────────────────────
 
 const MCP_PROTOCOL_VERSION = "2025-06-18";
 const SERVER_NAME = "ultra-computer";
 const SERVER_VERSION = "1.0.0";
+
+// ─── MCP Server Bearer Token Authentication ───────────────────────────────────
+
+/**
+ * Bearer token generated once at startup for MCP server authentication.
+ * All inbound MCP requests must carry this token in the Authorization header.
+ * The token is logged so the operator can configure MCP clients.
+ */
+const MCP_BEARER_TOKEN = crypto.randomBytes(32).toString("hex");
+console.log(`[mcpProtocol] MCP server bearer token: ${MCP_BEARER_TOKEN}`);
+console.log(`[mcpProtocol] Set the Authorization header to: Bearer ${MCP_BEARER_TOKEN}`);
+
+/**
+ * Validates the Authorization header of an incoming MCP request.
+ * Returns true if the request carries a valid Bearer token.
+ */
+export function validateMCPAuthHeader(authHeader: string | undefined): boolean {
+  if (!authHeader) return false;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) return false;
+  // Constant-time comparison to prevent timing attacks
+  const provided = Buffer.from(match[1], "utf-8");
+  const expected = Buffer.from(MCP_BEARER_TOKEN, "utf-8");
+  if (provided.length !== expected.length) return false;
+  return crypto.timingSafeEqual(provided, expected);
+}
+
+/** Returns the MCP bearer token (for use in route handler authentication checks) */
+export function getMCPBearerToken(): string { return MCP_BEARER_TOKEN; }
 
 // ─── JSON-RPC 2.0 Types ───────────────────────────────────────────────────────
 

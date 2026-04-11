@@ -36,11 +36,13 @@ export function MemoryPage() {
       setForm({ content: "", summary: "", category: "general", importance: 0.7 });
       toast({ title: "Memory stored" });
     },
+    onError: () => toast({ title: "Error", description: "Operation failed", variant: "destructive" }),
   });
 
   const deleteMemory = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/memory/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/memory"] }),
+    onError: () => toast({ title: "Error", description: "Operation failed", variant: "destructive" }),
   });
 
   const { data: searchResults, mutate: searchMemory, isPending: searching } = useMutation({

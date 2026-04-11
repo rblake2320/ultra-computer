@@ -372,7 +372,7 @@ export function AutonomyPage() {
   const analyzeMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/autonomy/learning/analyze"),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/autonomy"] });
+      qc.invalidateQueries({ queryKey: ["/api/autonomy/dashboard"] });
       toast({ title: "Analysis complete" });
     },
     onError: (e: any) => toast({ title: "Analysis failed", description: e.message, variant: "destructive" }),
@@ -381,7 +381,7 @@ export function AutonomyPage() {
   const improveMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/autonomy/skills/improvements/generate"),
     onSuccess: (data: any) => {
-      qc.invalidateQueries({ queryKey: ["/api/autonomy"] });
+      qc.invalidateQueries({ queryKey: ["/api/autonomy/dashboard"] });
       const count = Array.isArray(data) ? data.length : 0;
       toast({ title: `Generated ${count} improvement suggestions` });
     },
@@ -391,7 +391,7 @@ export function AutonomyPage() {
   const abandonMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/autonomy/checkpoints/abandon-stale", {}),
     onSuccess: (data: any) => {
-      qc.invalidateQueries({ queryKey: ["/api/autonomy"] });
+      qc.invalidateQueries({ queryKey: ["/api/autonomy/dashboard"] });
       toast({ title: `Abandoned ${data?.abandoned || 0} stale tasks` });
     },
   });

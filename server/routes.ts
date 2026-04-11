@@ -27,6 +27,8 @@ import { startCheckpointHeartbeats } from "./taskCheckpointing.js";
 import { startScheduler } from "./cronScheduler.js";
 import { startLearningLoop } from "./selfLearning.js";
 import { startAutoImproveLoop } from "./skillAutoImprove.js";
+import { registerCacheRoutes } from "./cacheRoutes.js";
+import { cacheEngine } from "./cacheEngine.js";
 
 export async function registerRoutes(httpServer: Server, app: Express) {
   // ─── Seed on startup ──────────────────────────────────────────────────────
@@ -44,6 +46,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   registerMessagingRoutes(app);
   registerNIPRoutes(app);
   registerIdentityRoutes(app);
+  registerCacheRoutes(app);
 
   // ─── Link identity engine to NIP for session authentication ────────────────
   setIdentityEngine(identityEngine);
@@ -149,7 +152,18 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     const { isDefault, isOrchestrator } = req.body;
     if (isDefault) storage.getModels().forEach(m => storage.updateModel(m.id, { isDefault: false }));
     if (isOrchestrator) storage.getModels().forEach(m => storage.updateModel(m.id, { isOrchestrator: false }));
-    const updated = storage.updateModel(req.params.id, req.body);
+    // Whitelist allowed fields to prevent mass assignment
+    const { name, enabled, speedTier, notes, isDefault: _isDefault, isOrchestrator: _isOrch, contextWindow, capabilities } = req.body;
+    const allowedUpdate: Record<string, any> = {};
+    if (name !== undefined) allowedUpdate.name = name;
+    if (enabled !== undefined) allowedUpdate.enabled = enabled;
+    if (speedTier !== undefined) allowedUpdate.speedTier = speedTier;
+    if (notes !== undefined) allowedUpdate.notes = notes;
+    if (_isDefault !== undefined) allowedUpdate.isDefault = _isDefault;
+    if (_isOrch !== undefined) allowedUpdate.isOrchestrator = _isOrch;
+    if (contextWindow !== undefined) allowedUpdate.contextWindow = contextWindow;
+    if (capabilities !== undefined) allowedUpdate.capabilities = capabilities;
+    const updated = storage.updateModel(req.params.id, allowedUpdate);
     if (!updated) return res.status(404).json({ error: "Model not found" });
     res.json(updated);
   });
@@ -208,7 +222,14 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.patch("/api/conversations/:id", (req, res) => {
-    const updated = storage.updateConversation(req.params.id, req.body);
+    // Whitelist allowed fields to prevent mass assignment
+    const { title, status, orchestratorModelId, activeSkillIds } = req.body;
+    const allowedUpdate: Record<string, any> = {};
+    if (title !== undefined) allowedUpdate.title = title;
+    if (status !== undefined) allowedUpdate.status = status;
+    if (orchestratorModelId !== undefined) allowedUpdate.orchestratorModelId = orchestratorModelId;
+    if (activeSkillIds !== undefined) allowedUpdate.activeSkillIds = activeSkillIds;
+    const updated = storage.updateConversation(req.params.id, allowedUpdate);
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   });
@@ -309,6 +330,10 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.json(storage.getAgentRuns(req.params.id));
   });
 
+  app.get("/api/all-agent-runs", (req, res) => {
+    res.json(storage.getAllAgentRuns());
+  });
+
   // ─── Skills ───────────────────────────────────────────────────────────────
   app.get("/api/skills", (req, res) => {
     res.json(storage.getSkills());
@@ -333,7 +358,15 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.patch("/api/skills/:id", (req, res) => {
-    const updated = storage.updateSkill(req.params.id, req.body);
+    // Whitelist allowed fields to prevent mass assignment
+    const { name, description, content, triggerKeywords, enabled } = req.body;
+    const allowedUpdate: Record<string, any> = {};
+    if (name !== undefined) allowedUpdate.name = name;
+    if (description !== undefined) allowedUpdate.description = description;
+    if (content !== undefined) allowedUpdate.content = content;
+    if (triggerKeywords !== undefined) allowedUpdate.triggerKeywords = triggerKeywords;
+    if (enabled !== undefined) allowedUpdate.enabled = enabled;
+    const updated = storage.updateSkill(req.params.id, allowedUpdate);
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);
   });

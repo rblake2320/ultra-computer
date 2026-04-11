@@ -23,6 +23,7 @@ import ProtocolsPage from "./pages/ProtocolsPage";
 import { MessagingPage } from "./pages/MessagingPage";
 import { NIPPage } from "./pages/NIPPage";
 import { IdentityPage } from "./pages/IdentityPage";
+import { CachePage } from "./pages/CachePage";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
@@ -89,9 +90,10 @@ export default function App() {
             <Route path="/identity">
               <Layout><ErrorBoundary><IdentityPage /></ErrorBoundary></Layout>
             </Route>
-            <Route>
-              <Layout><WelcomePage /></Layout>
+            <Route path="/cache">
+              <Layout><ErrorBoundary><CachePage /></ErrorBoundary></Layout>
             </Route>
+            <Route component={WelcomePage} />
           </Switch>
         </Router>
         <Toaster />

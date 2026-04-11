@@ -13,6 +13,8 @@ import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { storage } from "./storage.js";
 import { resolveCredentials } from "./modelConnections.js";
+import { cacheEngine } from "./cacheEngine.js";
+import type { CacheRequest, CacheResponse, Message as CacheMessage } from "./cacheEngine.js";
 import type { Model } from "@shared/schema";
 
 export type TaskType = "research" | "code" | "write" | "browse" | "analyze" | "image" | "general" | "speed";
@@ -99,6 +101,33 @@ export async function chat(
   const maxTokens = options.maxTokens || 4096;
   const temperature = options.temperature ?? 0.7;
 
+  // ─── Cache: check for exact/semantic hit ──────────────────────────────
+  const cacheMessages: CacheMessage[] = messages.map(m => ({
+    role: m.role as CacheMessage["role"],
+    content: m.content,
+    isStatic: m.role === "system",
+  }));
+  const cacheReq: CacheRequest = {
+    model: model.modelId,
+    messages: cacheMessages,
+    parameters: { maxTokens, temperature },
+    route: `chat/${taskType}`,
+    streaming: false,
+  };
+  const cached = cacheEngine.get(cacheReq);
+  if (cached) {
+    return {
+      content: cached.response.content,
+      model: model.name,
+      modelId: model.id,
+      usage: { prompt: cached.response.tokensIn, completion: cached.response.tokensOut, total: cached.response.tokensIn + cached.response.tokensOut },
+    };
+  }
+
+  // ─── Cache: optimize prompt ordering for provider-side prefix caching ─
+  const optimized = cacheEngine.optimizePrompt(cacheMessages, model.provider);
+  const optimizedMsgs: ChatMessage[] = optimized.map(m => ({ role: m.role, content: m.content }));
+
   switch (model.provider) {
     case "openai":
     case "openai_compat":
@@ -115,14 +144,26 @@ export async function chat(
     case "fireworks":
     case "cerebras":
     case "perplexity":
-    case "lmstudio":
-      return chatOpenAICompat(model, messages, maxTokens, temperature);
-    case "anthropic":
-      return chatAnthropic(model, messages, maxTokens, temperature);
-    case "google":
-      return chatGoogle(model, messages, maxTokens, temperature);
-    default:
-      return chatOpenAICompat(model, messages, maxTokens, temperature);
+    case "lmstudio": {
+      const result = await chatOpenAICompat(model, optimizedMsgs, maxTokens, temperature);
+      cacheEngine.set(cacheReq, { content: result.content, tokensIn: result.usage?.prompt || 0, tokensOut: result.usage?.completion || 0, modelId: model.id });
+      return result;
+    }
+    case "anthropic": {
+      const result = await chatAnthropic(model, optimizedMsgs, maxTokens, temperature);
+      cacheEngine.set(cacheReq, { content: result.content, tokensIn: result.usage?.prompt || 0, tokensOut: result.usage?.completion || 0, modelId: model.id });
+      return result;
+    }
+    case "google": {
+      const result = await chatGoogle(model, optimizedMsgs, maxTokens, temperature);
+      cacheEngine.set(cacheReq, { content: result.content, tokensIn: result.usage?.prompt || 0, tokensOut: result.usage?.completion || 0, modelId: model.id });
+      return result;
+    }
+    default: {
+      const result = await chatOpenAICompat(model, optimizedMsgs, maxTokens, temperature);
+      cacheEngine.set(cacheReq, { content: result.content, tokensIn: result.usage?.prompt || 0, tokensOut: result.usage?.completion || 0, modelId: model.id });
+      return result;
+    }
   }
 }
 

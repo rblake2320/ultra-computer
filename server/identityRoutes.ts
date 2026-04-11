@@ -798,6 +798,31 @@ export function registerIdentityRoutes(app: Express): void {
   });
 
   /**
+   * DELETE /api/identity/:cryptoId/blocks/:blockId
+   * Unblock a previously blocked identity by block record ID.
+   * This is the RESTful DELETE equivalent of POST .../unblock.
+   */
+  app.delete("/api/identity/:cryptoId/blocks/:blockId", (req: Request, res: Response) => {
+    const { cryptoId, blockId } = req.params;
+
+    const idErr = validateCryptoId(cryptoId);
+    if (idErr) return res.status(400).json({ error: idErr });
+
+    if (!blockId || typeof blockId !== "string" || blockId.trim().length === 0) {
+      return res.status(400).json({ error: "blockId is required" });
+    }
+
+    try {
+      // blockId here is the blocked identity's cryptoId (the ID of who is blocked)
+      identityEngine.identityEngine.unblockIdentity(cryptoId, blockId);
+      res.json({ ok: true });
+    } catch (err: any) {
+      const status = err.message?.includes("not found") ? 404 : 500;
+      res.status(status).json({ error: err.message ?? "Failed to unblock identity" });
+    }
+  });
+
+  /**
    * GET /api/identity/:cryptoId/blocks
    * Get the block list for an identity.
    */
