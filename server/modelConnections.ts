@@ -62,13 +62,11 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     apiKeyUrl: "https://platform.openai.com/api-keys",
     envVarNames: ["OPENAI_API_KEY"],
     models: [
-      { name: "GPT-4o", modelId: "gpt-4o", speedTier: "medium", capabilities: ["chat", "code", "vision"], contextWindow: 128000, description: "Flagship multimodal model", recommended: true },
-      { name: "GPT-4o Mini", modelId: "gpt-4o-mini", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Fast and affordable" },
-      { name: "o4-mini", modelId: "o4-mini", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "Advanced reasoning" },
-      { name: "o3", modelId: "o3", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 200000, description: "Most capable reasoning model" },
-      { name: "GPT-4.1", modelId: "gpt-4.1", speedTier: "powerful", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Latest generation flagship" },
-      { name: "GPT-4.1 Mini", modelId: "gpt-4.1-mini", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 1000000, description: "Latest generation fast" },
-      { name: "GPT-4.1 Nano", modelId: "gpt-4.1-nano", speedTier: "fast", capabilities: ["chat"], contextWindow: 1000000, description: "Ultra-fast, ultra-cheap" },
+      { name: "GPT-5.4", modelId: "gpt-5.4", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1000000, description: "Latest flagship multimodal model", recommended: true },
+      { name: "GPT-5.4 Mini", modelId: "gpt-5.4-mini", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Fast and affordable latest gen" },
+      { name: "GPT-5.4 Nano", modelId: "gpt-5.4-nano", speedTier: "fast", capabilities: ["chat"], contextWindow: 1000000, description: "Ultra-fast, ultra-cheap" },
+      { name: "o4-mini", modelId: "o4-mini", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 200000, description: "Advanced reasoning" },
+      { name: "o3", modelId: "o3", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 200000, description: "Powerful reasoning model" },
     ],
   },
 
@@ -82,8 +80,8 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     apiKeyUrl: "https://console.anthropic.com/settings/keys",
     envVarNames: ["ANTHROPIC_API_KEY"],
     models: [
-      { name: "Claude Opus 4", modelId: "claude-opus-4-0-20250514", speedTier: "powerful", capabilities: ["chat", "code", "analyze", "vision"], contextWindow: 200000, description: "Most capable Claude model", recommended: true },
-      { name: "Claude Sonnet 4", modelId: "claude-sonnet-4-20250514", speedTier: "medium", capabilities: ["chat", "code", "vision"], contextWindow: 200000, description: "Balanced intelligence and speed" },
+      { name: "Claude Opus 4.6", modelId: "claude-opus-4-6-20260205", speedTier: "powerful", capabilities: ["chat", "code", "analyze", "vision"], contextWindow: 1000000, description: "Most capable Claude, 1M context", recommended: true },
+      { name: "Claude Sonnet 4.6", modelId: "claude-sonnet-4-6-20260217", speedTier: "medium", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Balanced intelligence, 1M context" },
       { name: "Claude Haiku 3.5", modelId: "claude-3-5-haiku-20241022", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 200000, description: "Fastest Claude" },
     ],
   },
@@ -115,9 +113,9 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     envVarNames: ["MISTRAL_API_KEY"],
     defaultBaseUrl: "https://api.mistral.ai/v1",
     models: [
-      { name: "Mistral Large", modelId: "mistral-large-latest", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "Flagship model", recommended: true },
+      { name: "Mistral Large 3", modelId: "mistral-large-latest", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 256000, description: "MoE 41B/675B, Apache 2.0", recommended: true },
       { name: "Codestral", modelId: "codestral-latest", speedTier: "medium", capabilities: ["code"], contextWindow: 256000, description: "Specialized for code" },
-      { name: "Mistral Small", modelId: "mistral-small-latest", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Fast and efficient" },
+      { name: "Mistral Small 3", modelId: "mistral-small-latest", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 128000, description: "24B, 128K context, multimodal" },
     ],
   },
 
@@ -132,10 +130,11 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     envVarNames: ["GROQ_API_KEY"],
     defaultBaseUrl: "https://api.groq.com/openai/v1",
     models: [
-      { name: "Llama 3.3 70B", modelId: "llama-3.3-70b-versatile", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Fastest inference for Llama 70B", recommended: true },
-      { name: "Llama 4 Scout", modelId: "meta-llama/llama-4-scout-17b-16e-instruct", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 131072, description: "MoE 17B active params" },
-      { name: "DeepSeek R1 Distill", modelId: "deepseek-r1-distill-llama-70b", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "Reasoning at Groq speed" },
-      { name: "Qwen QWQ 32B", modelId: "qwen-qwq-32b", speedTier: "medium", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "Reasoning model" },
+      { name: "GPT-OSS 120B", modelId: "openai/gpt-oss-120b", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "OpenAI open-source, ultra-fast on Groq", recommended: true },
+      { name: "Llama 3.3 70B", modelId: "llama-3.3-70b-versatile", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 131072, description: "Fast versatile Llama on Groq" },
+      { name: "Llama 4 Scout", modelId: "meta-llama/llama-4-scout-17b-16e-instruct", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 131072, description: "MoE 17B active, multimodal" },
+      { name: "Qwen 3 32B", modelId: "qwen/qwen3-32b", speedTier: "medium", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "Dense 32B, reasoning" },
+      { name: "GPT-OSS 20B", modelId: "openai/gpt-oss-20b", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 131072, description: "Lightweight GPT open-source" },
     ],
   },
 
@@ -149,9 +148,11 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     envVarNames: ["TOGETHER_API_KEY"],
     defaultBaseUrl: "https://api.together.xyz/v1",
     models: [
-      { name: "Llama 3.3 70B", modelId: "meta-llama/Llama-3.3-70B-Instruct-Turbo", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 128000, description: "Meta Llama 3.3", recommended: true },
-      { name: "DeepSeek R1", modelId: "deepseek-ai/DeepSeek-R1", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "Full DeepSeek R1" },
-      { name: "Qwen 2.5 72B", modelId: "Qwen/Qwen2.5-72B-Instruct-Turbo", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 128000, description: "Alibaba Qwen 2.5" },
+      { name: "Llama 4 Maverick", modelId: "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8", speedTier: "powerful", capabilities: ["chat", "code", "vision"], contextWindow: 1048000, description: "400B MoE, 128 experts, multimodal", recommended: true },
+      { name: "Llama 4 Scout", modelId: "meta-llama/Llama-4-Scout-17B-16E-Instruct", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 524000, description: "109B MoE, 16 experts" },
+      { name: "DeepSeek R1", modelId: "deepseek-ai/DeepSeek-R1", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "Full DeepSeek R1 reasoning" },
+      { name: "Llama 3.3 70B", modelId: "meta-llama/Llama-3.3-70B-Instruct-Turbo", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Meta Llama 3.3 Turbo" },
+      { name: "Qwen 3 235B", modelId: "Qwen/Qwen3-235B-A22B-Instruct", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "MoE 22B active, frontier" },
     ],
   },
 
@@ -165,8 +166,8 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     envVarNames: ["DEEPSEEK_API_KEY"],
     defaultBaseUrl: "https://api.deepseek.com/v1",
     models: [
-      { name: "DeepSeek Chat", modelId: "deepseek-chat", speedTier: "medium", capabilities: ["chat", "code"], contextWindow: 64000, description: "General chat model", recommended: true },
-      { name: "DeepSeek Reasoner", modelId: "deepseek-reasoner", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 64000, description: "Chain-of-thought reasoning" },
+      { name: "DeepSeek V3.2", modelId: "deepseek-chat", speedTier: "medium", capabilities: ["chat", "code"], contextWindow: 163000, description: "V3.2 Speciale, 685B MoE", recommended: true },
+      { name: "DeepSeek R1", modelId: "deepseek-reasoner", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "Chain-of-thought reasoning" },
     ],
   },
 
@@ -180,8 +181,9 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     envVarNames: ["XAI_API_KEY"],
     defaultBaseUrl: "https://api.x.ai/v1",
     models: [
-      { name: "Grok 3", modelId: "grok-3", speedTier: "powerful", capabilities: ["chat", "code", "analyze", "vision"], contextWindow: 131072, description: "Most capable Grok", recommended: true },
-      { name: "Grok 3 Mini", modelId: "grok-3-mini", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 131072, description: "Fast reasoning" },
+      { name: "Grok 4", modelId: "grok-4", speedTier: "powerful", capabilities: ["chat", "code", "analyze", "vision"], contextWindow: 256000, description: "Most capable Grok, 256K context", recommended: true },
+      { name: "Grok 4.1 Fast", modelId: "grok-4.1-fast", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 2000000, description: "2M context, ultra-fast" },
+      { name: "Grok 3", modelId: "grok-3", speedTier: "medium", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "Previous gen, still capable" },
     ],
   },
 
@@ -195,8 +197,8 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     envVarNames: ["COHERE_API_KEY", "CO_API_KEY"],
     defaultBaseUrl: "https://api.cohere.com/v2",
     models: [
-      { name: "Command R+", modelId: "command-r-plus", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "Flagship model with RAG", recommended: true },
-      { name: "Command R", modelId: "command-r", speedTier: "medium", capabilities: ["chat", "code"], contextWindow: 128000, description: "Balanced model" },
+      { name: "Command A", modelId: "command-a-03-2025", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 256000, description: "111B flagship, 256K context", recommended: true },
+      { name: "Command R+", modelId: "command-r-plus", speedTier: "medium", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "Previous gen with RAG" },
     ],
   },
 
@@ -209,11 +211,12 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     defaultBaseUrl: "http://localhost:11434/v1",
     envVarNames: [],
     models: [
-      { name: "Llama 3.3 70B", modelId: "llama3.3:70b", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 128000, description: "Meta Llama 3.3 local", recommended: true },
-      { name: "Qwen 2.5 72B", modelId: "qwen2.5:72b", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 32768, description: "Alibaba Qwen local" },
-      { name: "DeepSeek R1 14B", modelId: "deepseek-r1:14b", speedTier: "medium", capabilities: ["chat", "code", "analyze"], contextWindow: 32768, description: "Reasoning model, local" },
-      { name: "Llama 3.2 3B", modelId: "llama3.2:3b", speedTier: "fast", capabilities: ["chat"], contextWindow: 8192, description: "Lightweight, very fast" },
+      { name: "Llama 4 Scout", modelId: "llama4:scout", speedTier: "powerful", capabilities: ["chat", "code", "vision"], contextWindow: 131072, description: "MoE 17B active, multimodal", recommended: true },
+      { name: "Qwen 3 32B", modelId: "qwen3:32b", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "Dense 32B, dual-mode reasoning" },
+      { name: "Llama 3.3 70B", modelId: "llama3.3:70b", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 128000, description: "Meta Llama 3.3 local" },
+      { name: "Gemma 3 27B", modelId: "gemma3:27b", speedTier: "medium", capabilities: ["chat", "code", "vision"], contextWindow: 128000, description: "Google Gemma 3 local" },
       { name: "Phi-4", modelId: "phi4:14b", speedTier: "medium", capabilities: ["chat", "code"], contextWindow: 16384, description: "Microsoft Phi-4 local" },
+      { name: "DeepSeek R1 14B", modelId: "deepseek-r1:14b", speedTier: "medium", capabilities: ["chat", "code", "analyze"], contextWindow: 32768, description: "Reasoning model, local" },
     ],
   },
 
@@ -227,13 +230,13 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     envVarNames: ["OPENROUTER_API_KEY"],
     defaultBaseUrl: "https://openrouter.ai/api/v1",
     models: [
-      { name: "GPT-4o (via OpenRouter)", modelId: "openai/gpt-4o", speedTier: "medium", capabilities: ["chat", "code", "vision"], contextWindow: 128000, description: "OpenAI GPT-4o routed via OpenRouter" },
-      { name: "Claude Sonnet 4 (via OpenRouter)", modelId: "anthropic/claude-sonnet-4", speedTier: "medium", capabilities: ["chat", "code", "vision"], contextWindow: 200000, description: "Anthropic Claude routed via OpenRouter", recommended: true },
-      { name: "Gemini 2.5 Flash (via OpenRouter)", modelId: "google/gemini-2.5-flash-preview", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Google Gemini routed via OpenRouter" },
-      { name: "DeepSeek R1 (via OpenRouter)", modelId: "deepseek/deepseek-r1", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 64000, description: "DeepSeek reasoning via OpenRouter" },
-      { name: "Llama 3.3 70B (via OpenRouter)", modelId: "meta-llama/llama-3.3-70b-instruct", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Meta Llama via OpenRouter" },
-      { name: "Qwen 3 235B (via OpenRouter)", modelId: "qwen/qwen3-235b-a22b", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "Alibaba Qwen 3 MoE via OpenRouter" },
-      { name: "Mistral Large (via OpenRouter)", modelId: "mistralai/mistral-large", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 128000, description: "Mistral Large via OpenRouter" },
+      { name: "Claude Sonnet 4.6 (via OR)", modelId: "anthropic/claude-sonnet-4.6", speedTier: "medium", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Anthropic Claude 4.6 via OpenRouter", recommended: true },
+      { name: "GPT-5.4 (via OR)", modelId: "openai/gpt-5.4", speedTier: "powerful", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "OpenAI GPT-5.4 via OpenRouter" },
+      { name: "Gemini 3.1 Pro (via OR)", modelId: "google/gemini-3.1-pro-preview", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1000000, description: "Google Gemini 3.1 Pro via OpenRouter" },
+      { name: "Llama 4 Maverick (via OR)", modelId: "meta-llama/llama-4-maverick", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1048000, description: "Meta Llama 4 MoE via OpenRouter" },
+      { name: "DeepSeek R1 (via OR)", modelId: "deepseek/deepseek-r1", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "DeepSeek reasoning via OpenRouter" },
+      { name: "Qwen 3 235B (via OR)", modelId: "qwen/qwen3-235b-a22b", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "Alibaba Qwen 3 MoE via OpenRouter" },
+      { name: "Mistral Large 3 (via OR)", modelId: "mistralai/mistral-large", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 256000, description: "Mistral Large 3 via OpenRouter" },
     ],
   },
 
@@ -247,10 +250,10 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     envVarNames: ["HF_TOKEN", "HUGGINGFACE_API_KEY"],
     defaultBaseUrl: "https://router.huggingface.co/v1",
     models: [
-      { name: "DeepSeek V3 (via HF)", modelId: "deepseek-ai/DeepSeek-V3-0324", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 64000, description: "DeepSeek V3 via HF Inference", recommended: true },
-      { name: "Llama 3.1 8B (via HF)", modelId: "meta-llama/Llama-3.1-8B-Instruct", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Meta Llama 3.1 via HF" },
-      { name: "Qwen 2.5 72B (via HF)", modelId: "Qwen/Qwen2.5-72B-Instruct", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 128000, description: "Qwen 2.5 via HF Inference" },
-      { name: "Mistral Nemo (via HF)", modelId: "mistralai/Mistral-Nemo-Instruct-2407", speedTier: "medium", capabilities: ["chat", "code"], contextWindow: 128000, description: "Mistral Nemo via HF" },
+      { name: "Qwen 3 235B (via HF)", modelId: "Qwen/Qwen3-235B-A22B-Instruct", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "Qwen 3 MoE via HF Inference", recommended: true },
+      { name: "Llama 4 Scout (via HF)", modelId: "meta-llama/Llama-4-Scout-17B-16E-Instruct", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 131072, description: "Llama 4 MoE via HF" },
+      { name: "Llama 3.3 70B (via HF)", modelId: "meta-llama/Llama-3.3-70B-Instruct", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 131072, description: "Meta Llama 3.3 via HF" },
+      { name: "Qwen 3 8B (via HF)", modelId: "Qwen/Qwen3-8B", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 40960, description: "Fast Qwen 3 via HF" },
       { name: "Phi-4 (via HF)", modelId: "microsoft/phi-4", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 16384, description: "Microsoft Phi-4 via HF" },
     ],
   },
@@ -265,10 +268,10 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     envVarNames: ["FIREWORKS_API_KEY"],
     defaultBaseUrl: "https://api.fireworks.ai/inference/v1",
     models: [
-      { name: "Llama 3.3 70B (Fireworks)", modelId: "accounts/fireworks/models/llama-v3p3-70b-instruct", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Llama 3.3 on Fireworks infra", recommended: true },
-      { name: "DeepSeek R1 (Fireworks)", modelId: "accounts/fireworks/models/deepseek-r1", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 64000, description: "DeepSeek R1 with thinking" },
-      { name: "Qwen 2.5 72B (Fireworks)", modelId: "accounts/fireworks/models/qwen2p5-72b-instruct", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 128000, description: "Qwen 2.5 on Fireworks" },
-      { name: "Firefunction V2", modelId: "accounts/fireworks/models/firefunction-v2", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 8192, description: "Optimized for function calling" },
+      { name: "DeepSeek V3.2 (Fireworks)", modelId: "accounts/fireworks/models/deepseek-v3p2", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 163000, description: "685B MoE on Fireworks", recommended: true },
+      { name: "Llama 4 Maverick (Fireworks)", modelId: "accounts/fireworks/models/llama-4-maverick-17b-128e-instruct", speedTier: "powerful", capabilities: ["chat", "code", "vision"], contextWindow: 1048000, description: "400B MoE, multimodal" },
+      { name: "Qwen 3 235B (Fireworks)", modelId: "accounts/fireworks/models/qwen3-235b-a22b", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "Qwen 3 MoE on Fireworks" },
+      { name: "Llama 3.3 70B (Fireworks)", modelId: "accounts/fireworks/models/llama-v3p3-70b-instruct", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Llama 3.3 on Fireworks" },
     ],
   },
 
@@ -282,8 +285,9 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     envVarNames: ["CEREBRAS_API_KEY"],
     defaultBaseUrl: "https://api.cerebras.ai/v1",
     models: [
-      { name: "Llama 3.3 70B (Cerebras)", modelId: "llama-3.3-70b", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Ultra-fast Llama 3.3 on Cerebras wafers", recommended: true },
-      { name: "Llama 3.1 8B (Cerebras)", modelId: "llama3.1-8b", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Lightning-fast small model" },
+      { name: "GPT-OSS 120B (Cerebras)", modelId: "gpt-oss-120b", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "OpenAI OSS at ~3000 tok/s", recommended: true },
+      { name: "Qwen 3 32B (Cerebras)", modelId: "qwen-3-32b", speedTier: "fast", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "Dense 32B, wafer-scale speed" },
+      { name: "Llama 3.1 8B (Cerebras)", modelId: "llama3.1-8b", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 131072, description: "~2200 tok/s, lightning fast" },
     ],
   },
 
@@ -298,6 +302,7 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     defaultBaseUrl: "https://api.perplexity.ai",
     models: [
       { name: "Sonar Pro", modelId: "sonar-pro", speedTier: "powerful", capabilities: ["chat", "analyze"], contextWindow: 200000, description: "Search-grounded reasoning with citations", recommended: true },
+      { name: "Sonar Reasoning Pro", modelId: "sonar-reasoning-pro", speedTier: "powerful", capabilities: ["chat", "analyze"], contextWindow: 200000, description: "Advanced reasoning with search" },
       { name: "Sonar", modelId: "sonar", speedTier: "fast", capabilities: ["chat"], contextWindow: 128000, description: "Fast search-grounded answers" },
       { name: "Sonar Deep Research", modelId: "sonar-deep-research", speedTier: "powerful", capabilities: ["chat", "analyze"], contextWindow: 128000, description: "Multi-step research agent" },
     ],
