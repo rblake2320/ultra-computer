@@ -276,6 +276,23 @@ function makeAnthropicClient(model: Model): Anthropic {
   return new Anthropic({ apiKey: creds.apiKey });
 }
 
+/**
+ * Build Anthropic system param with prompt caching.
+ * Uses cache_control: { type: "ephemeral" } on the system content block
+ * so Anthropic caches the static prefix (KB + system prompt) across requests.
+ * This can reduce input token costs by up to 90% for repeated prefixes.
+ */
+function buildAnthropicSystem(systemContent: string | undefined): Anthropic.Messages.TextBlockParam[] | undefined {
+  if (!systemContent) return undefined;
+  return [
+    {
+      type: "text" as const,
+      text: systemContent,
+      cache_control: { type: "ephemeral" as const },
+    },
+  ];
+}
+
 async function chatAnthropic(
   model: Model,
   msgs: ChatMessage[],
@@ -290,12 +307,13 @@ async function chatAnthropic(
   }));
   const res = await client.messages.create({
     model: model.modelId,
-    system: systemMsg?.content,
+    system: buildAnthropicSystem(systemMsg?.content) as any,
     messages: userMsgs,
     max_tokens: maxTokens,
     temperature,
   });
   const text = res.content.filter(b => b.type === "text").map(b => (b as any).text).join("");
+  const usage = res.usage as any;
   return {
     content: text,
     model: model.name,
@@ -304,6 +322,9 @@ async function chatAnthropic(
       prompt: res.usage.input_tokens,
       completion: res.usage.output_tokens,
       total: res.usage.input_tokens + res.usage.output_tokens,
+      // Track cache metrics when available
+      ...(usage.cache_creation_input_tokens ? { cacheCreation: usage.cache_creation_input_tokens } : {}),
+      ...(usage.cache_read_input_tokens ? { cacheRead: usage.cache_read_input_tokens } : {}),
     } : undefined,
   };
 }
@@ -322,7 +343,7 @@ async function* streamAnthropic(
   }));
   const stream = await client.messages.create({
     model: model.modelId,
-    system: systemMsg?.content,
+    system: buildAnthropicSystem(systemMsg?.content) as any,
     messages: userMsgs,
     max_tokens: maxTokens,
     temperature,

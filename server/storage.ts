@@ -19,6 +19,7 @@ import {
   type MarketplaceVersion, type InsertMarketplaceVersion,
   type MarketplaceRating, type InsertMarketplaceRating,
   type MarketplaceInstall, type InsertMarketplaceInstall,
+  knowledgeBase, type KnowledgeEntry, type InsertKnowledgeEntry,
 } from "@shared/schema";
 
 const sqlite = new Database("ultra_computer.db");
@@ -236,6 +237,23 @@ sqlite.exec(`
     value TEXT NOT NULL,
     updated_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS knowledge_base (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    content TEXT NOT NULL,
+    summary TEXT,
+    content_type TEXT NOT NULL DEFAULT 'text',
+    category TEXT,
+    tags TEXT,
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    token_estimate INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    priority INTEGER NOT NULL DEFAULT 50,
+    tier_policy TEXT NOT NULL DEFAULT 'auto',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
 `);
 
 export interface IStorage {
@@ -336,6 +354,16 @@ export interface IStorage {
   getMarketplaceInstallBySkill(skillId: string): MarketplaceInstall | undefined;
   createMarketplaceInstall(data: InsertMarketplaceInstall): MarketplaceInstall;
   deleteMarketplaceInstall(id: string): void;
+
+  // Knowledge Base
+  getKnowledgeEntries(): KnowledgeEntry[];
+  getKnowledgeEntry(id: string): KnowledgeEntry | undefined;
+  getEnabledKnowledgeEntries(): KnowledgeEntry[];
+  getKnowledgeByCategory(category: string): KnowledgeEntry[];
+  searchKnowledge(query: string): KnowledgeEntry[];
+  createKnowledgeEntry(data: InsertKnowledgeEntry): KnowledgeEntry;
+  updateKnowledgeEntry(id: string, data: Partial<InsertKnowledgeEntry>): KnowledgeEntry | undefined;
+  deleteKnowledgeEntry(id: string): void;
 }
 
 export class SQLiteStorage implements IStorage {
@@ -597,6 +625,46 @@ export class SQLiteStorage implements IStorage {
 
   deleteMarketplaceInstall(id: string): void {
     db.delete(marketplaceInstalls).where(eq(marketplaceInstalls.id, id)).run();
+  }
+
+  // ─── Knowledge Base ──────────────────────────────────────────────────────────
+  getKnowledgeEntries(): KnowledgeEntry[] {
+    return db.select().from(knowledgeBase).orderBy(desc(knowledgeBase.priority)).all();
+  }
+  getKnowledgeEntry(id: string): KnowledgeEntry | undefined {
+    return db.select().from(knowledgeBase).where(eq(knowledgeBase.id, id)).get();
+  }
+  getEnabledKnowledgeEntries(): KnowledgeEntry[] {
+    return db.select().from(knowledgeBase)
+      .where(eq(knowledgeBase.enabled, true))
+      .orderBy(desc(knowledgeBase.priority))
+      .all();
+  }
+  getKnowledgeByCategory(category: string): KnowledgeEntry[] {
+    return db.select().from(knowledgeBase)
+      .where(and(eq(knowledgeBase.category, category), eq(knowledgeBase.enabled, true)))
+      .orderBy(desc(knowledgeBase.priority))
+      .all();
+  }
+  searchKnowledge(query: string): KnowledgeEntry[] {
+    // Keyword search across name, description, tags, content
+    const all = this.getEnabledKnowledgeEntries();
+    const terms = query.toLowerCase().split(/\s+/).filter(t => t.length > 1);
+    if (terms.length === 0) return all;
+    return all.filter(entry => {
+      const haystack = `${entry.name} ${entry.description || ""} ${entry.tags || ""} ${entry.content}`.toLowerCase();
+      return terms.some(t => haystack.includes(t));
+    }).slice(0, 20);
+  }
+  createKnowledgeEntry(data: InsertKnowledgeEntry): KnowledgeEntry {
+    return db.insert(knowledgeBase).values({ ...data, createdAt: Date.now(), updatedAt: Date.now() }).returning().get();
+  }
+  updateKnowledgeEntry(id: string, data: Partial<InsertKnowledgeEntry>): KnowledgeEntry | undefined {
+    const result = db.update(knowledgeBase).set({ ...data, updatedAt: Date.now() }).where(eq(knowledgeBase.id, id)).returning().get();
+    return result;
+  }
+  deleteKnowledgeEntry(id: string): void {
+    db.delete(knowledgeBase).where(eq(knowledgeBase.id, id)).run();
   }
 }
 

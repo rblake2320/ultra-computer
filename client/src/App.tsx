@@ -24,6 +24,7 @@ import { MessagingPage } from "./pages/MessagingPage";
 import { NIPPage } from "./pages/NIPPage";
 import { IdentityPage } from "./pages/IdentityPage";
 import { CachePage } from "./pages/CachePage";
+import { KnowledgePage } from "./pages/KnowledgePage";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
@@ -103,6 +104,9 @@ export default function App() {
             </Route>
             <Route path="/cache">
               <Layout><ErrorBoundary><CachePage /></ErrorBoundary></Layout>
+            </Route>
+            <Route path="/knowledge">
+              <Layout><ErrorBoundary><KnowledgePage /></ErrorBoundary></Layout>
             </Route>
             <Route component={NotFound} />
           </Switch>

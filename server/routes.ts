@@ -29,11 +29,13 @@ import { startLearningLoop } from "./selfLearning.js";
 import { startAutoImproveLoop } from "./skillAutoImprove.js";
 import { registerCacheRoutes } from "./cacheRoutes.js";
 import { cacheEngine } from "./cacheEngine.js";
+import { knowledgeEngine } from "./knowledgeEngine.js";
 
 export async function registerRoutes(httpServer: Server, app: Express) {
   // ─── Seed on startup ──────────────────────────────────────────────────────
   seedConnectors();
   seedBuiltInSkills();
+  knowledgeEngine.seedIfEmpty();
 
   // ─── Register modular route groups ─────────────────────────────────────────
   registerFileRoutes(app);
@@ -809,6 +811,113 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       sandbox: dockerSandbox.getStatus(),
       taskQueue: taskQueue.isAvailable(),
       marketplaceSkillCount: storage.getMarketplaceSkills().length,
+      knowledgeBaseEntries: storage.getKnowledgeEntries().length,
     });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Knowledge Base API
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/knowledge", (_req, res) => {
+    const entries = storage.getKnowledgeEntries();
+    res.json(entries);
+  });
+
+  app.get("/api/knowledge/stats", (_req, res) => {
+    res.json(knowledgeEngine.getStats());
+  });
+
+  app.get("/api/knowledge/search", (req, res) => {
+    const q = (req.query.q as string) || "";
+    const results = storage.searchKnowledge(q);
+    res.json(results);
+  });
+
+  app.get("/api/knowledge/:id", (req, res) => {
+    const entry = storage.getKnowledgeEntry(req.params.id);
+    if (!entry) return res.status(404).json({ error: "Not found" });
+    res.json(entry);
+  });
+
+  app.post("/api/knowledge", async (req, res) => {
+    try {
+      const { name, description, content, contentType, category, tags, priority, tierPolicy } = req.body;
+      if (!name || !content) return res.status(400).json({ error: "name and content are required" });
+
+      const sizeBytes = Buffer.byteLength(content);
+      const tokenEstimate = Math.ceil(content.length / 4);
+
+      // Auto-generate summary if not provided
+      const summary = await knowledgeEngine.generateSummary(content);
+
+      const entry = storage.createKnowledgeEntry({
+        id: uuidv4(),
+        name,
+        description: description || null,
+        content,
+        summary,
+        contentType: contentType || "text",
+        category: category || "custom",
+        tags: tags ? (typeof tags === "string" ? tags : JSON.stringify(tags)) : null,
+        sizeBytes,
+        tokenEstimate,
+        enabled: true,
+        priority: priority ?? 50,
+        tierPolicy: tierPolicy || "auto",
+      });
+      res.status(201).json(entry);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.patch("/api/knowledge/:id", (req, res) => {
+    const updates: Record<string, any> = {};
+    const allowedFields = ["name", "description", "content", "summary", "contentType", "category", "tags", "enabled", "priority", "tierPolicy"];
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) updates[field] = req.body[field];
+    }
+    // Recalculate size/tokens if content changed
+    if (updates.content) {
+      updates.sizeBytes = Buffer.byteLength(updates.content);
+      updates.tokenEstimate = Math.ceil(updates.content.length / 4);
+    }
+    if (updates.tags && typeof updates.tags !== "string") {
+      updates.tags = JSON.stringify(updates.tags);
+    }
+    const entry = storage.updateKnowledgeEntry(req.params.id, updates);
+    if (!entry) return res.status(404).json({ error: "Not found" });
+    res.json(entry);
+  });
+
+  app.delete("/api/knowledge/:id", (req, res) => {
+    storage.deleteKnowledgeEntry(req.params.id);
+    res.json({ ok: true });
+  });
+
+  // Reseed system references (useful after model updates)
+  app.post("/api/knowledge/reseed", (_req, res) => {
+    // Delete system-reference entries and reseed
+    const existing = storage.getKnowledgeEntries();
+    for (const entry of existing) {
+      if (entry.contentType === "system-reference" || entry.category === "models" || entry.category === "architecture" || entry.category === "tools") {
+        storage.deleteKnowledgeEntry(entry.id);
+      }
+    }
+    knowledgeEngine.seedIfEmpty();
+    res.json({ ok: true, entries: storage.getKnowledgeEntries().length });
+  });
+
+  // Preview what would be injected for a given tier
+  app.get("/api/knowledge/preview/:tier", (req, res) => {
+    const tier = req.params.tier as "fast" | "medium" | "powerful";
+    if (!["fast", "medium", "powerful"].includes(tier)) {
+      return res.status(400).json({ error: "tier must be fast, medium, or powerful" });
+    }
+    const contextWindow = parseInt(req.query.contextWindow as string) || 128000;
+    const query = req.query.q as string | undefined;
+    const result = knowledgeEngine.buildContext(tier, contextWindow, query);
+    res.json(result);
   });
 }

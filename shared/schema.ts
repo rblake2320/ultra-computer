@@ -297,3 +297,25 @@ export const settings = sqliteTable("settings", {
 });
 
 export type Setting = typeof settings.$inferSelect;
+
+// ─── Knowledge Base ────────────────────────────────────────────────────────────
+export const knowledgeBase = sqliteTable("knowledge_base", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  content: text("content").notNull(),          // raw content
+  summary: text("summary"),                    // auto-generated summary for medium-tier models
+  contentType: text("content_type").notNull(),  // "text" | "markdown" | "json" | "code" | "system-reference"
+  category: text("category"),                  // "models" | "architecture" | "tools" | "prompts" | "custom"
+  tags: text("tags"),                          // JSON array of strings for keyword matching
+  sizeBytes: integer("size_bytes").notNull(),
+  tokenEstimate: integer("token_estimate").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  priority: integer("priority").notNull().default(50), // 0-100, higher = more important
+  tierPolicy: text("tier_policy").notNull().default("auto"), // "auto" | "always" | "powerful-only" | "never"
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+  updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export type KnowledgeEntry = typeof knowledgeBase.$inferSelect;
+export type InsertKnowledgeEntry = typeof knowledgeBase.$inferInsert;

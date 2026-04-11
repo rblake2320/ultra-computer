@@ -24,6 +24,7 @@ import { detectChain, buildChainPlan } from "./skillChaining.js";
 import { withRetryAndFallback } from "./errorRecovery.js";
 import { analyzeTaskComplexity, routeToOptimalModel } from "./modelSpeedRouter.js";
 import { logExecution } from "./selfLearning.js";
+import { knowledgeEngine } from "./knowledgeEngine.js";
 import type { Task } from "@shared/schema";
 
 // IPC directory for filesystem-based inter-agent communication
@@ -412,7 +413,15 @@ async function runWorkerAgent(
 
   if (!model) throw new Error("No model available for task");
 
-  const systemPrompt = buildWorkerSystemPrompt(task, skillContext);
+  // Inject knowledge base context based on model speed tier
+  const speedTier = (model.speedTier || "medium") as "fast" | "medium" | "powerful";
+  const contextWindow = model.contextWindow || 8192;
+  const kbResult = knowledgeEngine.buildContext(speedTier, contextWindow, task.description);
+  if (kbResult.includedEntries.length > 0) {
+    console.log(`[orchestrator] KB injected ${kbResult.includedEntries.length} entries (~${kbResult.tokenEstimate} tokens) for ${model.name} [${speedTier}]`);
+  }
+
+  const systemPrompt = buildWorkerSystemPrompt(task, skillContext, kbResult.contextBlock);
   const inputContext = buildWorkerInputContext(task, memories, depContext);
 
   storage.createAgentRun({
@@ -684,7 +693,7 @@ function parseToolCalls(text: string): ParsedToolCall[] {
   return calls;
 }
 
-function buildWorkerSystemPrompt(task: Task, skillContext: string): string {
+function buildWorkerSystemPrompt(task: Task, skillContext: string, knowledgeContext?: string): string {
   const toolList = TOOL_SCHEMAS.map(t => `- **${t.name}**: ${t.description}`).join("\n");
   const toolSchemaBlock = TOOL_SCHEMAS.map(t =>
     `${t.name}: parameters = ${JSON.stringify(t.parameters.properties)}, required = [${t.parameters.required.join(", ")}]`
@@ -695,6 +704,9 @@ function buildWorkerSystemPrompt(task: Task, skillContext: string): string {
   const scriptLibraryContext = savedScripts.length > 0
     ? `\n## Saved Scripts Library\nYou have access to pre-saved scripts from the library. You can use these directly with bash or write_file instead of writing from scratch:\n\n${savedScripts.slice(0, 10).map(s => `### ${s.name} (${s.language})\n\`\`\`${s.language}\n${s.content.slice(0, 500)}${s.content.length > 500 ? '\n... (truncated)' : ''}\n\`\`\``).join("\n\n")}`
     : "";
+
+  // Knowledge base context — injected as a stable prefix for cache reuse
+  const kbBlock = knowledgeContext ? `\n${knowledgeContext}\n` : "";
 
   return `You are a specialized worker agent in the Ultra Computer system.
 Your single responsibility: complete the assigned task and produce a focused, high-quality result.
@@ -728,7 +740,7 @@ ${toolSchemaBlock}
 - Be thorough and produce production-quality output.
 - When you are finished and have your final answer, respond WITHOUT any <tool_call> blocks.
 
-${skillContext ? `Active skills to follow:\n${skillContext}` : ""}${scriptLibraryContext}`;
+${skillContext ? `Active skills to follow:\n${skillContext}` : ""}${scriptLibraryContext}${kbBlock}`;
 }
 
 function buildWorkerInputContext(task: Task, memories: string, depContext: string): string {
