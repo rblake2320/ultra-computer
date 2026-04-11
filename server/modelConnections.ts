@@ -215,6 +215,105 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     ],
   },
 
+  openrouter: {
+    id: "openrouter",
+    name: "OpenRouter",
+    icon: "Globe",
+    supportedAuth: ["api_key", "env_var"],
+    defaultAuth: "api_key",
+    apiKeyUrl: "https://openrouter.ai/settings/keys",
+    envVarNames: ["OPENROUTER_API_KEY"],
+    defaultBaseUrl: "https://openrouter.ai/api/v1",
+    models: [
+      { name: "GPT-4o (via OpenRouter)", modelId: "openai/gpt-4o", speedTier: "medium", capabilities: ["chat", "code", "vision"], contextWindow: 128000, description: "OpenAI GPT-4o routed via OpenRouter" },
+      { name: "Claude Sonnet 4 (via OpenRouter)", modelId: "anthropic/claude-sonnet-4", speedTier: "medium", capabilities: ["chat", "code", "vision"], contextWindow: 200000, description: "Anthropic Claude routed via OpenRouter", recommended: true },
+      { name: "Gemini 2.5 Flash (via OpenRouter)", modelId: "google/gemini-2.5-flash-preview", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Google Gemini routed via OpenRouter" },
+      { name: "DeepSeek R1 (via OpenRouter)", modelId: "deepseek/deepseek-r1", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 64000, description: "DeepSeek reasoning via OpenRouter" },
+      { name: "Llama 3.3 70B (via OpenRouter)", modelId: "meta-llama/llama-3.3-70b-instruct", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Meta Llama via OpenRouter" },
+      { name: "Qwen 3 235B (via OpenRouter)", modelId: "qwen/qwen3-235b-a22b", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "Alibaba Qwen 3 MoE via OpenRouter" },
+      { name: "Mistral Large (via OpenRouter)", modelId: "mistralai/mistral-large", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 128000, description: "Mistral Large via OpenRouter" },
+    ],
+  },
+
+  huggingface: {
+    id: "huggingface",
+    name: "Hugging Face",
+    icon: "Brain",
+    supportedAuth: ["api_key", "env_var"],
+    defaultAuth: "api_key",
+    apiKeyUrl: "https://huggingface.co/settings/tokens",
+    envVarNames: ["HF_TOKEN", "HUGGINGFACE_API_KEY"],
+    defaultBaseUrl: "https://router.huggingface.co/v1",
+    models: [
+      { name: "DeepSeek V3 (via HF)", modelId: "deepseek-ai/DeepSeek-V3-0324", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 64000, description: "DeepSeek V3 via HF Inference", recommended: true },
+      { name: "Llama 3.1 8B (via HF)", modelId: "meta-llama/Llama-3.1-8B-Instruct", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Meta Llama 3.1 via HF" },
+      { name: "Qwen 2.5 72B (via HF)", modelId: "Qwen/Qwen2.5-72B-Instruct", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 128000, description: "Qwen 2.5 via HF Inference" },
+      { name: "Mistral Nemo (via HF)", modelId: "mistralai/Mistral-Nemo-Instruct-2407", speedTier: "medium", capabilities: ["chat", "code"], contextWindow: 128000, description: "Mistral Nemo via HF" },
+      { name: "Phi-4 (via HF)", modelId: "microsoft/phi-4", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 16384, description: "Microsoft Phi-4 via HF" },
+    ],
+  },
+
+  fireworks: {
+    id: "fireworks",
+    name: "Fireworks AI",
+    icon: "Sparkles",
+    supportedAuth: ["api_key", "env_var"],
+    defaultAuth: "api_key",
+    apiKeyUrl: "https://fireworks.ai/account/api-keys",
+    envVarNames: ["FIREWORKS_API_KEY"],
+    defaultBaseUrl: "https://api.fireworks.ai/inference/v1",
+    models: [
+      { name: "Llama 3.3 70B (Fireworks)", modelId: "accounts/fireworks/models/llama-v3p3-70b-instruct", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Llama 3.3 on Fireworks infra", recommended: true },
+      { name: "DeepSeek R1 (Fireworks)", modelId: "accounts/fireworks/models/deepseek-r1", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 64000, description: "DeepSeek R1 with thinking" },
+      { name: "Qwen 2.5 72B (Fireworks)", modelId: "accounts/fireworks/models/qwen2p5-72b-instruct", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 128000, description: "Qwen 2.5 on Fireworks" },
+      { name: "Firefunction V2", modelId: "accounts/fireworks/models/firefunction-v2", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 8192, description: "Optimized for function calling" },
+    ],
+  },
+
+  cerebras: {
+    id: "cerebras",
+    name: "Cerebras",
+    icon: "Zap",
+    supportedAuth: ["api_key", "env_var"],
+    defaultAuth: "api_key",
+    apiKeyUrl: "https://cloud.cerebras.ai/",
+    envVarNames: ["CEREBRAS_API_KEY"],
+    defaultBaseUrl: "https://api.cerebras.ai/v1",
+    models: [
+      { name: "Llama 3.3 70B (Cerebras)", modelId: "llama-3.3-70b", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Ultra-fast Llama 3.3 on Cerebras wafers", recommended: true },
+      { name: "Llama 3.1 8B (Cerebras)", modelId: "llama3.1-8b", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 128000, description: "Lightning-fast small model" },
+    ],
+  },
+
+  perplexity: {
+    id: "perplexity",
+    name: "Perplexity",
+    icon: "Search",
+    supportedAuth: ["api_key", "env_var"],
+    defaultAuth: "api_key",
+    apiKeyUrl: "https://www.perplexity.ai/settings/api",
+    envVarNames: ["PERPLEXITY_API_KEY", "PPLX_API_KEY"],
+    defaultBaseUrl: "https://api.perplexity.ai",
+    models: [
+      { name: "Sonar Pro", modelId: "sonar-pro", speedTier: "powerful", capabilities: ["chat", "analyze"], contextWindow: 200000, description: "Search-grounded reasoning with citations", recommended: true },
+      { name: "Sonar", modelId: "sonar", speedTier: "fast", capabilities: ["chat"], contextWindow: 128000, description: "Fast search-grounded answers" },
+      { name: "Sonar Deep Research", modelId: "sonar-deep-research", speedTier: "powerful", capabilities: ["chat", "analyze"], contextWindow: 128000, description: "Multi-step research agent" },
+    ],
+  },
+
+  lmstudio: {
+    id: "lmstudio",
+    name: "LM Studio (Local)",
+    icon: "Server",
+    supportedAuth: ["none"],
+    defaultAuth: "none",
+    defaultBaseUrl: "http://localhost:1234/v1",
+    envVarNames: [],
+    models: [
+      { name: "LM Studio Model", modelId: "local-model", speedTier: "medium", capabilities: ["chat", "code"], contextWindow: 8192, description: "Use whatever model is loaded in LM Studio", recommended: true },
+    ],
+  },
+
   openai_compat: {
     id: "openai_compat",
     name: "OpenAI-Compatible",

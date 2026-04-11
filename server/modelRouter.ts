@@ -110,6 +110,12 @@ export async function chat(
     case "deepseek":
     case "xai":
     case "cohere":
+    case "openrouter":
+    case "huggingface":
+    case "fireworks":
+    case "cerebras":
+    case "perplexity":
+    case "lmstudio":
       return chatOpenAICompat(model, messages, maxTokens, temperature);
     case "anthropic":
       return chatAnthropic(model, messages, maxTokens, temperature);
@@ -146,6 +152,12 @@ export async function* chatStream(
     case "deepseek":
     case "xai":
     case "cohere":
+    case "openrouter":
+    case "huggingface":
+    case "fireworks":
+    case "cerebras":
+    case "perplexity":
+    case "lmstudio":
       yield* streamOpenAICompat(model, messages, maxTokens, temperature);
       break;
     case "anthropic":
