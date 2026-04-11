@@ -97,9 +97,11 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     apiKeyUrl: "https://aistudio.google.com/apikey",
     envVarNames: ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
     models: [
-      { name: "Gemini 2.5 Pro", modelId: "gemini-2.5-pro-preview-06-05", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1000000, description: "Most capable Gemini, 1M context", recommended: true },
-      { name: "Gemini 2.5 Flash", modelId: "gemini-2.5-flash-preview-05-20", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Fast with thinking mode" },
-      { name: "Gemini 2.0 Flash", modelId: "gemini-2.0-flash", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Workhorse model" },
+      { name: "Gemini 3.1 Pro", modelId: "gemini-3.1-pro-preview", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1000000, description: "Most advanced reasoning, 1M context", recommended: true },
+      { name: "Gemini 3 Flash", modelId: "gemini-3-flash-preview", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Most powerful agentic/coding model" },
+      { name: "Gemini 3.1 Flash-Lite", modelId: "gemini-3.1-flash-lite-preview", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Cheapest & fastest, high volume" },
+      { name: "Gemini 2.5 Flash", modelId: "gemini-2.5-flash", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Best price-performance with thinking" },
+      { name: "Gemini 2.5 Pro", modelId: "gemini-2.5-pro", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1000000, description: "Advanced reasoning, stable" },
     ],
   },
 
