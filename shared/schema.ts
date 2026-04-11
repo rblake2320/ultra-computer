@@ -6,10 +6,10 @@ import { z } from "zod";
 export const models = sqliteTable("models", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  provider: text("provider").notNull(), // openai | anthropic | google | ollama | openai_compat | custom
+  provider: text("provider").notNull(), // openai | anthropic | google | ollama | openai_compat | custom | mistral | groq | together | replicate | cohere | deepseek | xai
   modelId: text("model_id").notNull(),  // e.g. gpt-4o, claude-opus-4-5, llama3.3:70b
   baseUrl: text("base_url"),            // for custom/ollama endpoints
-  apiKey: text("api_key"),              // encrypted at rest
+  apiKey: text("api_key"),              // encrypted at rest — for api_key auth method
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   capabilities: text("capabilities").notNull().default("[]"), // JSON: ["chat","code","vision","search"]
   contextWindow: integer("context_window").notNull().default(8192),
@@ -17,6 +17,14 @@ export const models = sqliteTable("models", {
   isOrchestrator: integer("is_orchestrator", { mode: "boolean" }).notNull().default(false),
   speedTier: text("speed_tier").notNull().default("medium"), // fast | medium | powerful
   notes: text("notes"),
+  // ─── Multi-Auth Connection Fields ──────────────────────────────────────────
+  authMethod: text("auth_method").notNull().default("api_key"),  // api_key | oauth | env_var | browser_login | none
+  oauthTokens: text("oauth_tokens"),     // JSON: { access_token, refresh_token, expires_at, token_type, scope }
+  envVarName: text("env_var_name"),       // e.g. OPENAI_API_KEY — resolved at runtime from process.env
+  connectionStatus: text("connection_status").notNull().default("unconfigured"), // unconfigured | connected | disconnected | expired | error
+  connectionError: text("connection_error"), // last error message from connection attempt
+  lastTestedAt: integer("last_tested_at"),
+  lastTestLatency: integer("last_test_latency"), // ms
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
 });
 

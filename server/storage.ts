@@ -40,6 +40,13 @@ sqlite.exec(`
     is_orchestrator INTEGER NOT NULL DEFAULT 0,
     speed_tier TEXT NOT NULL DEFAULT 'medium',
     notes TEXT,
+    auth_method TEXT NOT NULL DEFAULT 'api_key',
+    oauth_tokens TEXT,
+    env_var_name TEXT,
+    connection_status TEXT NOT NULL DEFAULT 'unconfigured',
+    connection_error TEXT,
+    last_tested_at INTEGER,
+    last_test_latency INTEGER,
     created_at INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS skills (

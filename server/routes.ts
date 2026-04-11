@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import { storage } from "./storage.js";
 import { runOrchestrator, subscribeToConversation, unsubscribeFromConversation } from "./orchestrator.js";
 import { testModelConnection } from "./modelRouter.js";
+import { connectModel, disconnectModel, testConnection, quickAdd, discoverEnvVars, getProviderCatalog, PROVIDER_REGISTRY } from "./modelConnections.js";
 import { seedConnectors, connectWithApiKey, callMCPTool } from "./connectorRegistry.js";
 import { seedBuiltInSkills } from "./skillSystem.js";
 import { memoryManager } from "./memoryManager.js";
@@ -70,12 +71,28 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   // ─── Models ───────────────────────────────────────────────────────────────
   app.get("/api/models", (req, res) => {
-    res.json(storage.getModels());
+    // Strip apiKey and oauthTokens from response for security
+    const models = storage.getModels().map(m => ({
+      ...m,
+      apiKey: m.apiKey ? "***" : null,
+      oauthTokens: m.oauthTokens ? "***" : null,
+    }));
+    res.json(models);
+  });
+
+  // Provider catalog — frontend uses this to render auth options per provider
+  app.get("/api/models/providers", (_req, res) => {
+    res.json(getProviderCatalog());
+  });
+
+  // Discover environment variables already set on the server
+  app.get("/api/models/env-vars", (_req, res) => {
+    res.json(discoverEnvVars());
   });
 
   app.post("/api/models", (req, res) => {
     const { id, name, provider, modelId, baseUrl, apiKey, capabilities, contextWindow,
-            isDefault, isOrchestrator, speedTier, notes } = req.body;
+            isDefault, isOrchestrator, speedTier, notes, authMethod, envVarName } = req.body;
     if (!name || !provider || !modelId) return res.status(400).json({ error: "name, provider, modelId required" });
     if (typeof name !== "string" || name.length > 200) return res.status(400).json({ error: "name must be a string (max 200 chars)" });
     if (typeof modelId !== "string" || modelId.length > 500) return res.status(400).json({ error: "modelId must be a string (max 500 chars)" });
@@ -106,8 +123,26 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       isOrchestrator: isOrchestrator || false,
       speedTier: speedTier || "medium",
       notes: notes || null,
-    });
+      authMethod: authMethod || "api_key",
+      envVarName: envVarName || null,
+      connectionStatus: "unconfigured",
+    } as any);
     res.json(model);
+  });
+
+  // Quick-add: create model from preset + connect in one step
+  app.post("/api/models/quick-add", async (req, res) => {
+    try {
+      const { provider, presetModelId, authMethod, apiKey, envVarName, baseUrl } = req.body;
+      if (!provider || !presetModelId) return res.status(400).json({ error: "provider and presetModelId required" });
+      const result = await quickAdd(provider, presetModelId, authMethod || "api_key", {
+        apiKey, envVarName, baseUrl,
+      });
+      if (!result.model) return res.status(400).json({ error: "Invalid provider or preset model" });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   app.patch("/api/models/:id", (req, res) => {
@@ -124,9 +159,30 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.json({ ok: true });
   });
 
+  // Connect a model with specific auth method and credentials
+  app.post("/api/models/:id/connect", async (req, res) => {
+    try {
+      const { authMethod, apiKey, envVarName, baseUrl } = req.body;
+      const result = await connectModel(req.params.id, authMethod || "api_key", {
+        apiKey, envVarName, baseUrl,
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Disconnect — clears credentials, resets status
+  app.post("/api/models/:id/disconnect", (req, res) => {
+    const ok = disconnectModel(req.params.id);
+    if (!ok) return res.status(404).json({ error: "Model not found" });
+    res.json({ ok: true });
+  });
+
+  // Test connection (also updates DB status)
   app.post("/api/models/:id/test", async (req, res) => {
     try {
-      const result = await testModelConnection(req.params.id);
+      const result = await testConnection(req.params.id);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message });

@@ -1,13 +1,18 @@
 /**
  * Multi-Model Router
  * Routes tasks to the optimal model based on task type, capability, and speed tier.
- * Supports: OpenAI, Anthropic, Google Gemini, Ollama, any OpenAI-compatible endpoint.
+ * Supports: OpenAI, Anthropic, Google Gemini, Mistral, Groq, Together, DeepSeek, xAI,
+ * Cohere, Ollama, any OpenAI-compatible endpoint.
  * All providers are normalized to a single streaming interface.
+ * 
+ * Credential resolution is delegated to modelConnections.ts — supports API key,
+ * OAuth tokens, environment variables, and no-auth (local models).
  */
 
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { storage } from "./storage.js";
+import { resolveCredentials } from "./modelConnections.js";
 import type { Model } from "@shared/schema";
 
 export type TaskType = "research" | "code" | "write" | "browse" | "analyze" | "image" | "general" | "speed";
@@ -99,6 +104,12 @@ export async function chat(
     case "openai_compat":
     case "ollama":
     case "custom":
+    case "mistral":
+    case "groq":
+    case "together":
+    case "deepseek":
+    case "xai":
+    case "cohere":
       return chatOpenAICompat(model, messages, maxTokens, temperature);
     case "anthropic":
       return chatAnthropic(model, messages, maxTokens, temperature);
@@ -129,6 +140,12 @@ export async function* chatStream(
     case "openai_compat":
     case "ollama":
     case "custom":
+    case "mistral":
+    case "groq":
+    case "together":
+    case "deepseek":
+    case "xai":
+    case "cohere":
       yield* streamOpenAICompat(model, messages, maxTokens, temperature);
       break;
     case "anthropic":
@@ -142,10 +159,11 @@ export async function* chatStream(
   }
 }
 
-// ─── OpenAI / Ollama / LM Studio / any OpenAI-compat ────────────────────────
+// ─── OpenAI / Ollama / LM Studio / Groq / Together / DeepSeek / xAI / any OpenAI-compat
 function makeOpenAIClient(model: Model): OpenAI {
-  const baseURL = model.baseUrl || undefined;
-  const apiKey = model.apiKey || (model.provider === "ollama" ? "ollama" : "none");
+  const creds = resolveCredentials(model);
+  const baseURL = creds.baseUrl || model.baseUrl || undefined;
+  const apiKey = creds.apiKey || (model.provider === "ollama" ? "ollama" : "none");
   return new OpenAI({ apiKey, baseURL, timeout: 120_000 });
 }
 
@@ -196,7 +214,8 @@ async function* streamOpenAICompat(
 
 // ─── Anthropic ────────────────────────────────────────────────────────────────
 function makeAnthropicClient(model: Model): Anthropic {
-  return new Anthropic({ apiKey: model.apiKey || process.env.ANTHROPIC_API_KEY || "" });
+  const creds = resolveCredentials(model);
+  return new Anthropic({ apiKey: creds.apiKey || "" });
 }
 
 async function chatAnthropic(
@@ -265,8 +284,9 @@ async function chatGoogle(
   maxTokens: number,
   temperature: number
 ): Promise<LLMResponse> {
+  const creds = resolveCredentials(model);
   const { GoogleGenerativeAI } = await import("@google/generative-ai");
-  const genAI = new GoogleGenerativeAI(model.apiKey || process.env.GOOGLE_API_KEY || "");
+  const genAI = new GoogleGenerativeAI(creds.apiKey || "");
   const gModel = genAI.getGenerativeModel({ model: model.modelId });
   const systemMsg = msgs.find(m => m.role === "system")?.content || "";
   const history = msgs.filter(m => m.role !== "system").slice(0, -1).map(m => ({
@@ -299,8 +319,9 @@ async function* streamGoogle(
   maxTokens: number,
   temperature: number
 ): AsyncGenerator<string> {
+  const creds = resolveCredentials(model);
   const { GoogleGenerativeAI } = await import("@google/generative-ai");
-  const genAI = new GoogleGenerativeAI(model.apiKey || process.env.GOOGLE_API_KEY || "");
+  const genAI = new GoogleGenerativeAI(creds.apiKey || "");
   const gModel = genAI.getGenerativeModel({ model: model.modelId });
   const systemMsg = msgs.find(m => m.role === "system")?.content || "";
   const history = msgs.filter(m => m.role !== "system").slice(0, -1).map(m => ({
