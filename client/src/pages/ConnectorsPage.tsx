@@ -29,7 +29,7 @@ export function ConnectorsPage() {
   const [showAddCustom, setShowAddCustom] = useState(false);
   const [customForm, setCustomForm] = useState({ name: "", description: "", mcpServerUrl: "" });
 
-  const { data: connectors = [] } = useQuery<Connector[]>({ queryKey: ["/api/connectors"] });
+  const { data: connectors = [], isLoading: connectorsLoading, isError: connectorsError } = useQuery<Connector[]>({ queryKey: ["/api/connectors"] });
 
   // Handle OAuth redirect result (backend redirects to /#/connectors?oauth=success|error&...)
   useEffect(() => {
@@ -65,6 +65,7 @@ export function ConnectorsPage() {
   const disconnect = useMutation({
     mutationFn: (id: string) => apiRequest("POST", `/api/connectors/${id}/disconnect`, {}),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/connectors"] }); toast({ title: "Disconnected" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const addCustom = useMutation({
@@ -75,6 +76,7 @@ export function ConnectorsPage() {
       setCustomForm({ name: "", description: "", mcpServerUrl: "" });
       toast({ title: "Connector added" });
     },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const grouped = CATEGORY_ORDER.reduce((acc, cat) => {
@@ -83,6 +85,22 @@ export function ConnectorsPage() {
   }, {} as Record<string, Connector[]>);
 
   const selectedConnector = connectors.find(c => c.id === connectingId);
+
+  if (connectorsLoading) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+        Loading connectors...
+      </div>
+    );
+  }
+
+  if (connectorsError) {
+    return (
+      <div className="p-8 text-center text-muted-foreground">
+        Failed to load connectors. Please try again.
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -198,8 +216,8 @@ export function ConnectorsPage() {
               Credentials are stored server-side and never exposed to agents.
             </p>
             <div className="flex gap-2">
-              <Button size="sm" onClick={() => connect.mutate({ id: connectingId!, apiKey: apiKeyInput, serverUrl: serverUrlInput })}
-                disabled={!apiKeyInput && !serverUrlInput}>
+              <Button size="sm" onClick={() => { if (!connectingId) return; connect.mutate({ id: connectingId, apiKey: apiKeyInput, serverUrl: serverUrlInput }); }}
+                disabled={!connectingId || (!apiKeyInput && !serverUrlInput)}>
                 Connect
               </Button>
               <Button size="sm" variant="outline" onClick={() => setConnectingId(null)}>Cancel</Button>

@@ -193,6 +193,21 @@ const RPC_ERROR = {
 // In-Memory Stores
 // ---------------------------------------------------------------------------
 
+/** Maximum entries kept in the task and agent in-memory registries. */
+const MAX_REGISTRY_SIZE = 10_000;
+
+/**
+ * Evict the oldest (first-inserted) entries from a Map when it exceeds maxSize.
+ * Map iteration order is insertion order, so the first entry is the oldest.
+ */
+function evictIfNeeded<K, V>(map: Map<K, V>, maxSize: number): void {
+  while (map.size > maxSize) {
+    const oldestKey = map.keys().next().value;
+    if (oldestKey !== undefined) map.delete(oldestKey);
+    else break;
+  }
+}
+
 /**
  * In-memory task registry.
  * Maps taskId → A2ATask for all tasks handled in this process lifetime.
@@ -250,6 +265,7 @@ function createTask(message?: A2AMessage): A2ATask {
     updatedAt: ts,
   };
   taskRegistry.set(taskId, task);
+  evictIfNeeded(taskRegistry, MAX_REGISTRY_SIZE);
   return task;
 }
 
@@ -305,7 +321,7 @@ function extractTextFromParts(parts: A2APart[]): string {
  *
  * @param baseUrl - The publicly accessible base URL of this Ultra Computer instance.
  */
-export async function getAgentCard(baseUrl: string = "http://localhost:5000"): Promise<AgentCard> {
+export async function getAgentCard(baseUrl: string = process.env.BASE_URL ?? "http://localhost:5000"): Promise<AgentCard> {
   // Read skills from the DB; fall back to empty array on error
   let skills: AgentSkill[] = [];
   try {
@@ -386,6 +402,19 @@ async function handleMessageSend(
     return rpcError(rpcId, RPC_ERROR.INVALID_PARAMS, "params.message with parts array is required");
   }
 
+  // Validate A2A message schema
+  if (message.role !== "user" && message.role !== "agent") {
+    return rpcError(rpcId, RPC_ERROR.INVALID_PARAMS, "message.role must be \"user\" or \"agent\"");
+  }
+  if (!message.messageId || typeof message.messageId !== "string") {
+    return rpcError(rpcId, RPC_ERROR.INVALID_PARAMS, "message.messageId (string) is required");
+  }
+  for (const part of message.parts) {
+    if (!part || typeof (part as A2APart).kind !== "string") {
+      return rpcError(rpcId, RPC_ERROR.INVALID_PARAMS, "each message part must have a kind field");
+    }
+  }
+
   // Create and register the task
   const task = createTask(message);
 
@@ -393,8 +422,9 @@ async function handleMessageSend(
     // Transition to working
     transitionTask(task.taskId, "working");
 
-    // Extract user text to process
-    const userText = extractTextFromParts(message.parts);
+    // Extract user text to process (truncate to 500 chars for echo safety)
+    const rawUserText = extractTextFromParts(message.parts);
+    const userText = rawUserText.slice(0, 500);
 
     // Process the message through the orchestrator.
     let responseText = "";
@@ -403,11 +433,21 @@ async function handleMessageSend(
       // synthetic conversation ID scoped to this A2A task
       const synthConvId = `a2a-${task.taskId}`;
 
+      // Wrap in AbortController for timeout (30 seconds)
+      const orchController = new AbortController();
+      const orchTimeout = setTimeout(() => orchController.abort(), 30_000);
+
       // Collect streamed events until the orchestrator signals completion
       await new Promise<void>((resolve, reject) => {
+        orchController.signal.addEventListener("abort", () => {
+          unsubscribeFromConversation(synthConvId, cb);
+          reject(new Error("Orchestrator timed out after 30 seconds"));
+        }, { once: true });
         const chunks: string[] = [];
 
-        const cb = (event: { type: string; content?: string; error?: string }) => {
+        // eslint-disable-next-line prefer-const
+        let cb: (event: { type: string; content?: string; error?: string }) => void;
+        cb = (event: { type: string; content?: string; error?: string }) => {
           if (event.type === "token" && event.content) {
             chunks.push(event.content);
           } else if (event.type === "done") {
@@ -422,14 +462,17 @@ async function handleMessageSend(
 
         subscribeToConversation(synthConvId, cb);
         runOrchestrator(synthConvId, userText).catch((err: unknown) => {
+          clearTimeout(orchTimeout);
           unsubscribeFromConversation(synthConvId, cb);
           reject(err);
         });
       });
+      clearTimeout(orchTimeout);
     } catch (orchErr) {
       // If orchestrator import/execution fails, produce a best-effort echo
       console.error("[A2A] Orchestrator error, using fallback:", orchErr);
-      responseText = `Received your message: "${userText}". (Orchestrator unavailable — raw echo.)`;
+      const truncated = userText.slice(0, 500);
+      responseText = `Received your message: "${truncated}". (Orchestrator unavailable — raw echo.)`;
     }
 
     // Build output artifact
@@ -734,6 +777,7 @@ export async function discoverAgent(baseUrl: string): Promise<AgentCard> {
 
   // Register in the local registry
   agentRegistry.set(normalizedBase, card);
+  evictIfNeeded(agentRegistry, MAX_REGISTRY_SIZE);
   console.log(`[A2A Client] Discovered and registered agent: ${card.name} at ${normalizedBase}`);
 
   return card;
@@ -989,6 +1033,7 @@ export async function cancelTask(agentUrl: string, taskId: string): Promise<A2AT
 export function registerAgent(baseUrl: string, agentCard: AgentCard): void {
   const normalized = baseUrl.replace(/\/$/, "");
   agentRegistry.set(normalized, agentCard);
+  evictIfNeeded(agentRegistry, MAX_REGISTRY_SIZE);
   console.log(`[A2A Registry] Registered agent: ${agentCard.name} at ${normalized}`);
 }
 

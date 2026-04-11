@@ -534,10 +534,13 @@ export class SQLiteStorage implements IStorage {
   }
 
   deleteMarketplaceSkill(id: string): void {
-    db.delete(marketplaceVersions).where(eq(marketplaceVersions.skillId, id)).run();
-    db.delete(marketplaceRatings).where(eq(marketplaceRatings.skillId, id)).run();
-    db.delete(marketplaceInstalls).where(eq(marketplaceInstalls.skillId, id)).run();
-    db.delete(marketplaceSkills).where(eq(marketplaceSkills.id, id)).run();
+    const deleteTx = sqlite.transaction(() => {
+      db.delete(marketplaceVersions).where(eq(marketplaceVersions.skillId, id)).run();
+      db.delete(marketplaceRatings).where(eq(marketplaceRatings.skillId, id)).run();
+      db.delete(marketplaceInstalls).where(eq(marketplaceInstalls.skillId, id)).run();
+      db.delete(marketplaceSkills).where(eq(marketplaceSkills.id, id)).run();
+    });
+    deleteTx();
   }
 
   incrementMarketplaceInstallCount(id: string): void {

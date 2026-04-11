@@ -42,8 +42,9 @@ interface FileEntry {
   ext: string;
 }
 
-function walkDir(dir: string, baseDir: string): FileEntry[] {
+function walkDir(dir: string, baseDir: string, depth = 0, maxDepth = 10): FileEntry[] {
   const entries: FileEntry[] = [];
+  if (depth > maxDepth) return entries;
   let items: fs.Dirent[];
   try {
     items = fs.readdirSync(dir, { withFileTypes: true });
@@ -70,7 +71,7 @@ function walkDir(dir: string, baseDir: string): FileEntry[] {
         modified: stat.mtime.toISOString(),
         ext: "",
       });
-      entries.push(...walkDir(fullPath, baseDir));
+      entries.push(...walkDir(fullPath, baseDir, depth + 1, maxDepth));
     } else if (item.isFile()) {
       entries.push({
         path: relativePath,
@@ -119,7 +120,8 @@ export function registerFileRoutes(app: Express) {
       cb(null, targetDir);
     },
     filename: (_req, file, cb) => {
-      cb(null, file.originalname);
+      const safe = path.basename(file.originalname).replace(/[^a-zA-Z0-9._\-]/g, '_');
+      cb(null, safe);
     },
   });
 
@@ -159,7 +161,9 @@ export function registerFileRoutes(app: Express) {
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.setHeader("Content-Length", stat.size);
     res.setHeader("Content-Type", "application/octet-stream");
-    fs.createReadStream(resolved).pipe(res);
+    const stream = fs.createReadStream(resolved);
+    stream.on('error', (err) => { if (!res.headersSent) res.status(500).json({ error: 'Read error' }); });
+    stream.pipe(res);
   });
 
   // ─── GET /api/sandbox/files/:filePath* ────────────────────────────────────
@@ -195,10 +199,14 @@ export function registerFileRoutes(app: Express) {
     if (isTextFile(ext, filename)) {
       const MAX_TEXT = 2 * 1024 * 1024; // 2 MB cap
       if (stat.size > MAX_TEXT) {
+        let buf: Buffer;
         const fd = fs.openSync(resolved, "r");
-        const buf = Buffer.alloc(MAX_TEXT);
-        fs.readSync(fd, buf, 0, MAX_TEXT, 0);
-        fs.closeSync(fd);
+        try {
+          buf = Buffer.alloc(MAX_TEXT);
+          fs.readSync(fd, buf, 0, MAX_TEXT, 0);
+        } finally {
+          fs.closeSync(fd);
+        }
         return res.json({ content: buf.toString("utf-8"), size: stat.size, type: "text", ext, truncated: true });
       }
       const content = fs.readFileSync(resolved, "utf-8");
@@ -216,11 +224,20 @@ export function registerFileRoutes(app: Express) {
     if (!resolved) return res.status(400).json({ error: "Invalid path" });
     if (!fs.existsSync(resolved)) return res.status(404).json({ error: "File not found" });
 
-    const stat = fs.statSync(resolved);
-    if (stat.isDirectory()) {
-      fs.rmSync(resolved, { recursive: true, force: true });
-    } else {
-      fs.unlinkSync(resolved);
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(resolved);
+    } catch (err: any) {
+      return res.status(404).json({ error: "File not found" });
+    }
+    try {
+      if (stat.isDirectory()) {
+        fs.rmSync(resolved, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(resolved);
+      }
+    } catch (err: any) {
+      return res.status(500).json({ error: `Delete failed: ${err.message}` });
     }
 
     res.json({ ok: true, deleted: relativePath });

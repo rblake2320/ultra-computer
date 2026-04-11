@@ -14,9 +14,7 @@ import { storage } from "./storage.js";
 
 // ─── Data directory ────────────────────────────────────────────────────────────
 
-const DATA_DIR = path.resolve(
-  "/home/user/workspace/ultra-computer/data/learning"
-);
+const DATA_DIR = path.resolve(process.cwd(), "data/learning");
 const PERF_FILE = path.join(DATA_DIR, "skill-performance.json");
 const SUGGESTIONS_FILE = path.join(DATA_DIR, "improvement-suggestions.json");
 
@@ -111,7 +109,14 @@ function readPerformanceRecords(): SkillPerformanceRecord[] {
 
 function writePerformanceRecords(records: SkillPerformanceRecord[]): void {
   ensureDataDir();
-  fs.writeFileSync(PERF_FILE, JSON.stringify(records, null, 2), "utf-8");
+  const tmp = PERF_FILE + '.tmp';
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(records, null, 2), "utf-8");
+    fs.renameSync(tmp, PERF_FILE);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 function readSuggestions(): ImprovementSuggestion[] {
@@ -127,11 +132,14 @@ function readSuggestions(): ImprovementSuggestion[] {
 
 function writeSuggestions(suggestions: ImprovementSuggestion[]): void {
   ensureDataDir();
-  fs.writeFileSync(
-    SUGGESTIONS_FILE,
-    JSON.stringify(suggestions, null, 2),
-    "utf-8"
-  );
+  const tmp = SUGGESTIONS_FILE + '.tmp';
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(suggestions, null, 2), "utf-8");
+    fs.renameSync(tmp, SUGGESTIONS_FILE);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 function generateId(): string {
@@ -313,7 +321,11 @@ export function recordSkillExecution(
   if (!executionBuffer.has(skillId)) {
     executionBuffer.set(skillId, []);
   }
-  executionBuffer.get(skillId)!.push(sample);
+  const buf = executionBuffer.get(skillId)!;
+  // Cap buffer per skill at 1000 samples to prevent unbounded memory growth
+  if (buf.length < 1000) {
+    buf.push(sample);
+  }
 
   // Eagerly update the skillName in any existing record so it stays current
   const records = readPerformanceRecords();
@@ -729,7 +741,14 @@ function applyAddTriggerKeywords(suggestion: ImprovementSuggestion): boolean {
     let newKeywords: string[] = [];
     const match = suggestion.proposedChange?.match(/\[.*\]/);
     if (match) {
-      newKeywords = JSON.parse(match[0]);
+      try {
+        const parsed = JSON.parse(match[0]);
+        if (Array.isArray(parsed)) {
+          newKeywords = parsed.filter((k): k is string => typeof k === 'string');
+        }
+      } catch {
+        return false;
+      }
     }
     if (newKeywords.length === 0) return false;
 

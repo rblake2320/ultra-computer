@@ -199,7 +199,7 @@ const CHAIN_SIGNALS: ChainSignal[] = [
  * @param availableSkills  Skills currently loaded (reserved for future semantic matching)
  * @returns                Matching SkillChain or null
  */
-export function detectChain(userMessage: string, availableSkills: Skill[]): SkillChain | null {
+export function detectChain(userMessage: string): SkillChain | null {
   const lower = userMessage.toLowerCase();
 
   for (const signal of CHAIN_SIGNALS) {
@@ -234,13 +234,17 @@ export function buildChainPlan(chain: SkillChain, userMessage: string): PlanTask
   }
 
   const planTasks: PlanTask[] = chain.steps.map((step, index) => {
-    const taskId = stepIdToTaskId.get(step.stepId)!;
+    const taskId = stepIdToTaskId.get(step.stepId);
+    if (!taskId) throw new Error(`Missing taskId mapping for stepId '${step.stepId}'`);
 
     // Resolve dependency: "user" means no upstream task; any other value is a stepId
+    const upstreamId = stepIdToTaskId.get(step.inputFrom);
     const dependsOn: string[] =
       step.inputFrom === "user"
         ? []
-        : [stepIdToTaskId.get(step.inputFrom)!].filter(Boolean);
+        : upstreamId
+          ? [upstreamId]
+          : [];
 
     // Build a clear task description
     const description = buildStepDescription(step, index, userMessage, chain);

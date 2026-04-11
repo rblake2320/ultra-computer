@@ -41,7 +41,11 @@ export function registerAutonomyRoutes(app: Express) {
   // ═══════════════════════════════════════════════════════════════════════════
 
   app.get("/api/autonomy/health", (_req, res) => {
-    res.json(getHealthStatus());
+    try {
+      res.json(getHealthStatus());
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Health check failed" });
+    }
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -49,22 +53,30 @@ export function registerAutonomyRoutes(app: Express) {
   // ═══════════════════════════════════════════════════════════════════════════
 
   app.get("/api/autonomy/checkpoints", (req, res) => {
-    const status = req.query.status as string | undefined;
-    res.json(getAllCheckpoints(status));
+    try {
+      const status = req.query.status as string | undefined;
+      res.json(getAllCheckpoints(status));
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to list checkpoints" }); }
   });
 
   app.get("/api/autonomy/checkpoints/stats", (_req, res) => {
-    res.json(getCheckpointStats());
+    try {
+      res.json(getCheckpointStats());
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get checkpoint stats" }); }
   });
 
   app.get("/api/autonomy/checkpoints/resumable", (_req, res) => {
-    res.json(getResumableTasks());
+    try {
+      res.json(getResumableTasks());
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get resumable tasks" }); }
   });
 
   app.get("/api/autonomy/checkpoints/:id", (req, res) => {
-    const cp = getCheckpoint(req.params.id);
-    if (!cp) return res.status(404).json({ error: "Checkpoint not found" });
-    res.json(cp);
+    try {
+      const cp = getCheckpoint(req.params.id);
+      if (!cp) return res.status(404).json({ error: "Checkpoint not found" });
+      res.json(cp);
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get checkpoint" }); }
   });
 
   app.post("/api/autonomy/checkpoints", (req, res) => {
@@ -75,8 +87,14 @@ export function registerAutonomyRoutes(app: Express) {
   });
 
   app.patch("/api/autonomy/checkpoints/:id", (req, res) => {
-    const cp = updateCheckpoint(req.params.id, req.body);
-    res.json(cp);
+    try {
+      const body = req.body ?? {};
+      if (typeof body !== "object" || Array.isArray(body)) {
+        return res.status(400).json({ error: "Request body must be an object" });
+      }
+      const cp = updateCheckpoint(req.params.id, body);
+      res.json(cp);
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to update checkpoint" }); }
   });
 
   app.post("/api/autonomy/checkpoints/:id/advance", (req, res) => {
@@ -102,9 +120,14 @@ export function registerAutonomyRoutes(app: Express) {
   });
 
   app.post("/api/autonomy/checkpoints/abandon-stale", (req, res) => {
-    const maxStaleMs = parseInt(req.body.maxStaleMs) || undefined;
-    const abandoned = abandonStaleTasks(maxStaleMs);
-    res.json({ abandoned: abandoned.length, tasks: abandoned });
+    try {
+      const rawMs = (req.body ?? {}).maxStaleMs;
+      // Fix parseInt("0") || undefined issue: use ternary check instead of || operator
+      const parsed = parseInt(rawMs);
+      const maxStaleMs = !isNaN(parsed) && parsed > 0 ? parsed : undefined;
+      const abandoned = abandonStaleTasks(maxStaleMs);
+      res.json({ abandoned: abandoned.length, tasks: abandoned });
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to abandon stale tasks" }); }
   });
 
   app.delete("/api/autonomy/checkpoints/:id", (req, res) => {
@@ -117,21 +140,23 @@ export function registerAutonomyRoutes(app: Express) {
   // ═══════════════════════════════════════════════════════════════════════════
 
   app.get("/api/autonomy/cron", (_req, res) => {
-    res.json(getAllCronJobs());
+    try { res.json(getAllCronJobs()); } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to list cron jobs" }); }
   });
 
   app.get("/api/autonomy/cron/stats", (_req, res) => {
-    res.json(getCronStats());
+    try { res.json(getCronStats()); } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get cron stats" }); }
   });
 
   app.get("/api/autonomy/cron/enabled", (_req, res) => {
-    res.json(getEnabledJobs());
+    try { res.json(getEnabledJobs()); } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get enabled jobs" }); }
   });
 
   app.get("/api/autonomy/cron/:id", (req, res) => {
-    const job = getCronJob(req.params.id);
-    if (!job) return res.status(404).json({ error: "Cron job not found" });
-    res.json(job);
+    try {
+      const job = getCronJob(req.params.id);
+      if (!job) return res.status(404).json({ error: "Cron job not found" });
+      res.json(job);
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get cron job" }); }
   });
 
   app.post("/api/autonomy/cron", (req, res) => {
@@ -190,7 +215,7 @@ export function registerAutonomyRoutes(app: Express) {
   // ═══════════════════════════════════════════════════════════════════════════
 
   app.get("/api/autonomy/learning/stats", (_req, res) => {
-    res.json(getLearningStats());
+    try { res.json(getLearningStats()); } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get learning stats" }); }
   });
 
   app.get("/api/autonomy/learning/history", (req, res) => {
@@ -204,8 +229,18 @@ export function registerAutonomyRoutes(app: Express) {
   });
 
   app.post("/api/autonomy/learning/log", (req, res) => {
-    const entry = logExecution(req.body);
-    res.json(entry);
+    try {
+      const body = req.body ?? {};
+      if (typeof body !== "object" || Array.isArray(body)) {
+        return res.status(400).json({ error: "Request body must be an object" });
+      }
+      // Validate required fields
+      if (!body.taskType || typeof body.taskType !== "string") {
+        return res.status(400).json({ error: "taskType (string) is required" });
+      }
+      const entry = logExecution(body);
+      res.json(entry);
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to log execution" }); }
   });
 
   app.post("/api/autonomy/learning/feedback", (req, res) => {
@@ -284,8 +319,14 @@ export function registerAutonomyRoutes(app: Express) {
   });
 
   app.post("/api/autonomy/skills/improvements/:id/reject", (req, res) => {
-    rejectImprovement(req.params.id, req.body.reason);
-    res.json({ ok: true });
+    try {
+      const reason = (req.body ?? {}).reason;
+      if (reason !== undefined && typeof reason !== "string") {
+        return res.status(400).json({ error: "reason must be a string" });
+      }
+      rejectImprovement(req.params.id, typeof reason === "string" ? reason : undefined);
+      res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to reject improvement" }); }
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -293,21 +334,23 @@ export function registerAutonomyRoutes(app: Express) {
   // ═══════════════════════════════════════════════════════════════════════════
 
   app.get("/api/autonomy/dashboard", (_req, res) => {
-    const health = getHealthStatus();
-    const checkpointStats = getCheckpointStats();
-    const cronStats = getCronStats();
-    const circuitStats = circuitRegistry.getRegistryStats();
-    const learningStats = getLearningStats();
-    const skillHealth = getSkillHealth();
-    const resumable = getResumableTasks();
+    try {
+      const health = getHealthStatus();
+      const checkpointStats = getCheckpointStats();
+      const cronStats = getCronStats();
+      const circuitStats = circuitRegistry.getRegistryStats();
+      const learningStats = getLearningStats();
+      const skillHealth = getSkillHealth();
+      const resumable = getResumableTasks();
 
-    res.json({
-      health,
-      checkpoints: { ...checkpointStats, resumable: resumable.length },
-      cron: cronStats,
-      circuits: circuitStats,
-      learning: learningStats,
-      skillHealth,
-    });
+      res.json({
+        health,
+        checkpoints: { ...checkpointStats, resumable: resumable.length },
+        cron: cronStats,
+        circuits: circuitStats,
+        learning: learningStats,
+        skillHealth,
+      });
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to fetch autonomy dashboard" }); }
   });
 }

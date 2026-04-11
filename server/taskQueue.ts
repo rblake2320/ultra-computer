@@ -120,8 +120,9 @@ export class TaskQueue {
     try {
       // Test Redis connectivity with a short timeout so startup is not blocked.
       const redis = new IORedis({
-        host: "localhost",
-        port: 6379,
+        host: process.env.REDIS_HOST ?? 'localhost',
+        port: parseInt(process.env.REDIS_PORT ?? '6379'),
+        // deprecated 'host'/'port' overrides above
         maxRetriesPerRequest: null, // required by BullMQ
         enableReadyCheck: false,
         connectTimeout: 3000,
@@ -148,10 +149,14 @@ export class TaskQueue {
 
       // Separate connection instance for the worker (BullMQ requirement).
       const workerRedis = new IORedis({
-        host: "localhost",
-        port: 6379,
+        host: process.env.REDIS_HOST ?? 'localhost',
+        port: parseInt(process.env.REDIS_PORT ?? '6379'),
         maxRetriesPerRequest: null,
         enableReadyCheck: false,
+      });
+
+      workerRedis.on('error', (err) => {
+        console.error('[TaskQueue] workerRedis connection error:', err.message);
       });
 
       this.worker = new Worker<QueuedTask, string>(
@@ -177,10 +182,14 @@ export class TaskQueue {
 
       // QueueEvents for advanced state tracking (separate connection).
       const eventsRedis = new IORedis({
-        host: "localhost",
-        port: 6379,
+        host: process.env.REDIS_HOST ?? 'localhost',
+        port: parseInt(process.env.REDIS_PORT ?? '6379'),
         maxRetriesPerRequest: null,
         enableReadyCheck: false,
+      });
+
+      eventsRedis.on('error', (err) => {
+        console.error('[TaskQueue] eventsRedis connection error:', err.message);
       });
 
       this.queueEvents = new QueueEvents("ultra-tasks", {
@@ -236,7 +245,8 @@ export class TaskQueue {
           `(${task.estimatedDuration} duration)`
       );
 
-      return job.id!;
+      return job.id ?? `enqueued:${task.taskId}:${Date.now()}`;
+      // job.id is always set by BullMQ for newly added jobs
     } catch (err: any) {
       console.error("[TaskQueue] Failed to enqueue task:", err?.message ?? err);
       // Graceful degradation — don't crash callers.

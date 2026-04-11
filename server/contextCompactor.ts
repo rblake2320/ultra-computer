@@ -33,7 +33,7 @@ export function estimateTokens(text: string): number {
 
 function estimateMessageTokens(msg: ChatMessage): number {
   // Add 4 tokens overhead per message for role + structure tokens
-  return estimateTokens(msg.content) + 4;
+  return estimateTokens(msg.content ?? '') + 4;
 }
 
 function estimateConversationTokens(messages: ChatMessage[]): number {
@@ -81,7 +81,8 @@ async function summarizeOldMessages(
     .map((m) => {
       const roleLabel = m.role === "user" ? "User" : "Assistant";
       // Truncate very long individual messages for the summarization prompt itself
-      const excerpt = m.content.length > 2000 ? m.content.slice(0, 2000) + "…[truncated]" : m.content;
+      const content = m.content ?? '';
+      const excerpt = content.length > 2000 ? content.slice(0, 2000) + "…[truncated]" : content;
       return `${roleLabel}: ${excerpt}`;
     })
     .join("\n\n");
@@ -113,12 +114,14 @@ async function summarizeOldMessages(
       role: "system",
       content: `[Compressed earlier conversation summary]\n${response.content}`,
     };
-  } catch {
+  } catch (err) {
+    console.error('[contextCompactor] summarizeOldMessages failed:', err);
     // Fallback: produce a minimal text summary without calling the LLM
     const fallback = oldMessages
       .map((m) => {
         const roleLabel = m.role === "user" ? "User" : "Asst";
-        return `${roleLabel}: ${m.content.slice(0, 150)}${m.content.length > 150 ? "…" : ""}`;
+        const content = m.content ?? '';
+        return `${roleLabel}: ${content.slice(0, 150)}${content.length > 150 ? "…" : ""}`;
       })
       .join(" | ");
 

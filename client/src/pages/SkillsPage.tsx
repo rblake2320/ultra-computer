@@ -17,7 +17,7 @@ export function SkillsPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", content: "", triggerKeywords: "" });
 
-  const { data: skills = [] } = useQuery<Skill[]>({ queryKey: ["/api/skills"] });
+  const { data: skills = [], isLoading: skillsLoading, isError: skillsError } = useQuery<Skill[]>({ queryKey: ["/api/skills"] });
 
   const createSkill = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/skills", data),
@@ -34,6 +34,7 @@ export function SkillsPage() {
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
       apiRequest("PATCH", `/api/skills/${id}`, { enabled }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/skills"] }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const deleteSkill = useMutation({
@@ -44,6 +45,22 @@ export function SkillsPage() {
 
   const builtIn = skills.filter(s => s.isBuiltIn);
   const custom = skills.filter(s => !s.isBuiltIn);
+
+  if (skillsLoading) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+        Loading skills...
+      </div>
+    );
+  }
+
+  if (skillsError) {
+    return (
+      <div className="p-8 text-center text-muted-foreground">
+        Failed to load skills. Please try again.
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">

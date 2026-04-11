@@ -95,8 +95,10 @@ async function executeGenerateImage(
   args: Record<string, string>,
   start: number
 ): Promise<ToolResult> {
-  const { prompt, size = "512x512", quality = "standard" } = args;
-  const n = Math.min(4, Math.max(1, parseInt(args.n || "1", 10)));
+  const { prompt, quality = "standard" } = args;
+  const ALLOWED_SIZES = ["256x256", "512x512", "1024x1024", "1024x1792", "1792x1024"];
+  const size = ALLOWED_SIZES.includes(args.size) ? args.size : "512x512";
+  const n = Math.min(4, Math.max(1, parseInt(args.n || '1', 10) || 1));
 
   if (!prompt || prompt.trim().length === 0) {
     return {
@@ -255,7 +257,7 @@ async function executeGenerateImage(
  * Download a file from a URL and save it to disk.
  * Uses Node's built-in http/https modules to avoid extra dependencies.
  */
-function downloadFile(url: string, dest: string): Promise<void> {
+function downloadFile(url: string, dest: string, hopCount = 0): Promise<void> {
   return new Promise((resolve, reject) => {
     const parsedUrl = new URL(url);
     const client = parsedUrl.protocol === "https:" ? https : http;
@@ -270,7 +272,11 @@ function downloadFile(url: string, dest: string): Promise<void> {
         response.headers.location
       ) {
         response.destroy();
-        downloadFile(response.headers.location, dest).then(resolve, reject);
+        if (hopCount >= 5) {
+          reject(new Error('Too many redirects (max 5)'));
+          return;
+        }
+        downloadFile(response.headers.location, dest, hopCount + 1).then(resolve, reject);
         return;
       }
 

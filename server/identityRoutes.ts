@@ -500,7 +500,9 @@ export function registerIdentityRoutes(app: Express): void {
       const identity = identityEngine.identityEngine.getIdentity(cryptoId);
       if (!identity)
         return res.status(404).json({ error: "Identity not found" });
-      res.json(identity);
+      // Strip keyMaterial from the response to never expose key material externally
+      const { crypto: { keyMaterial: _km, ...cryptoSafe }, ...rest } = identity;
+      res.json({ ...rest, crypto: cryptoSafe });
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to fetch identity" });
     }

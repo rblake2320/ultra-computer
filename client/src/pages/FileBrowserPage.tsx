@@ -536,7 +536,7 @@ export function FileBrowserPage() {
       {/* File metadata strip */}
       {selectedEntry && selectedEntry.type === "file" && (
         <div className="mx-4 mt-1 flex items-center gap-3 px-3 py-1.5 rounded bg-muted/50 text-xs text-muted-foreground" data-testid="file-metadata">
-          <Badge variant="outline" className="text-xs">{selectedEntry.ext.toUpperCase() || "FILE"}</Badge>
+          <Badge variant="outline" className="text-xs">{(selectedEntry.ext || "FILE").toUpperCase()}</Badge>
           <span>{formatSize(selectedEntry.size)}</span>
           <Separator orientation="vertical" className="h-3" />
           <span>Modified {formatDate(selectedEntry.modified)}</span>
@@ -572,9 +572,15 @@ export function FileBrowserPage() {
 
           {/* Stats */}
           <div className="px-3 py-1.5 border-b border-border flex gap-2 text-xs text-muted-foreground">
-            <span data-testid="stats-files">{totalFiles} file{totalFiles !== 1 ? "s" : ""}</span>
-            <span>·</span>
-            <span data-testid="stats-dirs">{totalDirs} folder{totalDirs !== 1 ? "s" : ""}</span>
+            {isLoading ? (
+              <span>Loading...</span>
+            ) : (
+              <>
+                <span data-testid="stats-files">{totalFiles} file{totalFiles !== 1 ? "s" : ""}</span>
+                <span>·</span>
+                <span data-testid="stats-dirs">{totalDirs} folder{totalDirs !== 1 ? "s" : ""}</span>
+              </>
+            )}
           </div>
 
           {/* Tree */}

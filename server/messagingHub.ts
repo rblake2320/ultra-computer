@@ -195,10 +195,13 @@ class SlackAdapter implements ChannelAdapter {
   type: ChannelType = "slack";
 
   /**
-   * Builds a real Slack Block Kit chat.postMessage payload and stores it.
-   * Actual HTTP delivery is handled by the routes layer via the Slack connector.
+   * STUB: Builds a Slack Block Kit payload and stores it on message metadata.
+   * Actual HTTP delivery is NOT implemented here — this is a stub that prepares
+   * the payload for the routes layer to send via a connected Slack integration.
+   * TODO: wire up real Slack API calls when a Slack connector is available.
    */
   async send(payload: OutboundMessage): Promise<SendResult> {
+    console.warn("[MessagingHub] SlackAdapter.send() is a stub — message is prepared but not actually delivered to Slack");
     const channelTarget = payload.metadata?.slackChannel ?? payload.recipient ?? "#general";
 
     try {
@@ -412,10 +415,13 @@ class GmailAdapter implements ChannelAdapter {
   type: ChannelType = "gmail";
 
   /**
-   * Formats an email and stores the Gmail send_email API payload on metadata.
-   * Actual delivery is handled by the routes layer via the Gmail connector.
+   * STUB: Formats a Gmail payload and stores it on message metadata.
+   * Actual delivery is NOT implemented here — this is a stub that prepares
+   * the payload for the routes layer to send via a connected Gmail integration.
+   * TODO: wire up real Gmail API calls when a Gmail connector is available.
    */
   async send(payload: OutboundMessage): Promise<SendResult> {
+    console.warn("[MessagingHub] GmailAdapter.send() is a stub — message is prepared but not actually delivered via Gmail");
     if (!payload.recipient) {
       return { ok: false, error: "No recipient specified for Gmail channel", retryable: false };
     }
@@ -1083,33 +1089,43 @@ class MessageQueue {
   }
 
   private async _processQueue(): Promise<void> {
-    const now = Date.now();
-    const ready = this.queue.filter(
-      (e) =>
-        (e.delivery.status === "queued" || e.delivery.status === "retried") &&
-        e.nextRetryAt <= now
-    );
+    try {
+      const now = Date.now();
+      const ready = this.queue.filter(
+        (e) =>
+          (e.delivery.status === "queued" || e.delivery.status === "retried") &&
+          e.nextRetryAt <= now
+      );
 
-    for (const entry of ready) {
-      await this._deliver(entry);
-    }
+      for (const entry of ready) {
+        await this._deliver(entry);
+      }
 
-    // Remove fully settled entries
-    this.queue = this.queue.filter(
-      (e) => e.delivery.status !== "sent" && e.delivery.status !== "failed"
-    );
+      // Remove fully settled entries
+      this.queue = this.queue.filter(
+        (e) => e.delivery.status !== "sent" && e.delivery.status !== "failed"
+      );
 
-    // If there are still retryable entries, schedule another pass
-    const hasPending = this.queue.some(
-      (e) => e.delivery.status === "queued" || e.delivery.status === "retried"
-    );
+      // If there are still retryable entries, schedule another pass
+      const hasPending = this.queue.some(
+        (e) => e.delivery.status === "queued" || e.delivery.status === "retried"
+      );
 
-    if (hasPending) {
-      const nextRetry = Math.min(...this.queue.map((e) => e.nextRetryAt));
-      const delay = Math.max(0, nextRetry - Date.now());
-      setTimeout(() => this._processQueue(), delay);
-    } else {
-      this.processing = false;
+      if (hasPending) {
+        const nextRetry = Math.min(...this.queue.map((e) => e.nextRetryAt));
+        const delay = Math.max(0, nextRetry - Date.now());
+        setTimeout(() => this._processQueue(), delay);
+      } else {
+        this.processing = false;
+      }
+    } finally {
+      // Always reset processing flag so queue doesn’t get stuck on unexpected errors
+      if (this.processing) {
+        const hasPending = this.queue.some(
+          (e) => e.delivery.status === "queued" || e.delivery.status === "retried"
+        );
+        if (!hasPending) this.processing = false;
+      }
     }
   }
 
@@ -1161,6 +1177,7 @@ class MessagingHub extends EventEmitter {
   private messagesSent = 0;
   private messagesReceived = 0;
   private inboundHistory: Array<any> = [];
+  private readonly MAX_INBOUND_HISTORY = 500;
 
   // Built-in conversation tracking: conversationId → channel IDs
   private conversations = new Map<string, Set<string>>();
@@ -1178,10 +1195,42 @@ class MessagingHub extends EventEmitter {
   // ──────────────────────────────────────────
 
   /**
+   * Validates a webhook URL is safe (https:// or http://, no private IPs).
+   * Returns null if valid, or an error string if blocked.
+   */
+  private _validateWebhookUrl(url: unknown): string | null {
+    if (typeof url !== "string") return null; // no URL present, skip
+    let parsed: URL;
+    try { parsed = new URL(url); } catch { return `Invalid webhook URL: ${url}`; }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return "Webhook URL must use http:// or https://";
+    }
+    const h = parsed.hostname;
+    if (h === "localhost" || h === "::1" || h.startsWith("127.") || h.startsWith("169.254.")) {
+      return "Webhook URL points to a private/loopback address";
+    }
+    const parts = h.split(".").map(Number);
+    if (parts.length === 4 && parts.every((n) => !isNaN(n) && n >= 0 && n <= 255)) {
+      const [a, b] = parts;
+      if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) {
+        return "Webhook URL points to a private IP range";
+      }
+    }
+    return null;
+  }
+
+  /**
    * Registers a new messaging channel.
    * Returns the created channel with a generated ID.
+   * Validates webhook URLs to prevent SSRF.
    */
   registerChannel(params: any): Channel {
+    // Validate webhook URL if present in config
+    if (params.type === "webhook" || params.config?.url || params.config?.webhookUrl) {
+      const urlToCheck = params.config?.url ?? params.config?.webhookUrl;
+      const urlErr = this._validateWebhookUrl(urlToCheck);
+      if (urlErr) throw new Error(urlErr);
+    }
     const channel: Channel = {
       id: params.id ?? uuidv4(),
       type: params.type ?? "webhook",
@@ -1294,6 +1343,11 @@ class MessagingHub extends EventEmitter {
       return { deliveryId: "", ok: false, error: `No adapter for type: ${channel.type}` };
     }
 
+    // Validate content is a non-empty string
+    if (!content || typeof content !== "string" || content.trim().length === 0) {
+      return { deliveryId: "", ok: false, error: "content must be a non-empty string" };
+    }
+
     const message: OutboundMessage = {
       id: uuidv4(),
       channelId,
@@ -1390,9 +1444,9 @@ class MessagingHub extends EventEmitter {
     if (typeof channelIdOrObj === "object") {
       const parsed = channelIdOrObj;
       this.messagesReceived++;
-      // Store in inbound history
+      // Store in inbound history (capped at MAX_INBOUND_HISTORY)
       this.inboundHistory.push({ ...parsed, receivedAt: Date.now() });
-      if (this.inboundHistory.length > 500) this.inboundHistory.shift();
+      if (this.inboundHistory.length > this.MAX_INBOUND_HISTORY) this.inboundHistory.shift();
       this.emit("message_received", parsed);
       const conversationId = parsed.threadId ?? uuidv4();
       return { conversationId, message: parsed };
@@ -1411,7 +1465,7 @@ class MessagingHub extends EventEmitter {
 
     this.messagesReceived++;
     this.inboundHistory.push({ ...message, receivedAt: Date.now() });
-    if (this.inboundHistory.length > 500) this.inboundHistory.shift();
+    if (this.inboundHistory.length > this.MAX_INBOUND_HISTORY) this.inboundHistory.shift();
     this.emit("message_received", message);
 
     let conversationId =

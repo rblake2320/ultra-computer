@@ -95,9 +95,9 @@ export function ModelsPage() {
   const [connectingId, setConnectingId] = useState<string | null>(null);
 
   // Queries
-  const { data: models = [] } = useQuery<Model[]>({ queryKey: ["/api/models"] });
-  const { data: providers = [] } = useQuery<ProviderInfo[]>({ queryKey: ["/api/models/providers"] });
-  const { data: envVars = [] } = useQuery<EnvVarInfo[]>({ queryKey: ["/api/models/env-vars"] });
+  const { data: models = [], isLoading: modelsLoading, isError: modelsError } = useQuery<Model[]>({ queryKey: ["/api/models"] });
+  const { data: providers = [], isLoading: providersLoading, isError: providersError } = useQuery<ProviderInfo[]>({ queryKey: ["/api/models/providers"] });
+  const { data: envVars = [], isLoading: envVarsLoading, isError: envVarsError } = useQuery<EnvVarInfo[]>({ queryKey: ["/api/models/env-vars"] });
 
   // Quick-add form state
   const [qaProvider, setQaProvider] = useState("");
@@ -146,6 +146,7 @@ export function ModelsPage() {
   const deleteModel = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/models/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/models"] }); toast({ title: "Model removed" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const connectModelMutation = useMutation({
@@ -156,21 +157,25 @@ export function ModelsPage() {
       if (data.ok) toast({ title: "Connected" });
       else toast({ title: "Connection failed", description: data.error, variant: "destructive" });
     },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const disconnectMutation = useMutation({
     mutationFn: (id: string) => apiRequest("POST", `/api/models/${id}/disconnect`, {}),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/models"] }); toast({ title: "Disconnected" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const setDefault = useMutation({
     mutationFn: (id: string) => apiRequest("PATCH", `/api/models/${id}`, { isDefault: true }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/models"] }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const setOrchestrator = useMutation({
     mutationFn: (id: string) => apiRequest("PATCH", `/api/models/${id}`, { isOrchestrator: true }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/models"] }),
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const testModel = async (id: string) => {
@@ -212,6 +217,22 @@ export function ModelsPage() {
   // ═══════════════════════════════════════════════════════════════════════════
   // Render
   // ═══════════════════════════════════════════════════════════════════════════
+
+  if (modelsLoading || providersLoading) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+        <Loader2 className="w-5 h-5 animate-spin mr-2" />Loading models...
+      </div>
+    );
+  }
+
+  if (modelsError || providersError) {
+    return (
+      <div className="p-8 text-center text-muted-foreground">
+        Failed to load models. Please try again.
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -766,7 +787,7 @@ export function ModelsPage() {
               </div>
             </div>
             <div className="flex gap-2 mt-4">
-              <Button size="sm" onClick={() => createModel.mutate(form)} disabled={!form.name || !form.modelId}
+              <Button size="sm" onClick={() => createModel.mutate(form)} disabled={!form.name.trim() || !form.modelId.trim()}
                 data-testid="button-create-model">
                 Add Model
               </Button>

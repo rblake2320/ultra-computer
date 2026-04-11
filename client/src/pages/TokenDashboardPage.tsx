@@ -426,12 +426,12 @@ export function TokenDashboardPage() {
   const [modelFilter, setModelFilter] = useState<string>("all");
 
   // Fetch all conversations (for session titles)
-  const { data: conversations = [], isLoading: loadingConvs } = useQuery<Conversation[]>({
+  const { data: conversations = [], isLoading: loadingConvs, isError: convsError } = useQuery<Conversation[]>({
     queryKey: ["/api/conversations"],
   });
 
   // Fetch all agent runs in a single request
-  const { data: allRuns = [], isLoading: loadingRuns } = useQuery<AgentRun[]>({
+  const { data: allRuns = [], isLoading: loadingRuns, isError: runsError } = useQuery<AgentRun[]>({
     queryKey: ["/api/all-agent-runs"],
     queryFn: () => apiRequest("GET", "/api/all-agent-runs"),
     staleTime: 30_000,
@@ -478,6 +478,14 @@ export function TokenDashboardPage() {
     if (modelFilter === "all") return dateFilteredRuns;
     return dateFilteredRuns.filter(r => r.modelId === modelFilter);
   }, [dateFilteredRuns, modelFilter]);
+
+  if (convsError || runsError) {
+    return (
+      <div className="p-8 text-center text-muted-foreground">
+        Failed to load token data. Please try again.
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-screen-2xl mx-auto">

@@ -133,12 +133,13 @@ export function registerNIPRoutes(app: Express): void {
    * Body: { instructorProfile, executorProfile, taskScope?, accessTier? }
    */
   app.post("/api/nip/sessions", (req: Request, res: Response) => {
-    const { instructorProfile, executorProfile, taskScope, accessTier } = req.body;
+    const body = req.body ?? {};
+    const { instructorProfile, executorProfile, taskScope, accessTier } = body;
 
-    if (!instructorProfile || typeof instructorProfile !== "object") {
+    if (!instructorProfile || typeof instructorProfile !== "object" || Array.isArray(instructorProfile)) {
       return res.status(400).json({ error: "instructorProfile (object) is required" });
     }
-    if (!executorProfile || typeof executorProfile !== "object") {
+    if (!executorProfile || typeof executorProfile !== "object" || Array.isArray(executorProfile)) {
       return res.status(400).json({ error: "executorProfile (object) is required" });
     }
     if (accessTier !== undefined) {
@@ -303,7 +304,7 @@ export function registerNIPRoutes(app: Express): void {
    */
   app.post("/api/nip/sessions/:id/pause", (req: Request, res: Response) => {
     const { id } = req.params;
-    const { reason } = req.body;
+    const { reason } = req.body ?? {};
 
     const reasonErr = requireString(reason, "reason", 1000);
     if (reasonErr) return res.status(400).json({ error: reasonErr });
@@ -339,7 +340,7 @@ export function registerNIPRoutes(app: Express): void {
    */
   app.post("/api/nip/sessions/:id/terminate", (req: Request, res: Response) => {
     const { id } = req.params;
-    const { reason } = req.body;
+    const { reason } = req.body ?? {};
 
     const reasonErr = requireString(reason, "reason", 1000);
     if (reasonErr) return res.status(400).json({ error: reasonErr });
@@ -550,7 +551,7 @@ export function registerNIPRoutes(app: Express): void {
    * Body: { organizationId, requestedScope }
    */
   app.post("/api/nip/access/validate", (req: Request, res: Response) => {
-    const { organizationId, requestedScope } = req.body;
+    const { organizationId, requestedScope } = req.body ?? {};
 
     const orgIdErr = requireString(organizationId, "organizationId");
     if (orgIdErr) return res.status(400).json({ error: orgIdErr });

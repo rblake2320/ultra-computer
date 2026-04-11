@@ -36,9 +36,9 @@ export function registerCacheRoutes(app: Express): void {
       const stats = cacheEngine.getStats();
       // Return the effective config from stats
       res.json({
-        exactCache: { enabled: stats.exact.entries > 0 || true },
-        prefixOptimizer: { enabled: true },
-        semanticCache: { enabled: stats.semantic.entries > 0 || true },
+        exactCache: { enabled: stats.exact.entries > 0 },
+        prefixOptimizer: { enabled: stats.prefix.entries > 0 },
+        semanticCache: { enabled: stats.semantic.entries > 0 },
         totalEntries: stats.exact.entries + stats.semantic.entries,
       });
     } catch (err) {
@@ -50,12 +50,17 @@ export function registerCacheRoutes(app: Express): void {
   // ─── POST /api/cache/clear — Clear cache (optionally by tier) ──────────
   app.post("/api/cache/clear", (req: Request, res: Response) => {
     try {
-      const { tier, modelId } = req.body as { tier?: "exact" | "prefix" | "semantic"; modelId?: string };
+      const { tier, modelId } = req.body as { tier?: string; modelId?: string };
+      // Validate tier against allowed values
+      const ALLOWED_TIERS = ["exact", "prefix", "semantic"] as const;
+      if (tier !== undefined && !ALLOWED_TIERS.includes(tier as typeof ALLOWED_TIERS[number])) {
+        return res.status(400).json({ error: `tier must be one of: ${ALLOWED_TIERS.join(", ")}` });
+      }
       if (modelId) {
         cacheEngine.clearForModel(modelId);
         res.json({ cleared: true, scope: `model:${modelId}` });
       } else if (tier) {
-        cacheEngine.clear(tier);
+        cacheEngine.clear(tier as "exact" | "prefix" | "semantic");
         res.json({ cleared: true, scope: tier });
       } else {
         cacheEngine.clear();
@@ -100,15 +105,16 @@ export function registerCacheRoutes(app: Express): void {
       const stats = cacheEngine.getStats();
       const memory = cacheEngine.getMemoryUsage();
       
-      const totalRequests = stats.exact.hits + stats.exact.misses + stats.semantic.hits + stats.semantic.misses;
-      const totalHits = stats.exact.hits + stats.semantic.hits;
-      const overallHitRate = totalRequests > 0 ? totalHits / totalRequests : 0;
+      // Use totalHits and overallHitRate directly from stats (correctly computed)
+      const totalRequests = stats.totalHits + stats.totalMisses;
+
+
       
       res.json({
         overview: {
           totalRequests,
-          totalHits,
-          overallHitRate,
+          totalHits: stats.totalHits,
+          overallHitRate: stats.overallHitRate,
           estimatedSavingsUSD: stats.estimatedCostSavings,
           totalTokensSaved: (stats.exact.estimatedBytesSaved || 0) + (stats.semantic.estimatedBytesSaved || 0),
         },

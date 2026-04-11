@@ -69,7 +69,9 @@ export type HealthStatusCode = "healthy" | "degraded" | "unhealthy";
 export interface HealthStatus {
   status: HealthStatusCode;
   uptime: number;           // seconds
+  uptimeMs: number;         // milliseconds
   uptimeHuman: string;      // e.g. "2d 3h 14m 05s"
+  pid: number;              // process ID
   memoryUsage: {
     rss: number;            // bytes
     heapUsed: number;       // bytes
@@ -77,6 +79,7 @@ export interface HealthStatus {
     external: number;       // bytes
   };
   eventLoopLag: number;     // ms (last measured)
+  eventLoopLagMs: number;   // alias for eventLoopLag
   lastHeartbeat: string | null;  // ISO timestamp
   restartCount: number;
   activeConnections: number;
@@ -304,8 +307,8 @@ export function initWatchdog(server: http.Server): void {
 
   _server = server;
 
-  // On first boot, increment crash counter (represents a (re)start)
-  incrementRestartCount();
+  // On first boot, load existing restart count (do NOT increment — that only happens on crash paths)
+  loadRestartCount();
 
   // Track open connections
   trackConnections(server);

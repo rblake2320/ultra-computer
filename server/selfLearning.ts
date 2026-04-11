@@ -16,9 +16,7 @@ import crypto from "crypto";
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
-const DATA_DIR = path.resolve(
-  "/home/user/workspace/ultra-computer/data/learning"
-);
+const DATA_DIR = path.resolve(process.cwd(), "data/learning");
 const EXECUTION_LOG_PATH = path.join(DATA_DIR, "execution-log.json");
 const RULES_PATH = path.join(DATA_DIR, "rules.json");
 
@@ -172,8 +170,14 @@ function readJson<T>(filePath: string, defaultValue: T): T {
 function writeJson(filePath: string, data: unknown): void {
   ensureDir();
   const tmp = filePath + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), "utf-8");
-  fs.renameSync(tmp, filePath);
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), "utf-8");
+    fs.renameSync(tmp, filePath);
+  } catch (err) {
+    // Clean up orphaned .tmp file on failure
+    try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 // ─── Execution Log ────────────────────────────────────────────────────────────
@@ -321,7 +325,7 @@ export function getLearningStats(): LearningStats {
   // lastAnalysisAt: max createdAt across rules
   const lastAnalysisAt =
     rules.length > 0
-      ? Math.max(...rules.map((r) => r.lastValidatedAt))
+      ? rules.reduce((max, r) => Math.max(max, r.lastValidatedAt), 0)
       : null;
 
   return {

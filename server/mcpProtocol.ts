@@ -32,8 +32,8 @@ const SERVER_VERSION = "1.0.0";
  * The token is logged so the operator can configure MCP clients.
  */
 const MCP_BEARER_TOKEN = crypto.randomBytes(32).toString("hex");
-console.log(`[mcpProtocol] MCP server bearer token: ${MCP_BEARER_TOKEN}`);
-console.log(`[mcpProtocol] Set the Authorization header to: Bearer ${MCP_BEARER_TOKEN}`);
+// NOTE: Bearer token is intentionally NOT logged to prevent credential exposure in logs.
+// Retrieve it via getMCPBearerToken() for initial client configuration.
 
 /**
  * Validates the Authorization header of an incoming MCP request.
@@ -399,7 +399,7 @@ async function handleResourceRead(uri: string): Promise<{ uri: string; mimeType:
             provider: model.provider,
             modelId: model.modelId,
             enabled: model.enabled,
-            capabilities: JSON.parse((model.capabilities as string) || "[]"),
+            capabilities: (() => { try { return JSON.parse((model.capabilities as string) || "[]"); } catch { return []; } })(),
             contextWindow: model.contextWindow,
             isDefault: model.isDefault,
             isOrchestrator: model.isOrchestrator,
@@ -677,7 +677,18 @@ export async function handleMCPRequest(
         return rpcOk(id, { tools: UC_MCP_TOOLS });
 
       case "tools/call": {
+        // Validate params is an object
+        if (!params || typeof params !== "object" || Array.isArray(params)) {
+          return rpcError(id, RPC_ERRORS.INVALID_PARAMS, "tools/call params must be an object");
+        }
         const toolName = params.name as string;
+
+        // Validate arguments is a plain object
+        if (params.arguments !== undefined) {
+          if (typeof params.arguments !== "object" || Array.isArray(params.arguments) || params.arguments === null) {
+            return rpcError(id, RPC_ERRORS.INVALID_PARAMS, "tools/call arguments must be a plain object");
+          }
+        }
         const toolArgs = (params.arguments || {}) as Record<string, string>;
 
         if (!toolName) {

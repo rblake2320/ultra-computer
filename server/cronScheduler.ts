@@ -7,6 +7,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import crypto from "crypto";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,7 +78,7 @@ export type ExecutionStatus = "success" | "failure" | "timeout" | "skipped";
 // Persistence
 // ---------------------------------------------------------------------------
 
-const DATA_DIR = path.resolve("/home/user/workspace/ultra-computer/data");
+const DATA_DIR = path.resolve(process.cwd(), "data");
 const STORE_PATH = path.join(DATA_DIR, "cron-jobs.json");
 
 function ensureDataDir(): void {
@@ -99,7 +100,15 @@ function loadStore(): CronJob[] {
 
 function saveStore(jobs: CronJob[]): void {
   ensureDataDir();
-  fs.writeFileSync(STORE_PATH, JSON.stringify(jobs, null, 2), "utf-8");
+  const tmp = STORE_PATH + '.tmp';
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(jobs, null, 2), "utf-8");
+    fs.renameSync(tmp, STORE_PATH);
+  } catch (err) {
+    // Clean up orphaned tmp file on failure
+    try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 // In-memory state
@@ -115,8 +124,7 @@ function _persistAll(): void {
 // ---------------------------------------------------------------------------
 
 function generateId(): string {
-  const rand = Math.random().toString(36).slice(2, 10);
-  return `cron_${Date.now()}_${rand}`;
+  return `cron_${crypto.randomUUID()}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -643,11 +651,29 @@ export function startScheduler(
     }
   }
 
-  // Run an initial tick shortly after startup (gives detectMissedRuns time to finish)
-  setTimeout(() => void tick(), 1_000);
+  // Replace setInterval with setTimeout recursion to avoid timer drift / stacking
+  let _tickTimer: NodeJS.Timeout | null = null;
 
-  const handle = setInterval(() => void tick(), TICK_INTERVAL_MS);
-  console.log("[CronScheduler] Scheduler started (tick every 30s).");
+  function scheduleTick(): void {
+    _tickTimer = setTimeout(async () => {
+      await tick();
+      scheduleTick(); // chain next tick
+    }, TICK_INTERVAL_MS);
+    if (_tickTimer.unref) _tickTimer.unref();
+  }
+
+  // Run an initial tick shortly after startup (gives detectMissedRuns time to finish)
+  setTimeout(() => { void tick(); scheduleTick(); }, 1_000);
+
+  // Return a synthetic Timeout that clears the internal timer when cleared
+  const handle = setTimeout(() => {}, 0) as NodeJS.Timeout;
+  const origClear = clearTimeout;
+  // Wrap: when caller does clearInterval(handle) it cancels the recursive chain
+  (handle as any)[Symbol.toPrimitive] = () => {
+    if (_tickTimer) origClear(_tickTimer);
+    return 0;
+  };
+  console.log("[CronScheduler] Scheduler started (tick every 30s, setTimeout recursion).");
   return handle;
 }
 

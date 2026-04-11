@@ -84,7 +84,8 @@ function buildConversationSection(messages: Message[]): string {
         : `### ${msg.role.charAt(0).toUpperCase() + msg.role.slice(1)}`;
 
     const timestamp = `<sub>${formatDate(msg.createdAt)}</sub>`;
-    parts.push(`${roleLabel} ${timestamp}\n\n${msg.content}`);
+    const content = msg.content ?? '';
+    parts.push(`${roleLabel} ${timestamp}\n\n${content}`);
   }
 
   return parts.join("\n\n---\n\n") + "\n";
@@ -138,14 +139,21 @@ export function registerExportRoutes(app: Express): void {
   app.get("/api/conversations/:id/export", (req, res) => {
     const { id } = req.params;
 
-    const conversation: Conversation | undefined = storage.getConversation(id);
-    if (!conversation) {
-      return res.status(404).json({ error: "Conversation not found" });
+    let conversation: Conversation | undefined;
+    let messages: ReturnType<typeof storage.getMessages>;
+    let tasks: ReturnType<typeof storage.getTasks>;
+    let agentRuns: ReturnType<typeof storage.getAgentRuns>;
+    try {
+      conversation = storage.getConversation(id);
+      if (!conversation) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+      messages = storage.getMessages(id);
+      tasks = storage.getTasks(id);
+      agentRuns = storage.getAgentRuns(id);
+    } catch (err: any) {
+      return res.status(500).json({ error: `Storage error: ${err?.message ?? err}` });
     }
-
-    const messages = storage.getMessages(id);
-    const tasks = storage.getTasks(id);
-    const agentRuns = storage.getAgentRuns(id);
 
     const createdDate = formatDate(conversation.createdAt);
     const updatedDate = formatDate(conversation.updatedAt);
@@ -191,6 +199,12 @@ export function registerExportRoutes(app: Express): void {
       .replace(/\s+/g, "_")
       .slice(0, 60);
     const filename = `session_${safeTitle || id.slice(0, 8)}_${Date.now()}.md`;
+
+    const MAX_RESPONSE_BYTES = 50 * 1024 * 1024; // 50 MB
+    const docBytes = Buffer.byteLength(doc, 'utf-8');
+    if (docBytes > MAX_RESPONSE_BYTES) {
+      return res.status(413).json({ error: 'Export too large (exceeds 50 MB)' });
+    }
 
     res.setHeader("Content-Type", "text/markdown; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);

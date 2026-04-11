@@ -26,7 +26,7 @@ export function MemoryPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ content: "", summary: "", category: "general", importance: 0.7 });
 
-  const { data: memories = [] } = useQuery<Memory[]>({ queryKey: ["/api/memory"] });
+  const { data: memories = [], isLoading: memoriesLoading, isError: memoriesError } = useQuery<Memory[]>({ queryKey: ["/api/memory"] });
 
   const createMemory = useMutation({
     mutationFn: (data: any) => apiRequest("POST", "/api/memory", data),
@@ -49,13 +49,30 @@ export function MemoryPage() {
     mutationFn: (query: string) => apiRequest("POST", "/api/memory/search", { query }),
   });
 
-  const displayed = searchResults || memories;
+  const safeSearchResults = Array.isArray(searchResults) ? searchResults : memories;
+  const displayed = searchResults ? safeSearchResults : memories;
   const filtered = searchQuery && !searchResults
     ? memories.filter(m =>
         m.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (m.summary || "").toLowerCase().includes(searchQuery.toLowerCase())
       )
     : displayed;
+
+  if (memoriesLoading) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+        Loading memories...
+      </div>
+    );
+  }
+
+  if (memoriesError) {
+    return (
+      <div className="p-8 text-center text-muted-foreground">
+        Failed to load memories. Please try again.
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">

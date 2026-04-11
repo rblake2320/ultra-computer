@@ -80,7 +80,9 @@ function scoreRatingBayesian(skill: MarketplaceSkill): { bayesian: number; score
   const m = BAYESIAN_PRIOR_MEAN;
   const n = skill.ratingCount;
   const sum = skill.ratingSum;
-  const bayesian = n > 0 ? (C * m + sum) / (C + n) : 0;
+  // When n === 0, the formula naturally gives (C * m) / C = m (the prior mean).
+  // No special guard needed; do NOT short-circuit to 0 when there are no ratings.
+  const bayesian = (C * m + sum) / (C + n);
   // Map 0–5 bayesian → 0–100
   const score = (bayesian / 5) * 100;
   return { bayesian: +bayesian.toFixed(2), score };

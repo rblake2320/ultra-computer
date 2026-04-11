@@ -233,7 +233,7 @@ function CronPanel({ stats }: { stats: CronStats }) {
 // ─── Circuit Breakers Panel ─────────────────────────────────────────────────
 
 function CircuitBreakersPanel({ circuits }: { circuits: Record<string, { state: string; failures: number; totalCalls: number }> }) {
-  const entries = Object.entries(circuits);
+  const entries = Object.entries(circuits ?? {});
 
   return (
     <Card className="p-4">
@@ -364,7 +364,7 @@ export function AutonomyPage() {
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState("overview");
 
-  const { data: dashboard, isLoading } = useQuery<DashboardData>({
+  const { data: dashboard, isLoading, isError: dashboardError } = useQuery<DashboardData>({
     queryKey: ["/api/autonomy/dashboard"],
     refetchInterval: 10000, // auto-refresh every 10s
   });
@@ -394,9 +394,18 @@ export function AutonomyPage() {
       qc.invalidateQueries({ queryKey: ["/api/autonomy/dashboard"] });
       toast({ title: `Abandoned ${data?.abandoned || 0} stale tasks` });
     },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  if (isLoading || !dashboard) {
+  if (dashboardError && !dashboard) {
+    return (
+      <div className="p-8 text-center text-muted-foreground">
+        Failed to load autonomy dashboard. Please try again.
+      </div>
+    );
+  }
+
+  if (!dashboard) {
     return (
       <div className="flex flex-col h-full">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card/50">

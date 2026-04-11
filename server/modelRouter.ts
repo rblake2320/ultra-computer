@@ -11,6 +11,7 @@
 
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { storage } from "./storage.js";
 import { resolveCredentials } from "./modelConnections.js";
 import { cacheEngine } from "./cacheEngine.js";
@@ -98,7 +99,7 @@ export async function chat(
     throw new Error("No models configured. Add a model in the Models page.");
   }
 
-  const maxTokens = options.maxTokens || 4096;
+  const maxTokens = options.maxTokens ?? 4096;
   const temperature = options.temperature ?? 0.7;
 
   // ─── Cache: check for exact/semantic hit ──────────────────────────────
@@ -179,7 +180,7 @@ export async function* chatStream(
     throw new Error("No models configured. Add a model in the Models page.");
   }
 
-  const maxTokens = options.maxTokens || 4096;
+  const maxTokens = options.maxTokens ?? 4096;
   const temperature = options.temperature ?? 0.7;
 
   switch (model.provider) {
@@ -233,6 +234,9 @@ async function chatOpenAICompat(
     max_tokens: maxTokens,
     temperature,
   });
+  if (!res.choices?.length) {
+    throw new Error("No response from model");
+  }
   return {
     content: res.choices[0]?.message?.content || "",
     model: model.name,
@@ -268,7 +272,8 @@ async function* streamOpenAICompat(
 // ─── Anthropic ────────────────────────────────────────────────────────────────
 function makeAnthropicClient(model: Model): Anthropic {
   const creds = resolveCredentials(model);
-  return new Anthropic({ apiKey: creds.apiKey || "" });
+  if (!creds.apiKey) throw new Error(`No API key configured for provider anthropic (model: ${model.name})`);
+  return new Anthropic({ apiKey: creds.apiKey });
 }
 
 async function chatAnthropic(
@@ -338,8 +343,8 @@ async function chatGoogle(
   temperature: number
 ): Promise<LLMResponse> {
   const creds = resolveCredentials(model);
-  const { GoogleGenerativeAI } = await import("@google/generative-ai");
-  const genAI = new GoogleGenerativeAI(creds.apiKey || "");
+  if (!creds.apiKey) throw new Error(`No API key configured for provider google (model: ${model.name})`);
+  const genAI = new GoogleGenerativeAI(creds.apiKey);
   const gModel = genAI.getGenerativeModel({ model: model.modelId });
   const systemMsg = msgs.find(m => m.role === "system")?.content || "";
   const history = msgs.filter(m => m.role !== "system").slice(0, -1).map(m => ({
@@ -373,8 +378,8 @@ async function* streamGoogle(
   temperature: number
 ): AsyncGenerator<string> {
   const creds = resolveCredentials(model);
-  const { GoogleGenerativeAI } = await import("@google/generative-ai");
-  const genAI = new GoogleGenerativeAI(creds.apiKey || "");
+  if (!creds.apiKey) throw new Error(`No API key configured for provider google (model: ${model.name})`);
+  const genAI = new GoogleGenerativeAI(creds.apiKey);
   const gModel = genAI.getGenerativeModel({ model: model.modelId });
   const systemMsg = msgs.find(m => m.role === "system")?.content || "";
   const history = msgs.filter(m => m.role !== "system").slice(0, -1).map(m => ({

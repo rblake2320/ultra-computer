@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
+import { safeJsonParse } from "../lib/safeJson";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
@@ -243,7 +244,7 @@ function SignalBar({ label, icon: Icon, score, value, weight }: {
 
 // ─── Skill Card ─────────────────────────────────────────────────────────────
 function SkillCard({ skill, onClick }: { skill: MarketplaceSkill; onClick: () => void }) {
-  const tags: string[] = JSON.parse(skill.tags || "[]");
+  const tags: string[] = safeJsonParse(skill.tags, []);
   const avgRating = skill.ratingCount > 0 ? (skill.ratingSum / skill.ratingCount).toFixed(1) : "—";
 
   return (
@@ -299,10 +300,18 @@ function SkillCard({ skill, onClick }: { skill: MarketplaceSkill; onClick: () =>
 
 // ─── Score Breakdown Panel ──────────────────────────────────────────────────
 function ScoreBreakdownPanel({ skillId }: { skillId: string }) {
-  const { data: breakdown, isLoading } = useQuery<ScoreBreakdown>({
+  const { data: breakdown, isLoading, isError: scoreError } = useQuery<ScoreBreakdown>({
     queryKey: ["/api/marketplace/skills", skillId, "score"],
     queryFn: () => apiRequest("GET", `/api/marketplace/skills/${skillId}/score`),
   });
+
+  if (scoreError) {
+    return (
+      <Card className="p-4">
+        <p className="text-xs text-muted-foreground text-center">Failed to load score data.</p>
+      </Card>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -381,7 +390,7 @@ function SkillDetailView({ skillId, onBack }: { skillId: string; onBack: () => v
   const [ratingValue, setRatingValue] = useState(0);
   const [reviewText, setReviewText] = useState("");
 
-  const { data: detail, isLoading } = useQuery<SkillDetail>({
+  const { data: detail, isLoading, isError: detailError } = useQuery<SkillDetail>({
     queryKey: ["/api/marketplace/skills", skillId],
     queryFn: () => apiRequest("GET", `/api/marketplace/skills/${skillId}`),
   });
@@ -441,9 +450,11 @@ function SkillDetailView({ skillId, onBack }: { skillId: string; onBack: () => v
     );
   }
 
+  if (detailError) return <p className="text-center text-muted-foreground py-8">Failed to load skill details. Please try again.</p>;
+
   if (!detail) return <p className="text-center text-muted-foreground py-8">Skill not found</p>;
 
-  const tags: string[] = JSON.parse(detail.tags || "[]");
+  const tags: string[] = safeJsonParse(detail.tags, []);
 
   return (
     <div className="space-y-4">

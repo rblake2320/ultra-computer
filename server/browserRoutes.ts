@@ -8,9 +8,10 @@ export function registerBrowserRoutes(app: Express) {
   app.get("/api/browser/sessions", async (_req: Request, res: Response) => {
     try {
       const keys = await listBrowserSessions();
-      const sessions = await Promise.all(
+      const sessionResults = await Promise.all(
         keys.map(async (key) => {
           const info = await getBrowserSessionInfo(key);
+          if (!info) return null;
           return {
             key,
             url: info.url,
@@ -19,6 +20,7 @@ export function registerBrowserRoutes(app: Express) {
           };
         })
       );
+      const sessions = sessionResults.filter((s) => s !== null);
       res.json({ sessions });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -32,7 +34,18 @@ export function registerBrowserRoutes(app: Express) {
       const { url, session, wait_for, screenshot, extract_text } = req.body;
       if (!url) return res.status(400).json({ error: "url is required" });
 
-      const args: Record<string, string> = { url: String(url) };
+      const urlStr = String(url);
+      if (urlStr.length > 2000) return res.status(400).json({ error: "url exceeds 2000 character limit" });
+      try {
+        const parsed = new URL(urlStr);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          return res.status(400).json({ error: `URL scheme '${parsed.protocol}' is not allowed` });
+        }
+      } catch {
+        return res.status(400).json({ error: 'Invalid URL format' });
+      }
+
+      const args: Record<string, string> = { url: urlStr };
       if (session !== undefined) args.session = String(session);
       if (wait_for !== undefined) args.wait_for = String(wait_for);
       if (screenshot !== undefined) args.screenshot = String(screenshot);
@@ -72,7 +85,10 @@ export function registerBrowserRoutes(app: Express) {
       const { script, session } = req.body;
       if (!script) return res.status(400).json({ error: "script is required" });
 
-      const args: Record<string, string> = { script: String(script) };
+      const scriptStr = String(script);
+      if (scriptStr.length > 100000) return res.status(400).json({ error: "script exceeds 100000 character limit" });
+
+      const args: Record<string, string> = { script: scriptStr };
       if (session !== undefined) args.session = String(session);
 
       const result = await executeBrowserTool("browser_evaluate", args);

@@ -22,7 +22,48 @@ import * as cliToolEngine from "./cliToolEngine.js";
 // ─── In-memory registries (used for webhooks, agents, servers until persistence) ─
 
 const webhookRegistry = new Map<string, { id: string; path: string; registeredAt: number; invocations: number }>();
+/**
+ * webhookHandlers is a stub registry for in-process webhook callbacks.
+ * Real handler logic lives in cliToolEngine.webhookRegistry.
+ * TODO: wire this up to cliToolEngine.webhookRegistry.dispatch() when needed.
+ */
 const webhookHandlers = new Map<string, (payload: any) => void>();
+
+// ─── SSRF Protection Helpers —————————————————————————————————————————————————
+
+/**
+ * Returns true if the URL is valid and does NOT point to a private/loopback IP range.
+ * Blocks: 10.*, 172.16-31.*, 192.168.*, 127.*, 169.254.* (SSRF protection).
+ */
+function isValidPublicUrl(urlStr: string): { ok: boolean; reason?: string } {
+  let parsed: URL;
+  try {
+    parsed = new URL(urlStr);
+  } catch {
+    return { ok: false, reason: "Invalid URL format" };
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return { ok: false, reason: "URL must use http:// or https://" };
+  }
+  const hostname = parsed.hostname;
+  // Block loopback
+  if (hostname === "localhost" || hostname === "::1" || hostname.startsWith("127.")) {
+    return { ok: false, reason: "Private/loopback addresses are not permitted" };
+  }
+  // Block link-local
+  if (hostname.startsWith("169.254.")) {
+    return { ok: false, reason: "Link-local addresses are not permitted" };
+  }
+  // Parse dotted-decimal IPv4 for private range checks
+  const parts = hostname.split(".").map(Number);
+  if (parts.length === 4 && parts.every((n) => !isNaN(n) && n >= 0 && n <= 255)) {
+    const [a, b] = parts;
+    if (a === 10) return { ok: false, reason: "Private IP range 10.* is not permitted" };
+    if (a === 172 && b >= 16 && b <= 31) return { ok: false, reason: "Private IP range 172.16-31.* is not permitted" };
+    if (a === 192 && b === 168) return { ok: false, reason: "Private IP range 192.168.* is not permitted" };
+  }
+  return { ok: true };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // REGISTER ALL PROTOCOL ROUTES
@@ -95,9 +136,14 @@ export function registerProtocolRoutes(app: Express) {
    * Discover a remote agent by URL. Body: { url: string }
    */
   app.post("/api/protocols/a2a/agents/discover", async (req: Request, res: Response) => {
-    const { url } = req.body;
+    const { url } = req.body ?? {};
     if (!url || typeof url !== "string") {
       return res.status(400).json({ error: "url (string) is required" });
+    }
+    // SSRF protection: validate URL is public
+    const urlCheck = isValidPublicUrl(url);
+    if (!urlCheck.ok) {
+      return res.status(400).json({ error: `Invalid agent URL: ${urlCheck.reason}` });
     }
     try {
             const agent = await a2aProtocol.discoverAgent(url);
@@ -110,11 +156,22 @@ export function registerProtocolRoutes(app: Express) {
   /**
    * POST /api/protocols/a2a/agents/:id/send
    * Send a message to a specific remote agent.
+   * :id must be the registered agent base URL.
    */
   app.post("/api/protocols/a2a/agents/:id/send", async (req: Request, res: Response) => {
     const { id } = req.params;
+    // Verify id is a registered agent URL to prevent SSRF via arbitrary URLs
+    const registeredAgent = a2aProtocol.getAgent(id);
+    if (!registeredAgent) {
+      return res.status(400).json({ error: "Agent URL is not registered. Discover it first via /api/protocols/a2a/agents/discover" });
+    }
+    // Also validate the URL itself
+    const urlCheck = isValidPublicUrl(id);
+    if (!urlCheck.ok) {
+      return res.status(400).json({ error: `Invalid agent URL: ${urlCheck.reason}` });
+    }
     try {
-            const result = await a2aProtocol.sendMessage(id, req.body.message || req.body, req.body.taskId);
+            const result = await a2aProtocol.sendMessage(id, (req.body ?? {}).message || (req.body ?? {}), (req.body ?? {}).taskId);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -278,7 +335,15 @@ export function registerProtocolRoutes(app: Express) {
    * Execute a shell command. Body: { command, timeout?, workDir?, env? }
    */
   app.post("/api/protocols/cli/execute", async (req: Request, res: Response) => {
-    const { command, timeout, workDir, env } = req.body;
+    const { command, timeout, workDir, env } = req.body ?? {};
+    // Validate workDir is within the sandbox
+    if (workDir !== undefined && typeof workDir === "string") {
+      const resolvedWorkDir = require("path").resolve(workDir);
+      const sandboxBase = require("path").resolve("/tmp/ultra-sandbox");
+      if (!resolvedWorkDir.startsWith(sandboxBase)) {
+        return res.status(400).json({ error: "workDir must be within the sandbox directory (/tmp/ultra-sandbox)" });
+      }
+    }
     if (!command || typeof command !== "string") {
       return res.status(400).json({ error: "command (string) is required" });
     }
@@ -298,19 +363,20 @@ export function registerProtocolRoutes(app: Express) {
    * Execute a script by language. Body: { script, language, args? }
    */
   app.post("/api/protocols/cli/script", async (req: Request, res: Response) => {
-    const { script, language, args } = req.body;
+    const { script, language, args } = req.body ?? {};
     if (!script || typeof script !== "string") {
       return res.status(400).json({ error: "script (string) is required" });
     }
     if (!language || typeof language !== "string") {
       return res.status(400).json({ error: "language (string) is required" });
     }
-    const allowedLanguages = ["bash", "python3", "node", "typescript", "sh", "python", "ruby", "perl"];
-    if (!allowedLanguages.includes(language)) {
+    // Allowlist matches the SupportedLanguage type in cliToolEngine.ts
+    const allowedLanguages: import("./cliToolEngine.js").SupportedLanguage[] = ["bash", "python3", "node", "typescript"];
+    if (!allowedLanguages.includes(language as import("./cliToolEngine.js").SupportedLanguage)) {
       return res.status(400).json({ error: `language must be one of: ${allowedLanguages.join(", ")}` });
     }
     try {
-            const result = await cliToolEngine.executeScript(script, language, args ?? []);
+            const result = await cliToolEngine.executeScript(script, language as import("./cliToolEngine.js").SupportedLanguage, args ?? []);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -376,9 +442,14 @@ export function registerProtocolRoutes(app: Express) {
    * Execute an outbound HTTP request. Body: { url, method, headers?, body? }
    */
   app.post("/api/protocols/http/request", async (req: Request, res: Response) => {
-    const { url, method, headers, body } = req.body;
+    const { url, method, headers, body } = req.body ?? {};
     if (!url || typeof url !== "string") {
       return res.status(400).json({ error: "url (string) is required" });
+    }
+    // SSRF protection: block private/loopback IPs
+    const urlCheck = isValidPublicUrl(url);
+    if (!urlCheck.ok) {
+      return res.status(400).json({ error: `Blocked URL: ${urlCheck.reason}` });
     }
     const allowedMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
     const resolvedMethod = (method || "GET").toUpperCase();
@@ -429,17 +500,19 @@ export function registerProtocolRoutes(app: Express) {
 
   /**
    * POST /api/protocols/webhooks
-   * Register a new webhook. Body: { id?, path }
+   * Register a new webhook. Body: { path }
+   * NOTE: id is always generated server-side; any caller-supplied id is ignored.
    */
   app.post("/api/protocols/webhooks", (req: Request, res: Response) => {
-    const { id, path } = req.body;
+    const { path } = req.body ?? {};
     if (!path || typeof path !== "string") {
       return res.status(400).json({ error: "path (string) is required" });
     }
     if (!/^[a-zA-Z0-9_\-]+$/.test(path)) {
       return res.status(400).json({ error: "path must be alphanumeric with hyphens/underscores only" });
     }
-    const webhookId = (id && typeof id === "string") ? id : uuidv4();
+    // Always generate webhook ID server-side, ignore any caller-supplied id
+    const webhookId = uuidv4();
     const entry = { id: webhookId, path, registeredAt: Date.now(), invocations: 0 };
     webhookRegistry.set(webhookId, entry);
     res.json(entry);

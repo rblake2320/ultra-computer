@@ -401,8 +401,14 @@ export function registerMessagingRoutes(app: Express): void {
   /**
    * POST /api/messaging/webhook/slack
    * Slack Events API / slash command handler.
+   * TODO: Implement Slack webhook signature verification.
+   * Slack signs requests with X-Slack-Signature (HMAC-SHA256). Without this
+   * check, any caller can forge Slack events. Implement when SLACK_SIGNING_SECRET
+   * is available in environment.
    */
   app.post("/api/messaging/webhook/slack", async (req, res) => {
+    // TODO: verify X-Slack-Signature header using SLACK_SIGNING_SECRET
+    console.warn("[messaging] Slack webhook signature verification is NOT implemented — TODO: add HMAC-SHA256 check");
     try {
       const payload = req.body ?? {};
 

@@ -13,7 +13,7 @@ import path from 'path';
 // Constants
 // ---------------------------------------------------------------------------
 
-const CHECKPOINT_DIR = path.resolve('/home/user/workspace/ultra-computer/data/checkpoints');
+const CHECKPOINT_DIR = path.resolve(process.cwd(), 'data/checkpoints');
 const DEFAULT_MAX_STALE_MS = 5 * 60 * 1000; // 5 minutes
 const HEARTBEAT_STALE_THRESHOLD_MS = 60 * 1000; // 60 seconds → task was "running" when server died
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 30 * 1000; // 30 seconds
@@ -61,17 +61,30 @@ function checkpointPath(taskId: string): string {
 
 function readCheckpoint(taskId: string): TaskCheckpoint | null {
   const filePath = checkpointPath(taskId);
+  let raw: string;
   try {
-    const raw = fs.readFileSync(filePath, 'utf8');
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch (err: any) {
+    if (err.code === 'ENOENT') return null; // file simply doesn't exist
+    console.error(`[taskCheckpointing] readCheckpoint: failed to read ${filePath}:`, err.message);
+    return null;
+  }
+  try {
     return JSON.parse(raw) as TaskCheckpoint;
-  } catch {
+  } catch (err: any) {
+    console.error(`[taskCheckpointing] readCheckpoint: failed to parse ${filePath}:`, err.message);
     return null;
   }
 }
 
 function writeCheckpoint(checkpoint: TaskCheckpoint): void {
   const filePath = checkpointPath(checkpoint.taskId);
-  fs.writeFileSync(filePath, JSON.stringify(checkpoint, null, 2), 'utf8');
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(checkpoint, null, 2), 'utf8');
+  } catch (err: any) {
+    console.error(`[taskCheckpointing] writeCheckpoint: failed to write ${filePath}:`, err.message);
+    throw err;
+  }
 }
 
 function now(): number {

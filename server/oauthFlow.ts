@@ -73,16 +73,25 @@ export function registerOAuthRoutes(app: Express): void {
     const state = crypto.randomBytes(24).toString("hex");
     pendingStates.set(state, { connectorId, createdAt: Date.now() });
 
-    // Determine redirect_uri — use the server origin if available, otherwise relative path
-    // x-forwarded-proto can be string | string[] when multiple proxies set it; always take the first value
-    const rawProto = req.headers["x-forwarded-proto"];
-    const protocol = (Array.isArray(rawProto) ? rawProto[0] : rawProto) || req.protocol || "http";
-    const rawHost = req.headers["x-forwarded-host"];
-    const host = (Array.isArray(rawHost) ? rawHost[0] : rawHost) || req.headers.host || "localhost:5000";
-    const redirectUri = `${protocol}://${host}/api/oauth/callback`;
+    // Determine redirect_uri — honour OAUTH_REDIRECT_BASE_URL env var when set
+    let redirectUri: string;
+    if (process.env.OAUTH_REDIRECT_BASE_URL) {
+      redirectUri = `${process.env.OAUTH_REDIRECT_BASE_URL.replace(/\/$/, "")}/api/oauth/callback`;
+    } else {
+      const rawProto = req.headers["x-forwarded-proto"];
+      const protocol = (Array.isArray(rawProto) ? rawProto[0] : rawProto) || req.protocol || "http";
+      const rawHost = req.headers["x-forwarded-host"];
+      const host = (Array.isArray(rawHost) ? rawHost[0] : rawHost) || req.headers.host || "localhost:5000";
+      redirectUri = `${protocol}://${host}/api/oauth/callback`;
+    }
 
     // Build the authorization URL
-    const url = new URL(authUrl);
+    let url: URL;
+    try {
+      url = new URL(authUrl);
+    } catch {
+      return res.status(400).json({ error: "Connector has an invalid auth_url" });
+    }
     url.searchParams.set("client_id", clientId);
     url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("response_type", "code");
@@ -103,7 +112,10 @@ export function registerOAuthRoutes(app: Express): void {
   app.get("/api/oauth/callback", async (req, res) => {
     purgeExpiredStates();
 
-    const { code, state, error: oauthError, error_description } = req.query as Record<string, string>;
+    const code = typeof req.query.code === 'string' ? req.query.code : undefined;
+    const state = typeof req.query.state === 'string' ? req.query.state : undefined;
+    const oauthError = typeof req.query.error === 'string' ? req.query.error : undefined;
+    const error_description = typeof req.query.error_description === 'string' ? req.query.error_description : undefined;
 
     // OAuth provider returned an error
     if (oauthError) {
@@ -151,12 +163,16 @@ export function registerOAuthRoutes(app: Express): void {
     }
 
     // Reconstruct redirect_uri (must match exactly what was sent to /authorize)
-    // x-forwarded-proto can be string | string[] when multiple proxies set it; always take the first value
-    const rawProto = req.headers["x-forwarded-proto"];
-    const protocol = (Array.isArray(rawProto) ? rawProto[0] : rawProto) || req.protocol || "http";
-    const rawHost = req.headers["x-forwarded-host"];
-    const host = (Array.isArray(rawHost) ? rawHost[0] : rawHost) || req.headers.host || "localhost:5000";
-    const redirectUri = `${protocol}://${host}/api/oauth/callback`;
+    let redirectUri: string;
+    if (process.env.OAUTH_REDIRECT_BASE_URL) {
+      redirectUri = `${process.env.OAUTH_REDIRECT_BASE_URL.replace(/\/$/, "")}/api/oauth/callback`;
+    } else {
+      const rawProto = req.headers["x-forwarded-proto"];
+      const protocol = (Array.isArray(rawProto) ? rawProto[0] : rawProto) || req.protocol || "http";
+      const rawHost = req.headers["x-forwarded-host"];
+      const host = (Array.isArray(rawHost) ? rawHost[0] : rawHost) || req.headers.host || "localhost:5000";
+      redirectUri = `${protocol}://${host}/api/oauth/callback`;
+    }
 
     try {
       // Exchange authorization code for access token

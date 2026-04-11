@@ -28,6 +28,8 @@ function ensureDirs() {
 // Session key = conversationId or any caller-supplied string (falls back to "default").
 let _browser: any | null = null;
 const _pages: Map<string, any> = new Map(); // sessionKey → playwright Page
+const _contexts: Map<string, any> = new Map(); // sessionKey → playwright BrowserContext
+const _pendingPages: Map<string, Promise<any>> = new Map(); // serialize concurrent getPage for same key
 
 let _playwrightAvailable: boolean | null = null; // cached availability check
 
@@ -57,6 +59,21 @@ async function getBrowser(): Promise<any> {
 }
 
 async function getPage(sessionKey: string): Promise<any> {
+  // Serialize concurrent getPage calls for the same session to avoid race conditions
+  const pending = _pendingPages.get(sessionKey);
+  if (pending) return pending;
+
+  const creation = _getPageInternal(sessionKey);
+  _pendingPages.set(sessionKey, creation);
+  try {
+    const page = await creation;
+    return page;
+  } finally {
+    _pendingPages.delete(sessionKey);
+  }
+}
+
+async function _getPageInternal(sessionKey: string): Promise<any> {
   // Return existing open page for this session, or create a new one.
   const existing = _pages.get(sessionKey);
   if (existing) {
@@ -66,6 +83,7 @@ async function getPage(sessionKey: string): Promise<any> {
       return existing;
     } catch {
       _pages.delete(sessionKey);
+      _contexts.delete(sessionKey);
     }
   }
 
@@ -77,15 +95,17 @@ async function getPage(sessionKey: string): Promise<any> {
   });
   const page = await context.newPage();
   _pages.set(sessionKey, page);
+  _contexts.set(sessionKey, context);
   return page;
 }
 
 async function closePage(sessionKey: string): Promise<void> {
-  const page = _pages.get(sessionKey);
-  if (page) {
-    try { await page.context().close(); } catch { /* ignore */ }
-    _pages.delete(sessionKey);
+  const context = _contexts.get(sessionKey);
+  if (context) {
+    try { await context.close(); } catch { /* ignore */ }
+    _contexts.delete(sessionKey);
   }
+  _pages.delete(sessionKey);
 }
 
 // ─── Tool Schemas ─────────────────────────────────────────────────────────────
@@ -325,8 +345,12 @@ async function executeBrowseUrl(
     return { success: false, output: "", error: "No URL provided", durationMs: Date.now() - start };
   }
 
-  try { new URL(url); } catch {
+  let parsedUrl: URL;
+  try { parsedUrl = new URL(url); } catch {
     return { success: false, output: "", error: "Invalid URL format", durationMs: Date.now() - start };
+  }
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    return { success: false, output: "", error: `URL scheme '${parsedUrl.protocol}' is not allowed. Only http: and https: are permitted.`, durationMs: Date.now() - start };
   }
 
   let page: any;
@@ -597,7 +621,7 @@ async function executeBrowserPdf(
   start: number
 ): Promise<ToolResult> {
   const { session = "default" } = args;
-  const filename = args.filename || `page_${Date.now()}.pdf`;
+  const filename = path.basename(args.filename || `page_${Date.now()}.pdf`);
 
   const page = _pages.get(session);
   if (!page) {

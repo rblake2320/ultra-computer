@@ -54,7 +54,7 @@ export function SkillLibraryPage() {
     name: "", description: "", language: "bash", content: "", tags: "",
   });
 
-  const { data: scripts = [] } = useQuery<SkillScript[]>({
+  const { data: scripts = [], isLoading: scriptsLoading, isError: scriptsError } = useQuery<SkillScript[]>({
     queryKey: ["/api/skill-scripts", searchQuery],
     queryFn: () =>
       searchQuery
@@ -62,7 +62,7 @@ export function SkillLibraryPage() {
         : apiRequest("GET", "/api/skill-scripts"),
   });
 
-  const { data: versions = [] } = useQuery<SkillScriptVersion[]>({
+  const { data: versions = [], isError: versionsError } = useQuery<SkillScriptVersion[]>({
     queryKey: ["/api/skill-scripts", showVersions, "versions"],
     queryFn: () => apiRequest("GET", `/api/skill-scripts/${showVersions}/versions`),
     enabled: !!showVersions,
@@ -288,7 +288,11 @@ export function SkillLibraryPage() {
         {/* Script list */}
         <ScrollArea className="flex-1">
           <div className="p-2 space-y-1">
-            {filtered.length === 0 ? (
+            {scriptsLoading ? (
+              <div className="text-center py-8 text-muted-foreground text-xs">Loading scripts...</div>
+            ) : scriptsError ? (
+              <div className="text-center py-8 text-muted-foreground text-xs">Failed to load scripts.</div>
+            ) : filtered.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <Library className="w-10 h-10 mx-auto mb-3 opacity-20" />
                 <p className="text-xs">

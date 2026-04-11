@@ -267,6 +267,8 @@ class ExactCache {
   misses = 0;
   private readonly defaultTTLMs: number;
   private totalBytes = 0;
+  /** Tracks byte size per cache key so evicted entries can be accurately subtracted. */
+  private readonly bytesPerKey = new Map<string, number>();
 
   constructor(maxEntries: number, defaultTTLMs: number) {
     this.lru = new LRUMap<string, ExactEntry>(maxEntries);
@@ -306,10 +308,13 @@ class ExactCache {
     };
     const evictedKey = this.lru.set(key, entry);
     if (evictedKey) {
-      // A key was evicted — we no longer have the byte count for it so approximate
-      this.totalBytes = Math.max(0, this.totalBytes - bytes);
+      // Subtract the actual byte count of the evicted entry (not the new entry's bytes)
+      const evictedBytes = this.bytesPerKey.get(evictedKey) ?? 0;
+      this.totalBytes = Math.max(0, this.totalBytes - evictedBytes);
+      this.bytesPerKey.delete(evictedKey);
     }
     this.totalBytes += bytes;
+    this.bytesPerKey.set(key, bytes);
     debug(`ExactCache: SET key ${key.slice(0, 8)}… (${bytes} B, ttl ${ttlMs ?? this.defaultTTLMs}ms)`);
   }
 
@@ -318,12 +323,18 @@ class ExactCache {
   }
 
   delete(key: string): boolean {
+    const entry = this.lru.get(key);
+    if (entry) {
+      this.totalBytes = Math.max(0, this.totalBytes - entry.bytes);
+      this.bytesPerKey.delete(key);
+    }
     return this.lru.delete(key);
   }
 
   clear(): void {
     this.lru.clear();
     this.totalBytes = 0;
+    this.bytesPerKey.clear();
   }
 
   sweepExpired(): number {
@@ -448,12 +459,22 @@ function tfidfSimilarity(queryText: string, candidateText: string): number {
   return results.length > 0 ? results[0].relevanceScore : 0;
 }
 
+/**
+ * IMPLEMENTATION NOTE — SemanticCache embedding pass-through:
+ * The queryEmbedding parameter passed to SemanticCache.find() is currently
+ * always null (see CacheEngine.get()). When null, the semantic match falls
+ * back to TF-IDF / Jaccard similarity via advancedMemorySearch. True vector
+ * embedding similarity (cosine) would require an external embedding model call
+ * before querying the cache. This is aspirational; TF-IDF is the production path.
+ */
 class SemanticCache {
   private readonly lru: LRUMap<string, SemanticEntry>;
   hits = 0;
   misses = 0;
   private readonly threshold: number;
   private totalBytes = 0;
+  /** Tracks byte size per semantic cache key for accurate eviction accounting. */
+  private readonly bytesPerKey = new Map<string, number>();
 
   constructor(maxEntries: number, similarityThreshold: number) {
     this.lru = new LRUMap<string, SemanticEntry>(maxEntries);
@@ -464,6 +485,8 @@ class SemanticCache {
    * Find the best-matching cached response for the given query.
    * If embedding vectors are available on both sides, use cosine similarity.
    * Otherwise fall back to TF-IDF + Jaccard via advancedMemorySearch.
+   * NOTE: In the current implementation, queryEmbedding is always null,
+   * so the TF-IDF fallback is always used (see implementation note above).
    */
   find(
     queryText: string,
@@ -524,9 +547,13 @@ class SemanticCache {
     };
     const evictedKey = this.lru.set(key, entry);
     if (evictedKey) {
-      this.totalBytes = Math.max(0, this.totalBytes - bytes);
+      // Subtract the actual byte count of the evicted entry
+      const evictedBytes = this.bytesPerKey.get(evictedKey) ?? 0;
+      this.totalBytes = Math.max(0, this.totalBytes - evictedBytes);
+      this.bytesPerKey.delete(evictedKey);
     }
     this.totalBytes += bytes;
+    this.bytesPerKey.set(key, bytes);
   }
 
   sweepExpired(): number {
@@ -745,11 +772,11 @@ export class CacheEngine {
   }
 
   resetStats(): void {
-    // Reset counters by reassigning — the caches expose mutable public fields
-    (this.exact as unknown as { hits: number; misses: number }).hits = 0;
-    (this.exact as unknown as { hits: number; misses: number }).misses = 0;
-    (this.semantic as unknown as { hits: number; misses: number }).hits = 0;
-    (this.semantic as unknown as { hits: number; misses: number }).misses = 0;
+    // Reset hit/miss counters directly on the cache instances
+    this.exact.hits = 0;
+    this.exact.misses = 0;
+    this.semantic.hits = 0;
+    this.semantic.misses = 0;
     this.perModel.clear();
     this.totalCostSavings = 0;
   }

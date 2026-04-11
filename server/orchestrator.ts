@@ -18,7 +18,7 @@ import { storage } from "./storage.js";
 import { chat, chatStream, selectModelForTask, type ChatMessage, type TaskType } from "./modelRouter.js";
 import { skillMatcher } from "./skillSystem.js";
 import { memoryManager } from "./memoryManager.js";
-import { TOOL_SCHEMAS, executeTool, setCurrentSession, dockerSandbox, type ToolResult } from "./tools.js";
+import { TOOL_SCHEMAS, executeTool, dockerSandbox, type ToolResult } from "./tools.js";
 import { compactContext } from "./contextCompactor.js";
 import { detectChain, buildChainPlan } from "./skillChaining.js";
 import { withRetryAndFallback } from "./errorRecovery.js";
@@ -28,7 +28,11 @@ import type { Task } from "@shared/schema";
 
 // IPC directory for filesystem-based inter-agent communication
 const IPC_DIR = path.join(process.cwd(), "ipc");
-if (!fs.existsSync(IPC_DIR)) fs.mkdirSync(IPC_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(IPC_DIR)) fs.mkdirSync(IPC_DIR, { recursive: true });
+} catch (err) {
+  console.error("[orchestrator] Failed to create IPC directory:", err);
+}
 
 // SSE event emitter — wires to Express SSE endpoints
 type SSECallback = (event: OrchestratorEvent) => void;
@@ -293,18 +297,20 @@ async function executeDAG(
   const running = new Set<string>();
   const pending = new Set(allTasks.map(t => t.id));
 
-  const maxIterations = 20;
+  const maxIterationsConfig = storage.getSetting("max_dag_iterations");
+  const maxIterations = maxIterationsConfig ? parseInt(maxIterationsConfig, 10) || 20 : 20;
   let iter = 0;
 
   while (pending.size > 0 && iter < maxIterations) {
     iter++;
 
     // Find tasks whose dependencies are all complete
-    const ready = allTasks.filter(t =>
-      pending.has(t.id) &&
-      !running.has(t.id) &&
-      (JSON.parse(t.dependsOn) as string[]).every(dep => completed.has(dep))
-    );
+    const ready = allTasks.filter(t => {
+      if (!pending.has(t.id) || running.has(t.id)) return false;
+      let deps: string[] = [];
+      try { deps = JSON.parse(t.dependsOn) as string[]; } catch { deps = []; }
+      return deps.every(dep => completed.has(dep));
+    });
 
     if (ready.length === 0) {
       // Deadlock or all running — wait for a running task
@@ -321,7 +327,8 @@ async function executeDAG(
       pending.delete(task.id);
 
       storage.updateTask(task.id, { status: "running", startedAt: Date.now() });
-      emit(conversationId, { type: "task_update", task: storage.getTask(task.id)! });
+      const runningTask = storage.getTask(task.id);
+      if (runningTask) emit(conversationId, { type: "task_update", task: runningTask });
 
       try {
         const depContext = buildDependencyContext(task, results);
@@ -329,13 +336,15 @@ async function executeDAG(
         results.set(task.id, result);
 
         storage.updateTask(task.id, { status: "complete", result, completedAt: Date.now() });
-        emit(conversationId, { type: "task_update", task: storage.getTask(task.id)! });
+        const completedTask = storage.getTask(task.id);
+        if (completedTask) emit(conversationId, { type: "task_update", task: completedTask });
 
         completed.add(task.id);
         running.delete(task.id);
       } catch (err: any) {
         storage.updateTask(task.id, { status: "failed", error: err.message, completedAt: Date.now() });
-        emit(conversationId, { type: "task_update", task: storage.getTask(task.id)! });
+        const failedTask = storage.getTask(task.id);
+        if (failedTask) emit(conversationId, { type: "task_update", task: failedTask });
         results.set(task.id, `[FAILED: ${err.message}]`);
         completed.add(task.id);
         running.delete(task.id);
@@ -349,7 +358,8 @@ async function executeDAG(
 }
 
 function buildDependencyContext(task: Task, results: Map<string, string>): string {
-  const deps: string[] = JSON.parse(task.dependsOn);
+  let deps: string[] = [];
+  try { deps = JSON.parse(task.dependsOn); } catch { deps = []; }
   if (deps.length === 0) return "";
   const parts = deps.map(depId => {
     const r = results.get(depId);
@@ -362,7 +372,11 @@ function buildDependencyContext(task: Task, results: Map<string, string>): strin
 // The agent iterates: LLM → detect tool calls → execute tools → feed results back → repeat.
 // Stops when the LLM returns a final answer with no tool calls, or after MAX_TOOL_ITERATIONS.
 
-const MAX_TOOL_ITERATIONS = 10;
+// Configurable via settings — default 10
+function getMaxToolIterations(): number {
+  const val = storage.getSetting("max_tool_iterations");
+  return val ? parseInt(val, 10) || 10 : 10;
+}
 
 async function runWorkerAgent(
   task: Task,
@@ -415,15 +429,15 @@ async function runWorkerAgent(
 
   const agentRunStart = Date.now();
 
-  // Write input to IPC file (filesystem-based IPC)
-  fs.writeFileSync(ipcPath, JSON.stringify({
+  // Write input to IPC file (filesystem-based IPC) — async to avoid blocking event loop
+  fs.promises.writeFile(ipcPath, JSON.stringify({
     taskId: task.id,
     agentRunId,
     input: inputContext,
     toolCalls: [],
     status: "started",
     startedAt: agentRunStart,
-  }));
+  })).catch(err => console.error("[orchestrator] IPC write error:", err));
 
   // Build the conversation history for the tool-calling loop
   const messages: ChatMessage[] = [
@@ -436,6 +450,7 @@ async function runWorkerAgent(
   // Accumulate token usage across all LLM iterations
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
+  const MAX_TOOL_ITERATIONS = getMaxToolIterations();
 
   while (iteration < MAX_TOOL_ITERATIONS) {
     iteration++;
@@ -508,11 +523,8 @@ async function runWorkerAgent(
         callId,
       });
 
-      // Set session for Docker container isolation (each agent run = isolated container)
-      setCurrentSession(agentRunId);
-
-      // Execute the tool
-      const result = await executeTool(call.name, call.args);
+      // Execute the tool — pass sessionId explicitly for container isolation
+      const result = await executeTool(call.name, call.args, agentRunId);
 
       // Emit tool result event to UI
       emit(conversationId, {
@@ -562,8 +574,8 @@ async function runWorkerAgent(
     finalOutput = messages.filter(m => m.role === "assistant").pop()?.content || "[Agent reached max iterations]";
   }
 
-  // Write final IPC file
-  fs.writeFileSync(ipcPath, JSON.stringify({
+  // Write final IPC file — async to avoid blocking event loop
+  fs.promises.writeFile(ipcPath, JSON.stringify({
     taskId: task.id,
     agentRunId,
     input: inputContext,
@@ -571,7 +583,7 @@ async function runWorkerAgent(
     toolCalls: toolCallLog,
     status: "complete",
     completedAt: Date.now(),
-  }));
+  })).catch(err => console.error("[orchestrator] IPC write error:", err));
 
   const totalTokens = totalPromptTokens + totalCompletionTokens;
   const tokenUsageJson = JSON.stringify({

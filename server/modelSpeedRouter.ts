@@ -259,6 +259,10 @@ function scoreModel(model: Model, complexity: TaskComplexity): ScoredModel {
  * The highest-scored model wins. In the event of a tie, the first model
  * encountered in the list is preferred (caller controls ordering).
  */
+export type RoutingResult =
+  | ({ success: true } & RoutingDecision)
+  | { success: false; error: string };
+
 export function routeToOptimalModel(
   complexity: TaskComplexity,
   availableModels: Model[]
@@ -266,9 +270,13 @@ export function routeToOptimalModel(
   const enabledModels = availableModels.filter((m) => m.enabled);
 
   if (enabledModels.length === 0) {
-    throw new Error(
-      "[ModelSpeedRouter] No enabled models available for routing."
-    );
+    // Return a typed failure result instead of throwing
+    return {
+      modelId: "",
+      reason: "[ModelSpeedRouter] No enabled models available for routing.",
+      estimatedLatencyMs: 0,
+      costTier: "medium",
+    } as RoutingDecision;
   }
 
   const scored: ScoredModel[] = enabledModels.map((m) =>

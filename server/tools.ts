@@ -22,10 +22,6 @@ const execAsync = promisify(exec);
 const SANDBOX_DIR = path.join(process.cwd(), "sandbox");
 if (!fs.existsSync(SANDBOX_DIR)) fs.mkdirSync(SANDBOX_DIR, { recursive: true });
 
-// Track which session is executing (set by the orchestrator before each tool call)
-let currentSessionId: string = "default";
-export function setCurrentSession(sessionId: string) { currentSessionId = sessionId; }
-
 // Re-export sandbox management for routes
 export { dockerSandbox } from "./dockerSandbox.js";
 
@@ -151,13 +147,11 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
 
 // ─── Tool Executors ──────────────────────────────────────────────────────────
 
-export async function executeTool(name: string, args: Record<string, string>, sessionId?: string): Promise<ToolResult> {
-  // Use the provided sessionId if given, otherwise fall back to the global currentSessionId
-  const effectiveSessionId = sessionId ?? currentSessionId;
+export async function executeTool(name: string, args: Record<string, string>, sessionId: string = "default"): Promise<ToolResult> {
   const start = Date.now();
   try {
     switch (name) {
-      case "bash": return await executeBash(args.command, start, effectiveSessionId);
+      case "bash": return await executeBash(args.command, start, sessionId);
       case "write_file": return executeWriteFile(args.filename, args.content, start);
       case "read_file": return executeReadFile(args.filename, start);
       case "list_files": return executeListFiles(args.directory, start);
@@ -182,7 +176,7 @@ export async function executeTool(name: string, args: Record<string, string>, se
 }
 
 // ─── bash ─────────────────────────────────────────────────────────────────────
-async function executeBash(command: string, start: number, sessionId: string = currentSessionId): Promise<ToolResult> {
+async function executeBash(command: string, start: number, sessionId: string = "default"): Promise<ToolResult> {
   if (!command) return { success: false, output: "", error: "No command provided", durationMs: 0 };
 
   // Try Docker sandbox first, fall back to host process
@@ -193,7 +187,7 @@ async function executeBash(command: string, start: number, sessionId: string = c
 }
 
 /** Execute in Docker container — full isolation */
-async function executeBashDocker(command: string, start: number, sessionId: string = currentSessionId): Promise<ToolResult> {
+async function executeBashDocker(command: string, start: number, sessionId: string = "default"): Promise<ToolResult> {
   try {
     const result = await dockerSandbox.exec(sessionId, command, SANDBOX_DIR);
 
@@ -224,11 +218,19 @@ async function executeBashDocker(command: string, start: number, sessionId: stri
 /** Execute on host — sandbox directory scoped, no container isolation */
 async function executeBashHost(command: string, start: number): Promise<ToolResult> {
   try {
+    // Only pass a minimal set of safe env vars — never forward full process.env (avoids leaking secrets)
+    const safeEnv: NodeJS.ProcessEnv = {
+      PATH: process.env.PATH || "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      HOME: SANDBOX_DIR,
+      LANG: process.env.LANG || "C.UTF-8",
+      TERM: process.env.TERM || "xterm",
+      NODE_ENV: process.env.NODE_ENV || "production",
+    };
     const { stdout, stderr } = await execAsync(command, {
       cwd: SANDBOX_DIR,
       timeout: 30_000,
       maxBuffer: 1024 * 1024, // 1MB
-      env: { ...process.env, HOME: SANDBOX_DIR },
+      env: safeEnv,
     });
 
     const output = stdout + (stderr ? `\n[stderr]: ${stderr}` : "");
@@ -252,6 +254,11 @@ async function executeBashHost(command: string, start: number): Promise<ToolResu
 // ─── write_file ───────────────────────────────────────────────────────────────
 function executeWriteFile(filename: string, content: string, start: number): ToolResult {
   if (!filename) return { success: false, output: "", error: "No filename provided", durationMs: 0 };
+
+  // Guard against writing extremely large files (50 MB limit)
+  if (content.length > 50_000_000) {
+    return { success: false, output: "", error: "File content too large (max 50 MB)", durationMs: Date.now() - start };
+  }
 
   const safePath = resolveSandboxPath(filename);
   const dir = path.dirname(safePath);
@@ -373,6 +380,26 @@ async function executeFetchUrl(url: string, extractText: boolean, start: number)
     clearTimeout(timeout);
 
     const contentType = response.headers.get("content-type") || "";
+
+    // Reject non-text content types to avoid loading binary data
+    const isTextContent = (
+      contentType.includes("text/") ||
+      contentType.includes("application/json") ||
+      contentType.includes("application/xml") ||
+      contentType.includes("application/xhtml") ||
+      contentType.includes("application/javascript") ||
+      contentType.includes("application/ld+json") ||
+      contentType === ""
+    );
+    if (!isTextContent) {
+      return {
+        success: false,
+        output: "",
+        error: `Unsupported content type: ${contentType}. Only text-based responses are supported.`,
+        durationMs: Date.now() - start,
+      };
+    }
+
     let body = await response.text();
 
     // Cap response size
@@ -399,28 +426,50 @@ async function executeFetchUrl(url: string, extractText: boolean, start: number)
 }
 
 // ─── calculator ───────────────────────────────────────────────────────────────
+const ALLOWED_MATH_FUNCTIONS = new Set([
+  "Math.abs", "Math.ceil", "Math.floor", "Math.round", "Math.sqrt", "Math.cbrt",
+  "Math.pow", "Math.min", "Math.max", "Math.log", "Math.log2", "Math.log10",
+  "Math.sin", "Math.cos", "Math.tan", "Math.asin", "Math.acos", "Math.atan", "Math.atan2",
+  "Math.PI", "Math.E", "Math.exp", "Math.sign", "Math.trunc", "Math.hypot", "Math.random",
+]);
+
+/**
+ * Safe math expression evaluator.
+ * Validates the expression: only allows digits, arithmetic operators, parentheses,
+ * whitespace, comma (for multi-arg Math functions), and whitelisted Math.* calls.
+ * Passes only the Math object as scope — no access to process, require, etc.
+ */
+function safeEvalMath(expression: string): number {
+  // Validate all Math.* tokens against allowlist
+  const mathTokenPattern = /Math\.\w+/g;
+  const mathTokens = expression.match(mathTokenPattern) || [];
+  for (const token of mathTokens) {
+    if (!ALLOWED_MATH_FUNCTIONS.has(token)) {
+      throw new Error(`Disallowed function: ${token}`);
+    }
+  }
+
+  // After removing Math.identifier tokens, only safe characters should remain
+  const withoutMathIdents = expression.replace(/Math\.[a-z0-9]+/gi, "");
+  for (const ch of withoutMathIdents) {
+    if (!/[0-9.+\-*/%() \t\n,eE]/.test(ch)) {
+      throw new Error(`Disallowed character in expression: '${ch}'`);
+    }
+  }
+
+  // Evaluate with only Math in scope — no globals, no process, no require
+  // eslint-disable-next-line no-new-func
+  const fn = new Function("Math", `"use strict"; return (${expression});`);
+  const result = fn(Math);
+  if (typeof result !== "number") throw new Error("Expression did not evaluate to a number");
+  return result;
+}
+
 function executeCalculator(expression: string, start: number): ToolResult {
   if (!expression) return { success: false, output: "", error: "No expression provided", durationMs: 0 };
 
-  // Allowlist: only Math methods, numbers, operators, parens, whitespace
-  const sanitized = expression.replace(/Math\.\w+/g, match => {
-    const allowed = [
-      "Math.abs", "Math.ceil", "Math.floor", "Math.round", "Math.sqrt", "Math.cbrt",
-      "Math.pow", "Math.min", "Math.max", "Math.log", "Math.log2", "Math.log10",
-      "Math.sin", "Math.cos", "Math.tan", "Math.asin", "Math.acos", "Math.atan", "Math.atan2",
-      "Math.PI", "Math.E", "Math.exp", "Math.sign", "Math.trunc", "Math.hypot", "Math.random",
-    ];
-    if (allowed.includes(match)) return match;
-    throw new Error(`Disallowed function: ${match}`);
-  });
-
-  // Block anything that isn't math-safe
-  if (/[a-zA-Z_$]/.test(sanitized.replace(/Math\.\w+/g, "").replace(/\s/g, ""))) {
-    return { success: false, output: "", error: "Expression contains non-math characters. Use only numbers, operators, and Math.* functions.", durationMs: Date.now() - start };
-  }
-
   try {
-    const result = new Function(`"use strict"; return (${sanitized})`)();
+    const result = safeEvalMath(expression);
     return {
       success: true,
       output: String(result),

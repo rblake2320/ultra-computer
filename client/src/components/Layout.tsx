@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { MobileSidebar, MobileMenuButton } from "./MobileSidebar";
 import { NotificationCenter } from "./NotificationCenter";
+import { useToast } from "../hooks/use-toast";
 import type { Conversation } from "../../../shared/schema";
 
 const NAV = [
@@ -47,7 +48,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement>(null);
 
-  const { data: conversations = [] } = useQuery<Conversation[]>({ queryKey: ["/api/conversations"] });
+  const { data: conversations = [], isError: convsError } = useQuery<Conversation[]>({ queryKey: ["/api/conversations"] });
+
+  const { toast } = useToast();
 
   const createConv = useMutation({
     mutationFn: () => apiRequest("POST", "/api/conversations", { title: "New Session" }),
@@ -55,6 +58,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       qc.invalidateQueries({ queryKey: ["/api/conversations"] });
       setLocation(`/chat/${data.id}`);
     },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const deleteConv = useMutation({
@@ -63,6 +67,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       qc.invalidateQueries({ queryKey: ["/api/conversations"] });
       if (location.includes("/chat/")) setLocation("/");
     },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const renameConv = useMutation({
@@ -71,6 +76,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/conversations"] });
     },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const startRename = (conv: Conversation) => {
@@ -151,8 +157,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <p className="text-xs font-medium truncate flex-1 min-w-0">{conv.title}</p>
             </div>
           ))}
-          {conversations.length === 0 && (
+          {conversations.length === 0 && !convsError && (
             <p className="text-xs text-muted-foreground text-center py-4">No sessions yet</p>
+          )}
+          {convsError && (
+            <p className="text-xs text-destructive text-center py-4">Failed to load sessions</p>
           )}
         </div>
       </ScrollArea>

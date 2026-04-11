@@ -557,7 +557,9 @@ export class IdentityEngine extends EventEmitter {
     if (typeof name !== "string") {
       throw new Error("Display name must be a string.");
     }
-    const trimmed = name.trim();
+    // Strip HTML tags to prevent XSS in display names
+    const sanitized = name.replace(/<[^>]*>/g, "");
+    const trimmed = sanitized.trim();
     if (!DISPLAY_NAME_REGEX.test(trimmed)) {
       throw new Error(
         `Display name must be 2-50 characters and may only contain letters, ` +
@@ -613,6 +615,15 @@ export class IdentityEngine extends EventEmitter {
       timestamp: Date.now(),
     };
     this.auditStore.set(entry.id, entry);
+    // Cap audit entries per identity at 1000 — evict oldest when over limit
+    const MAX_AUDIT_PER_IDENTITY = 1000;
+    const identityAuditEntries = Array.from(this.auditStore.values())
+      .filter((e) => e.cryptoId === cryptoId)
+      .sort((a, b) => a.timestamp - b.timestamp);
+    if (identityAuditEntries.length > MAX_AUDIT_PER_IDENTITY) {
+      const toEvict = identityAuditEntries.slice(0, identityAuditEntries.length - MAX_AUDIT_PER_IDENTITY);
+      for (const old of toEvict) this.auditStore.delete(old.id);
+    }
     return entry;
   }
 
@@ -683,9 +694,15 @@ export class IdentityEngine extends EventEmitter {
    * @emits identity:registered  { identity: Identity }
    */
   registerIdentity(displayName: string, options: RegisterIdentityOptions = {}): Identity {
+    // Cap identity store at 10,000 entries
+    if (this.identityStore.size >= 10_000) {
+      throw new Error("Identity store capacity reached (max 10,000 identities)");
+    }
+    // Strip HTML tags from displayName before validation
+    const cleanDisplayName = displayName.replace(/<[^>]*>/g, "");
     // Validate display name
-    this._validateDisplayName(displayName);
-    if (this._isDisplayNameTaken(displayName)) {
+    this._validateDisplayName(cleanDisplayName);
+    if (this._isDisplayNameTaken(cleanDisplayName)) {
       throw new Error(
         `Display name "${displayName}" is already taken. Please choose another.`
       );
@@ -701,7 +718,7 @@ export class IdentityEngine extends EventEmitter {
 
     const identity: Identity = {
       crypto,
-      displayName: displayName.trim(),
+      displayName: cleanDisplayName.trim(),
       displayAvatar: undefined,
       bio: options.bio,
       organizationName: options.organizationName,

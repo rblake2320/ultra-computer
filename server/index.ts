@@ -2,6 +2,18 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
+
+// ─── Process-level error handlers (must be first) ────────────────────────────
+process.on("uncaughtException", (err) => {
+  console.error("[fatal] Uncaught exception:", err);
+  process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[fatal] Unhandled promise rejection:", reason);
+  process.exit(1);
+});
 
 const app = express();
 const httpServer = createServer(app);
@@ -12,15 +24,11 @@ declare module "http" {
   }
 }
 
-// CORS — allow only same origin (no cross-origin API access by default)
-// In production behind a reverse proxy this header is irrelevant, but it
-// provides defence-in-depth against CSRF from other origins.
+// CORS — use explicit ALLOWED_ORIGIN env var or wildcard; never derive from request host
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  // Allow requests with no origin (same-origin, curl, server-to-server)
-  // or from the same host
   if (!origin) return next();
-  const allowedOrigin = process.env.ALLOWED_ORIGIN || `${req.protocol}://${req.headers.host}`;
+  const allowedOrigin = process.env.ALLOWED_ORIGIN || "*";
   res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
@@ -39,14 +47,61 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
-// Strip __PORT_5000__ prefix for local production testing
-// (deploy_website replaces this in the built bundle, but locally it remains literal)
-app.use((req, _res, next) => {
-  if (req.path.startsWith('/__PORT_5000__')) {
-    req.url = req.url.replace('/__PORT_5000__', '');
-  }
-  next();
+// ─── Security headers ─────────────────────────────────────────────────────
+app.use(helmet({
+  contentSecurityPolicy: false, // Managed by the SPA
+  crossOriginEmbedderPolicy: false, // Allow iframe embedding
+}));
+
+// ─── Rate limiting ────────────────────────────────────────────────────────
+// General API rate limit: 200 requests per minute per IP
+const apiLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later" },
+  skip: (req) => !req.path.startsWith("/api"),
 });
+app.use(apiLimiter);
+
+// Stricter limit on LLM-triggering endpoints: 20 per minute per IP
+const chatLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Chat rate limit exceeded. Please wait before sending more messages." },
+  keyGenerator: (req) => req.ip || req.socket.remoteAddress || "unknown",
+});
+app.use("/api/conversations/:id/messages", chatLimiter);
+
+// ─── Health check (no auth, no rate limit) ────────────────────────────────
+app.get("/api/health", (_req, res) => {
+  res.json({
+    status: "ok",
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    version: "1.0.0",
+    nodeVersion: process.version,
+    memoryUsage: {
+      rss: Math.round(process.memoryUsage().rss / 1024 / 1024),
+      heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+    },
+  });
+});
+
+// Strip __PORT_5000__ prefix only in non-production (dev/test only)
+// In production, the build process handles this substitution at bundle time.
+if (process.env.NODE_ENV !== "production") {
+  app.use((req, _res, next) => {
+    if (req.path.startsWith('/__PORT_5000__')) {
+      req.url = req.url.replace('/__PORT_5000__', '');
+    }
+    next();
+  });
+}
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -62,22 +117,11 @@ export function log(message: string, source = "express") {
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
+      // Do not log response bodies — they may contain sensitive data (API keys, tokens, etc.)
+      const logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       log(logLine);
     }
   });
@@ -86,19 +130,22 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  try {
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
 
-    console.error("Internal Server Error:", err);
+    // Log the real error server-side for debugging
+    console.error("[server] Error:", err);
 
     if (res.headersSent) {
       return next(err);
     }
 
-    return res.status(status).json({ message });
+    // Return generic messages to client for 5xx errors to avoid leaking internals
+    const clientMessage = status >= 500 ? "Internal Server Error" : (err.message || "Request failed");
+    return res.status(status).json({ message: clientMessage });
   });
 
   // Catch-all for unmatched /api/* routes — return 404 JSON instead of falling
@@ -132,4 +179,8 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
+  } catch (err) {
+    console.error("[fatal] Failed to start server:", err);
+    process.exit(1);
+  }
 })();

@@ -19,11 +19,11 @@ export function SettingsPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const { data: settings = {} } = useQuery<Record<string, string>>({
+  const { data: settings = {}, isLoading: settingsLoading, isError: settingsError } = useQuery<Record<string, string>>({
     queryKey: ["/api/settings"],
   });
 
-  const { data: models = [] } = useQuery<Model[]>({
+  const { data: models = [], isLoading: modelsLoading, isError: modelsError } = useQuery<Model[]>({
     queryKey: ["/api/models"],
   });
 
@@ -55,6 +55,10 @@ export function SettingsPage() {
   });
 
   const handleSaveGeneral = () => {
+    if (!systemName.trim()) {
+      toast({ title: "System name cannot be empty", variant: "destructive" });
+      return;
+    }
     saveMutation.mutate({
       system_name: systemName,
       ...(defaultModelId ? { default_model_id: defaultModelId } : {}),
@@ -71,6 +75,22 @@ export function SettingsPage() {
   const handleThemeToggle = () => {
     toggle();
   };
+
+  if (settingsLoading || modelsLoading) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+        Loading settings...
+      </div>
+    );
+  }
+
+  if (settingsError) {
+    return (
+      <div className="p-8 text-center text-muted-foreground">
+        Failed to load settings. Please try again.
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full overflow-auto bg-background">

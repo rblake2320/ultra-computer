@@ -55,7 +55,7 @@ export function registerMarketplaceRoutes(app: Express) {
       name, description, longDescription, authorName, authorEmail,
       category, tags, license, repoUrl, visibility,
       content, skillType, language, triggerKeywords, version
-    } = req.body;
+    } = req.body ?? {};
 
     if (!name || !description || !authorName || !content) {
       return res.status(400).json({ error: "name, description, authorName, and content are required" });
@@ -162,7 +162,7 @@ export function registerMarketplaceRoutes(app: Express) {
     storage.updateMarketplaceSkill(skill.id, { currentVersion: version } as any);
 
     // Re-score after new version published
-    try { scoreSkillById(skill.id); } catch { /* non-fatal */ }
+    try { scoreSkillById(skill.id); } catch (scoreErr) { console.error('[marketplace] Scoring error for skill', skill.id, scoreErr); }
 
     res.json(ver);
   });
@@ -235,7 +235,7 @@ export function registerMarketplaceRoutes(app: Express) {
     storage.incrementMarketplaceInstallCount(skill.id);
 
     // Re-score this skill after install count changed
-    try { scoreSkillById(skill.id); } catch { /* non-fatal */ }
+    try { scoreSkillById(skill.id); } catch (scoreErr) { console.error('[marketplace] Scoring error for skill', skill.id, scoreErr); }
 
     res.json(install);
   });
@@ -323,7 +323,7 @@ export function registerMarketplaceRoutes(app: Express) {
     try {
       scoreSkillById(source.id);
       scoreSkillById(forkId);
-    } catch { /* non-fatal */ }
+    } catch (scoreErr) { console.error('[marketplace] Scoring error on fork', source.id, forkId, scoreErr); }
 
     res.json(fork);
   });
@@ -335,7 +335,8 @@ export function registerMarketplaceRoutes(app: Express) {
 
     const { rating, review, userId } = req.body;
     if (!rating || !userId) return res.status(400).json({ error: "rating and userId required" });
-    const ratingNum = parseInt(rating);
+    // Use Number() instead of parseInt() to correctly handle non-integer strings
+    const ratingNum = Number(rating);
     if (isNaN(ratingNum) || ratingNum < 1 || ratingNum > 5) return res.status(400).json({ error: "rating must be 1-5" });
 
     // Check for existing rating by this user
@@ -346,7 +347,7 @@ export function registerMarketplaceRoutes(app: Express) {
       storage.updateMarketplaceRatingRecord(existing.id, { rating: ratingNum, review: review || existing.review });
       storage.updateMarketplaceRating(skill.id, ratingNum - oldRating, 0);
       // Re-score after rating update
-      try { scoreSkillById(skill.id); } catch { /* non-fatal */ }
+      try { scoreSkillById(skill.id); } catch (scoreErr) { console.error('[marketplace] Scoring error for skill', skill.id, scoreErr); }
       const updated = storage.getMarketplaceRatingByUser(skill.id, userId);
       return res.json(updated);
     }
@@ -363,7 +364,7 @@ export function registerMarketplaceRoutes(app: Express) {
     storage.updateMarketplaceRating(skill.id, ratingNum, 1);
 
     // Re-score after new rating
-    try { scoreSkillById(skill.id); } catch { /* non-fatal */ }
+    try { scoreSkillById(skill.id); } catch (scoreErr) { console.error('[marketplace] Scoring error for skill', skill.id, scoreErr); }
 
     res.json(ratingRecord);
   });
@@ -434,6 +435,10 @@ export function registerMarketplaceRoutes(app: Express) {
 
   // ─── Seed sample marketplace skills ───────────────────────────────────────
   app.post("/api/marketplace/seed", (req, res) => {
+    // Block seeding in production to prevent overwriting live data
+    if (process.env.NODE_ENV === "production") {
+      return res.status(403).json({ error: "Seeding is not allowed in production" });
+    }
     const existing = storage.getMarketplaceSkills();
     if (existing.length > 0) return res.json({ message: "Already seeded", count: existing.length });
 

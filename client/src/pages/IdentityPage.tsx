@@ -367,6 +367,18 @@ function MyIdentityTab({ cryptoId, onRegistered }: { cryptoId: string | null; on
     );
   }
 
+  if (identityQuery.isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
+        <ShieldX className="w-10 h-10" />
+        <p>Failed to load identity. Please try again.</p>
+        <Button variant="outline" size="sm" onClick={() => identityQuery.refetch()}>
+          <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
   if (!identity) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
@@ -457,7 +469,7 @@ function MyIdentityTab({ cryptoId, onRegistered }: { cryptoId: string | null; on
               }`}>{identity.trustScore}/100</span>
             </div>
             <TrustBar score={identity.trustScore} />
-            {identity.trustFactors && identity.trustFactors.length > 0 && (
+            {(identity.trustFactors ?? []).length > 0 && (
               <div className="mt-2 rounded-lg border border-border overflow-hidden">
                 <table className="w-full text-xs">
                   <thead>
@@ -468,7 +480,7 @@ function MyIdentityTab({ cryptoId, onRegistered }: { cryptoId: string | null; on
                     </tr>
                   </thead>
                   <tbody>
-                    {identity.trustFactors.map((f, i) => (
+                    {(identity.trustFactors ?? []).map((f, i) => (
                       <tr key={i} className="border-b border-border/60 last:border-0">
                         <td className="px-3 py-2">
                           <div className="font-medium text-foreground">{f.name}</div>
@@ -629,6 +641,7 @@ function DirectoryTab({ myCryptoId }: { myCryptoId: string | null }) {
   const directoryQuery = useQuery<{ identities: Identity[]; total: number }>({
     queryKey: [`/api/identity/search?${params.toString()}`],
   });
+  const directoryError = directoryQuery.isError;
 
   const blockMutation = useMutation({
     mutationFn: ({ targetId, reason }: { targetId: string; reason?: string }) =>
@@ -708,7 +721,9 @@ function DirectoryTab({ myCryptoId }: { myCryptoId: string | null }) {
       )}
 
       {/* Grid */}
-      {directoryQuery.isLoading ? (
+      {directoryError ? (
+        <div className="p-8 text-center text-muted-foreground">Failed to load directory. Please try again.</div>
+      ) : directoryQuery.isLoading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-44 w-full rounded-lg" />
@@ -801,9 +816,9 @@ function DirectoryCard({ identity, canBlock, onBlock }: { identity: Identity; ca
                 {identity.communityProfile.company && ` @ ${identity.communityProfile.company}`}
               </div>
             )}
-            {identity.communityProfile?.skills && identity.communityProfile.skills.length > 0 && (
+            {(identity.communityProfile?.skills ?? []).length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1">
-                {identity.communityProfile.skills.slice(0, 4).map(s => (
+                {(identity.communityProfile?.skills ?? []).slice(0, 4).map(s => (
                   <span key={s} className="px-1.5 py-0.5 rounded bg-muted/60 border border-border text-xs">{s}</span>
                 ))}
               </div>
@@ -1090,6 +1105,10 @@ function BlockListTab({ cryptoId }: { cryptoId: string | null }) {
     enabled: !!cryptoId,
   });
 
+  if (blocksQuery.isError) {
+    return <div className="p-4 text-center text-muted-foreground text-sm">Failed to load block list. Please try again.</div>;
+  }
+
   const blockMutation = useMutation({
     mutationFn: (body: { targetCryptoId: string; reason?: string }) =>
       apiRequest("POST", `/api/identity/${cryptoId}/blocks`, body),
@@ -1261,6 +1280,14 @@ function AuditLogTab({ cryptoId }: { cryptoId: string | null }) {
   const auditQuery = useQuery<{ entries: AuditEntry[]; total: number }>({
     queryKey: [`/api/identity/audit?${auditParams.toString()}`],
   });
+
+  if (statsQuery.isError) {
+    return <div className="p-4 text-center text-muted-foreground text-sm">Failed to load stats. Please try again.</div>;
+  }
+
+  if (auditQuery.isError) {
+    return <div className="p-4 text-center text-muted-foreground text-sm">Failed to load audit log. Please try again.</div>;
+  }
 
   const stats   = statsQuery.data;
   const entries = auditQuery.data?.entries ?? [];

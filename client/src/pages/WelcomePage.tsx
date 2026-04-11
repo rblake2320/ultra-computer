@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest } from "../lib/queryClient";
+import { useToast } from "../hooks/use-toast";
 import { Button } from "../components/ui/button";
 import { Layout } from "../components/Layout";
 import { Plus, Cpu, Brain, Zap, Network, Plug, BookOpen } from "lucide-react";
@@ -18,12 +19,15 @@ export function WelcomePage() {
   const qc = useQueryClient();
   const [, setLocation] = useLocation();
 
+  const { toast } = useToast();
+
   const create = useMutation({
     mutationFn: () => apiRequest("POST", "/api/conversations", { title: "New Session" }),
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["/api/conversations"] });
       setLocation(`/chat/${data.id}`);
     },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   return (

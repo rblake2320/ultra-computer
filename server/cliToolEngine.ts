@@ -228,13 +228,30 @@ const runningProcesses = new Map<number, AbortController>();
  * @param opts      Execution options.
  * @returns         CommandResult with stdout, stderr, exitCode, duration.
  */
+/** Curated environment variable names passed to subprocesses — prevents leaking secrets. */
+const SAFE_ENV_KEYS = ["PATH", "HOME", "LANG", "TERM", "NODE_ENV"];
+
+/**
+ * Builds a safe subprocess environment from a curated allowlist of process.env keys
+ * plus any caller-supplied overrides. Prevents leaking secrets into subprocesses.
+ */
+function buildSafeEnv(extraEnv?: Record<string, string>): Record<string, string> {
+  const safe: Record<string, string> = {};
+  for (const key of SAFE_ENV_KEYS) {
+    const val = process.env[key];
+    if (val !== undefined) safe[key] = val;
+  }
+  return { ...safe, ...(extraEnv ?? {}) };
+}
+
 export async function executeCommand(
   cmd: string,
   opts: CommandOptions = {}
 ): Promise<CommandResult> {
   const workDir = opts.workDir ?? DEFAULT_WORK_DIR;
   const timeout = Math.min(opts.timeout ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
-  const env = { ...process.env, ...(opts.env ?? {}) } as Record<string, string>;
+  // Use safe env: only curated keys + caller-provided extras (not full process.env)
+  const env = buildSafeEnv(opts.env);
 
   await ensureSandbox(workDir);
 
@@ -503,13 +520,15 @@ export async function getInstalledTools(): Promise<InstalledTool[]> {
 
   const discovered = await Promise.all(
     PROBED_TOOLS.map(async ({ name, versionFlag }) => {
+      // Validate tool name before interpolating into shell command
+      if (!/^[a-zA-Z0-9_\-\.]+$/.test(name)) return null;
       try {
-        const { stdout: whichOut } = await execAsync(`which ${name} 2>/dev/null`);
+        const { stdout: whichOut } = await execAsync(`which ${name} 2>/dev/null`, { timeout: 5_000 });
         const toolPath = whichOut.trim();
         if (!toolPath) return null;
 
         const { stdout: verOut, stderr: verErr } = await execAsync(
-          `${toolPath} ${versionFlag} 2>&1`
+          `${toolPath} ${versionFlag} 2>&1`, { timeout: 5_000 }
         ).catch(() => ({ stdout: "", stderr: "unknown" }));
         const version = (verOut || verErr).split("\n")[0].trim();
         return { name, path: toolPath, version } as InstalledTool;
@@ -840,6 +859,9 @@ export async function executeCodeInterpreter(
 ): Promise<CodeInterpreterResult> {
   const start = Date.now();
 
+  /** Validates a package name is safe to pass to pip/npm. */
+  const SAFE_PACKAGE_RE = /^[a-zA-Z0-9\-_.>=<!]+$/;
+
   // Auto-install pip packages
   if (language === "python3") {
     const pipMatch = PIP_HEADER_RE.exec(code);
@@ -847,7 +869,8 @@ export async function executeCodeInterpreter(
       const packages = pipMatch[1]
         .split(",")
         .map((p) => p.trim())
-        .filter(Boolean);
+        .filter(Boolean)
+        .filter((p) => SAFE_PACKAGE_RE.test(p)); // validate before passing to pip
       if (packages.length > 0) {
         await executeCommand(
           `pip3 install --quiet ${packages.map((p) => JSON.stringify(p)).join(" ")}`,
@@ -864,7 +887,8 @@ export async function executeCodeInterpreter(
       const packages = npmMatch[1]
         .split(",")
         .map((p) => p.trim())
-        .filter(Boolean);
+        .filter(Boolean)
+        .filter((p) => SAFE_PACKAGE_RE.test(p)); // validate before passing to npm
       if (packages.length > 0) {
         await executeCommand(
           `npm install --save ${packages.map((p) => JSON.stringify(p)).join(" ")}`,
@@ -1030,9 +1054,16 @@ print("Done")
     }
 
     case "image-resize": {
-      const width = (options.width as number | undefined) ?? 800;
-      const height = (options.height as number | undefined) ?? "";
-      const geometry = height ? `${width}x${height}` : `${width}`;
+      // Validate width/height are positive integers before constructing geometry string
+      const rawWidth = options.width;
+      const rawHeight = options.height;
+      const width = (Number.isInteger(rawWidth) && (rawWidth as number) > 0)
+        ? (rawWidth as number)
+        : 800;
+      const height = (Number.isInteger(rawHeight) && (rawHeight as number) > 0)
+        ? (rawHeight as number)
+        : 0;
+      const geometry = height > 0 ? `${width}x${height}` : `${width}`;
       // Try ImageMagick convert, then ffmpeg as fallback
       const convertCheck = await executeCommand("which convert");
       if (convertCheck.exitCode === 0) {
@@ -1041,7 +1072,7 @@ print("Done")
         );
         if (r.exitCode !== 0) throw new Error(`image-resize (convert) failed: ${r.stderr}`);
       } else {
-        const ffmpegGeom = height ? `${width}:${height}` : `${width}:-1`;
+        const ffmpegGeom = height > 0 ? `${width}:${height}` : `${width}:-1`;
         const r = await executeCommand(
           `ffmpeg -y -i ${inQ} -vf "scale=${ffmpegGeom}" ${outQ}`
         );

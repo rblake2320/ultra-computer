@@ -120,7 +120,7 @@ export function BrowserPage() {
 
   // ─── Sessions query ───────────────────────────────────────────────────────
 
-  const { data: rawSessions, refetch: refetchSessions } = useQuery<
+  const { data: rawSessions, isError: sessionsError, refetch: refetchSessions } = useQuery<
     { sessions: BrowserSession[] } | BrowserSession[]
   >({
     queryKey: ["/api/browser/sessions"],
@@ -201,6 +201,8 @@ export function BrowserPage() {
   const handleNavigate = () => {
     let url = urlInput.trim();
     if (!url) return;
+    // Reject bare scheme — user hasn't typed a real URL yet
+    if (/^https?:\/\/$/i.test(url)) return;
     if (!/^https?:\/\//i.test(url)) url = "https://" + url;
     setUrlInput(url);
     navigateMutation.mutate(url);
@@ -734,7 +736,11 @@ export function BrowserPage() {
                 </Button>
               </div>
 
-              {sessions.length === 0 ? (
+              {sessionsError ? (
+                <div className="p-4 text-center text-xs text-muted-foreground">
+                  Failed to load sessions. Please try again.
+                </div>
+              ) : sessions.length === 0 ? (
                 <div
                   data-testid="empty-state-sessions"
                   className="text-center py-8"

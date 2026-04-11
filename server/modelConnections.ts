@@ -513,7 +513,7 @@ export async function handleModelOAuthCallback(
       oauthTokens: JSON.stringify(oauthTokens),
       connectionStatus: "connected",
       connectionError: null as any,
-      lastTestedAt: Date.now(),
+      lastTestedAt: Date.now() as any,
     });
 
     return { success: true, modelId: pending.modelId };
@@ -567,10 +567,10 @@ export async function connectModel(
   // Update status based on test
   storage.updateModel(modelId, {
     connectionStatus: result.ok ? "connected" : "error",
-    connectionError: result.error || null,
-    lastTestedAt: Date.now(),
-    lastTestLatency: result.latencyMs || null,
-  } as any);
+    connectionError: (result.error || null) as any,
+    lastTestedAt: Date.now() as any,
+    lastTestLatency: (result.latencyMs || null) as any,
+  });
 
   return result;
 }
@@ -583,14 +583,14 @@ export function disconnectModel(modelId: string): boolean {
   if (!model) return false;
 
   storage.updateModel(modelId, {
-    apiKey: null,
-    oauthTokens: null,
-    envVarName: null,
+    apiKey: null as any,
+    oauthTokens: null as any,
+    envVarName: null as any,
     connectionStatus: "disconnected",
-    connectionError: null,
-    lastTestedAt: null,
-    lastTestLatency: null,
-  } as any);
+    connectionError: null as any,
+    lastTestedAt: null as any,
+    lastTestLatency: null as any,
+  });
 
   return true;
 }
@@ -616,20 +616,20 @@ export async function testConnection(modelId: string): Promise<{ ok: boolean; er
     // Update DB with test result
     storage.updateModel(modelId, {
       connectionStatus: result.ok ? "connected" : "error",
-      connectionError: result.error || null,
-      lastTestedAt: Date.now(),
-      lastTestLatency: result.latencyMs || null,
-    } as any);
+      connectionError: (result.error || null) as any,
+      lastTestedAt: Date.now() as any,
+      lastTestLatency: (result.latencyMs || null) as any,
+    });
 
     return result;
   } catch (e: any) {
     const latencyMs = Date.now() - start;
     storage.updateModel(modelId, {
       connectionStatus: "error",
-      connectionError: e.message,
-      lastTestedAt: Date.now(),
-      lastTestLatency: latencyMs,
-    } as any);
+      connectionError: e.message as any,
+      lastTestedAt: Date.now() as any,
+      lastTestLatency: latencyMs as any,
+    });
     return { ok: false, error: e.message, latencyMs };
   }
 }
@@ -672,13 +672,13 @@ export function createFromPreset(
     speedTier: preset.speedTier,
     notes: preset.description,
     authMethod,
-    oauthTokens: null,
+    oauthTokens: null as any,
     envVarName: credentials.envVarName || null,
     connectionStatus: "unconfigured",
-    connectionError: null,
-    lastTestedAt: null,
-    lastTestLatency: null,
-  } as any);
+    connectionError: null as any,
+    lastTestedAt: null as any,
+    lastTestLatency: null as any,
+  });
 
   return model;
 }
@@ -720,7 +720,8 @@ export function discoverEnvVars(): Array<{ provider: string; envVar: string; isS
         provider: providerId,
         envVar: envName,
         isSet,
-        masked: isSet ? `${value.slice(0, 6)}...${value.slice(-4)}` : "",
+        // Only mask if key is long enough to not be entirely revealed by the mask window
+        masked: isSet ? (value.length > 12 ? `${value.slice(0, 6)}...${value.slice(-4)}` : "***") : "",
       });
     }
   }

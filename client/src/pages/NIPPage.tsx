@@ -211,7 +211,7 @@ function SessionsTab() {
   const { data: sessions = [], isLoading } = useQuery<NIPSession[]>({ queryKey: [queryKey] });
 
   // Session detail
-  const { data: sessionDetail } = useQuery<NIPSession>({
+  const { data: sessionDetail, isLoading: detailLoading, isError: detailError } = useQuery<NIPSession>({
     queryKey: [`/api/nip/sessions/${expandedId}`],
     enabled: !!expandedId,
   });
@@ -348,6 +348,12 @@ function SessionsTab() {
               {expandedId === session.id && (
                 <Card className="bg-background border-indigo-500/30 border-t-0 rounded-t-none">
                   <CardContent className="p-5 space-y-4">
+                    {detailLoading && (
+                      <p className="text-xs text-muted-foreground">Loading session details...</p>
+                    )}
+                    {detailError && (
+                      <p className="text-xs text-destructive">Failed to load session details.</p>
+                    )}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/* Instructor */}
                       <div className="space-y-2">
@@ -712,7 +718,7 @@ function ConversationTab() {
         <>
           {/* Chat Area */}
           <ScrollArea className="flex-1 min-h-0 h-[480px]">
-            <div ref={scrollRef as any} className="p-4 space-y-3">
+            <div ref={scrollRef} className="p-4 space-y-3">
               {messages.length === 0 && (
                 <p className="text-center text-muted-foreground text-sm py-8">No messages yet in this session.</p>
               )}

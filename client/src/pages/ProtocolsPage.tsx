@@ -414,12 +414,12 @@ function MCPTab({ dashboard }: { dashboard: DashboardData | undefined }) {
     onError: (e: any) => toast({ title: "Disconnect failed", description: e.message, variant: "destructive" }),
   });
 
-  const { data: serverTools } = useQuery<MCPTool[]>({
+  const { data: serverTools = [], isError: toolsError } = useQuery<MCPTool[]>({
     queryKey: [`/api/protocols/mcp/servers/${expandedServer}/tools`],
     enabled: !!expandedServer,
   });
 
-  const { data: serverResources } = useQuery<any[]>({
+  const { data: serverResources = [], isError: resourcesError } = useQuery<any[]>({
     queryKey: [`/api/protocols/mcp/servers/${expandedServer}/resources`],
     enabled: !!expandedServer,
   });
@@ -535,10 +535,8 @@ function MCPTab({ dashboard }: { dashboard: DashboardData | undefined }) {
                         <Package className="w-3 h-3" />
                         Tools
                       </p>
-                      {!serverTools ? (
-                        <div className="space-y-1">
-                          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-5 w-full" />)}
-                        </div>
+                      {toolsError ? (
+                        <p className="text-xs text-destructive">Failed to load tools</p>
                       ) : serverTools.length === 0 ? (
                         <p className="text-xs text-muted-foreground">No tools</p>
                       ) : (

@@ -195,8 +195,10 @@ export async function withRetryAndFallback<T>(
       }
 
       // Rate-limit: wait 3× longer.
-      const waitMs =
+      const baseWaitMs =
         errClass === "rate_limit" ? currentDelay * 3 : currentDelay;
+      // Add jitter: multiply by a random factor in [0.75, 1.25]
+      const waitMs = Math.round(baseWaitMs * (0.75 + Math.random() * 0.5));
 
       // Don't sleep after the last iteration.
       if (i < cfg.maxRetries - 1) {

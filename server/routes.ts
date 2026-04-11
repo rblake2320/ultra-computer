@@ -70,7 +70,9 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   taskQueue.initialize().then(available => {
     if (available) console.log("[taskQueue] BullMQ connected to Redis");
     else console.log("[taskQueue] Redis not available — queue disabled (graceful fallback)");
-  }).catch(() => {});
+  }).catch((err) => {
+    console.error("[taskQueue] Initialization error:", err);
+  });
 
   // ─── Models ───────────────────────────────────────────────────────────────
   app.get("/api/models", (req, res) => {
@@ -112,25 +114,33 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       storage.getModels().forEach(m => storage.updateModel(m.id, { isOrchestrator: false }));
     }
 
-    const model = storage.createModel({
-      id: id || uuidv4(),
-      name,
-      provider,
-      modelId,
-      baseUrl: baseUrl || null,
-      apiKey: apiKey || null,
-      enabled: true,
-      capabilities: capabilities ? JSON.stringify(capabilities) : '["chat"]',
-      contextWindow: contextWindow || 8192,
-      isDefault: isDefault || false,
-      isOrchestrator: isOrchestrator || false,
-      speedTier: speedTier || "medium",
-      notes: notes || null,
-      authMethod: authMethod || "api_key",
-      envVarName: envVarName || null,
-      connectionStatus: "unconfigured",
-    } as any);
-    res.json(model);
+    let model;
+    try {
+      model = storage.createModel({
+        id: id || uuidv4(),
+        name,
+        provider,
+        modelId,
+        baseUrl: baseUrl || null,
+        apiKey: apiKey || null,
+        enabled: true,
+        capabilities: capabilities ? JSON.stringify(capabilities) : '["chat"]',
+        contextWindow: contextWindow || 8192,
+        isDefault: isDefault || false,
+        isOrchestrator: isOrchestrator || false,
+        speedTier: speedTier || "medium",
+        notes: notes || null,
+        authMethod: authMethod || "api_key",
+        envVarName: envVarName || null,
+        connectionStatus: "unconfigured",
+      } as any);
+    } catch (err: any) {
+      if (err.message?.includes("UNIQUE") || err.message?.includes("unique")) {
+        return res.status(409).json({ error: "A model with this ID already exists" });
+      }
+      throw err;
+    }
+    res.status(201).json(model);
   });
 
   // Quick-add: create model from preset + connect in one step
@@ -169,6 +179,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.delete("/api/models/:id", (req, res) => {
+    const existing = storage.getModel(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Model not found" });
     storage.deleteModel(req.params.id);
     res.json({ ok: true });
   });
@@ -218,7 +230,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       orchestratorModelId: req.body.orchestratorModelId || null,
       activeSkillIds: "[]",
     });
-    res.json(conv);
+    res.status(201).json(conv);
   });
 
   app.patch("/api/conversations/:id", (req, res) => {
@@ -277,7 +289,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       return res.status(500).json({ error: "Failed to save message" });
     }
 
-    res.json(userMsg);
+    res.status(201).json(userMsg);
 
     // Run orchestrator async (non-blocking)
     runOrchestrator(convId, content).catch(err => {
@@ -373,7 +385,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   app.delete("/api/skills/:id", (req, res) => {
     const skill = storage.getSkill(req.params.id);
-    if (skill?.isBuiltIn) return res.status(400).json({ error: "Cannot delete built-in skill" });
+    if (!skill) return res.status(404).json({ error: "Skill not found" });
+    if (skill.isBuiltIn) return res.status(400).json({ error: "Cannot delete built-in skill" });
     storage.deleteSkill(req.params.id);
     res.json({ ok: true });
   });
@@ -385,16 +398,22 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.json(connectors);
   });
 
+  const CONNECTOR_CATEGORY_ALLOWLIST = new Set(["custom", "productivity", "communication", "developer", "data", "storage", "crm", "finance", "security", "ai", "social", "ecommerce", "analytics", "infrastructure"]);
+
   app.post("/api/connectors", (req, res) => {
     const { name, type, category, description, mcpServerUrl } = req.body;
     if (!name || !type) return res.status(400).json({ error: "name and type required" });
     if (typeof name !== "string" || name.length > 200) return res.status(400).json({ error: "name must be a string (max 200 chars)" });
     if (typeof type !== "string" || type.length > 100) return res.status(400).json({ error: "type must be a string (max 100 chars)" });
+    const resolvedCategory = category || "custom";
+    if (!CONNECTOR_CATEGORY_ALLOWLIST.has(resolvedCategory)) {
+      return res.status(400).json({ error: `category must be one of: ${[...CONNECTOR_CATEGORY_ALLOWLIST].join(", ")}` });
+    }
     const connector = storage.createConnector({
       id: uuidv4(),
       name,
       type,
-      category: category || "custom",
+      category: resolvedCategory,
       description: description || "",
       status: "disconnected",
       config: "{}",
@@ -402,11 +421,14 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       scopes: "[]",
       logoUrl: null,
     });
-    res.json({ ...connector, config: undefined });
+    res.status(201).json({ ...connector, config: undefined });
   });
 
   app.post("/api/connectors/:id/connect", (req, res) => {
     const { apiKey, serverUrl, ...extra } = req.body;
+    if (apiKey !== undefined && (typeof apiKey !== "string" || apiKey.length >= 500)) {
+      return res.status(400).json({ error: "apiKey must be a string under 500 characters" });
+    }
     const updated = connectWithApiKey(req.params.id, apiKey || "", { serverUrl, ...extra });
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json({ ...updated, config: undefined });
@@ -432,6 +454,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.delete("/api/connectors/:id", (req, res) => {
+    const existing = storage.getConnector(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Connector not found" });
     storage.deleteConnector(req.params.id);
     res.json({ ok: true });
   });
@@ -444,6 +468,14 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   app.post("/api/memory", (req, res) => {
     const { content, summary, category, importance } = req.body;
     if (!content) return res.status(400).json({ error: "content required" });
+    if (typeof content !== "string") return res.status(400).json({ error: "content must be a string" });
+    if (importance !== undefined) {
+      const imp = Number(importance);
+      if (isNaN(imp) || imp < 0 || imp > 1) return res.status(400).json({ error: "importance must be a number between 0 and 1" });
+    }
+    if (category !== undefined) {
+      if (typeof category !== "string" || category.length > 100) return res.status(400).json({ error: "category must be a string (max 100 chars)" });
+    }
     const mem = storage.createMemory({
       id: uuidv4(),
       content,
@@ -454,10 +486,12 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       sessionId: null,
       sourceMessageId: null,
     });
-    res.json(mem);
+    res.status(201).json(mem);
   });
 
   app.delete("/api/memory/:id", (req, res) => {
+    const existing = storage.getMemories(10000).find(m => m.id === req.params.id);
+    if (!existing) return res.status(404).json({ error: "Memory not found" });
     storage.deleteMemory(req.params.id);
     res.json({ ok: true });
   });
@@ -480,6 +514,9 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.post("/api/settings", (req, res) => {
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      return res.status(400).json({ error: "Request body must be a plain object" });
+    }
     const ALLOWED_SETTINGS = new Set(["theme", "default_model_id", "system_name", "max_tool_iterations", "sandbox_auto_enable", "sandbox_config"]);
     for (const [k, v] of Object.entries(req.body)) {
       if (!ALLOWED_SETTINGS.has(k)) continue; // silently skip unknown keys
@@ -492,6 +529,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   app.get("/api/skill-scripts", (req, res) => {
     const q = req.query.q as string | undefined;
     if (q) {
+      if (q.length > 500) return res.status(400).json({ error: "Search query too long (max 500 chars)" });
       res.json(storage.searchSkillScripts(q));
     } else {
       res.json(storage.getSkillScripts());
@@ -508,7 +546,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     const { name, description, language, content, tags, sourceConversationId, sourceToolCallId, filePath } = req.body;
     if (!name || !content) return res.status(400).json({ error: "name and content required" });
 
-    const script = storage.createSkillScript({
+    const script = storage.createSkillScript({  // will return 201 below
       id: uuidv4(),
       name,
       description: description || "",
@@ -531,15 +569,21 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       changeNote: "Initial version",
     });
 
-    res.json(script);
+    res.status(201).json(script);
   });
 
   app.patch("/api/skill-scripts/:id", (req, res) => {
     const existing = storage.getSkillScript(req.params.id);
     if (!existing) return res.status(404).json({ error: "Not found" });
 
-    const { content, changeNote, tags, ...rest } = req.body;
-    const updateData: any = { ...rest };
+    // Explicit allowlist — no mass assignment via ...rest
+    const { content, changeNote, tags, name, description, language, filePath, isFavorite } = req.body;
+    const updateData: Record<string, any> = {};
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (language !== undefined) updateData.language = language;
+    if (filePath !== undefined) updateData.filePath = filePath;
+    if (isFavorite !== undefined) updateData.isFavorite = isFavorite;
 
     if (tags !== undefined) {
       updateData.tags = Array.isArray(tags) ? JSON.stringify(tags) : tags;
@@ -565,6 +609,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.delete("/api/skill-scripts/:id", (req, res) => {
+    const existing = storage.getSkillScript(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Skill script not found" });
     storage.deleteSkillScript(req.params.id);
     res.json({ ok: true });
   });
@@ -705,7 +751,11 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.flushHeaders();
 
     const send = (event: any) => {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
+      try {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch {
+        // Client disconnected — cleanup handled on "close" event
+      }
     };
 
     // Subscribe to all current conversations
@@ -725,7 +775,14 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
     // Keep-alive ping
     const ping = setInterval(() => {
-      res.write(": ping\n\n");
+      try {
+        res.write(": ping\n\n");
+      } catch {
+        clearInterval(ping);
+        Array.from(handlers.entries()).forEach(([convId, handler]) => {
+          unsubscribeFromConversation(convId, handler);
+        });
+      }
     }, 15000);
 
     req.on("close", () => {

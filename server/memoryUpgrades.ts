@@ -72,6 +72,7 @@ function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
  * Values are normalised by document length.
  */
 function termFrequency(tokens: string[]): Map<string, number> {
+  if (tokens.length === 0) return new Map();
   const tf = new Map<string, number>();
   tokens.forEach((t) => {
     tf.set(t, (tf.get(t) ?? 0) + 1);
@@ -336,9 +337,11 @@ export function deduplicateMemories(memories: Memory[]): Memory[] {
         let keepIdx: number;
         let dropIdx: number;
 
-        if (a.importance > b.importance) {
+        const aImp = a.importance ?? 0;
+        const bImp = b.importance ?? 0;
+        if (aImp > bImp) {
           keepIdx = i; dropIdx = j;
-        } else if (b.importance > a.importance) {
+        } else if (bImp > aImp) {
           keepIdx = j; dropIdx = i;
         } else {
           // Equal importance — prefer the more recent entry

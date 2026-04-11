@@ -421,58 +421,62 @@ const RATE_LIMIT_MESSAGES_PER_MINUTE = 60;
  *   - Recursive / indirect prompt injection
  *   - System boundary bypass
  */
+// NOTE: All INJECTION_PATTERNS use RegExp WITHOUT the 'g' flag.
+// Using the 'g' flag with .test() causes stateful lastIndex behaviour:
+// the same regex object carries state between calls and can return false
+// positives/negatives on subsequent invocations. Non-'g' .test() is always safe.
 const INJECTION_PATTERNS: Array<{
   pattern: RegExp;
   category: string;
   threatLevel: "low" | "medium" | "high" | "critical";
 }> = [
   // --- Role override / persona hijacking ---
-  { pattern: /ignore\s+(all\s+)?previous\s+instructions?/gi, category: "role_override", threatLevel: "critical" },
-  { pattern: /disregard\s+(all\s+)?previous\s+instructions?/gi, category: "role_override", threatLevel: "critical" },
-  { pattern: /forget\s+(everything|all)\s+(you\s+)?know/gi, category: "role_override", threatLevel: "critical" },
-  { pattern: /you\s+are\s+now\s+[a-z]/gi, category: "persona_hijack", threatLevel: "high" },
-  { pattern: /act\s+as\s+(if\s+you\s+are\s+)?a(n)?\s+/gi, category: "persona_hijack", threatLevel: "medium" },
-  { pattern: /pretend\s+(you\s+are|to\s+be)\s+/gi, category: "persona_hijack", threatLevel: "medium" },
-  { pattern: /roleplay\s+as\s+/gi, category: "persona_hijack", threatLevel: "medium" },
-  { pattern: /your\s+(new\s+)?persona\s+is\s+/gi, category: "persona_hijack", threatLevel: "high" },
+  { pattern: /ignore\s+(all\s+)?previous\s+instructions?/i, category: "role_override", threatLevel: "critical" },
+  { pattern: /disregard\s+(all\s+)?previous\s+instructions?/i, category: "role_override", threatLevel: "critical" },
+  { pattern: /forget\s+(everything|all)\s+(you\s+)?know/i, category: "role_override", threatLevel: "critical" },
+  { pattern: /you\s+are\s+now\s+[a-z]/i, category: "persona_hijack", threatLevel: "high" },
+  { pattern: /act\s+as\s+(if\s+you\s+are\s+)?a(n)?\s+/i, category: "persona_hijack", threatLevel: "medium" },
+  { pattern: /pretend\s+(you\s+are|to\s+be)\s+/i, category: "persona_hijack", threatLevel: "medium" },
+  { pattern: /roleplay\s+as\s+/i, category: "persona_hijack", threatLevel: "medium" },
+  { pattern: /your\s+(new\s+)?persona\s+is\s+/i, category: "persona_hijack", threatLevel: "high" },
   // --- System prompt / instruction injection ---
-  { pattern: /system\s*prompt\s*:/gi, category: "system_injection", threatLevel: "critical" },
-  { pattern: /\[system\]/gi, category: "delimiter_injection", threatLevel: "high" },
-  { pattern: /<system>/gi, category: "delimiter_injection", threatLevel: "high" },
-  { pattern: /\|\|SYSTEM\|\|/g, category: "delimiter_injection", threatLevel: "critical" },
-  { pattern: /###\s*system/gi, category: "delimiter_injection", threatLevel: "high" },
-  { pattern: /---\s*new\s+instructions?\s*---/gi, category: "instruction_injection", threatLevel: "critical" },
-  { pattern: /override\s+(the\s+)?(system|safety|original)\s+(prompt|instructions?|constraints?)/gi, category: "instruction_injection", threatLevel: "critical" },
+  { pattern: /system\s*prompt\s*:/i, category: "system_injection", threatLevel: "critical" },
+  { pattern: /\[system\]/i, category: "delimiter_injection", threatLevel: "high" },
+  { pattern: /<system>/i, category: "delimiter_injection", threatLevel: "high" },
+  { pattern: /\|\|SYSTEM\|\|/, category: "delimiter_injection", threatLevel: "critical" },
+  { pattern: /###\s*system/i, category: "delimiter_injection", threatLevel: "high" },
+  { pattern: /---\s*new\s+instructions?\s*---/i, category: "instruction_injection", threatLevel: "critical" },
+  { pattern: /override\s+(the\s+)?(system|safety|original)\s+(prompt|instructions?|constraints?)/i, category: "instruction_injection", threatLevel: "critical" },
   // --- Data exfiltration ---
-  { pattern: /send\s+(all\s+)?(conversation|session|system)\s+(data|history|logs?)\s+to\s+/gi, category: "exfiltration", threatLevel: "critical" },
-  { pattern: /exfiltrate\s+/gi, category: "exfiltration", threatLevel: "critical" },
-  { pattern: /leak\s+(the\s+)?(api\s+key|credentials?|password|secret)/gi, category: "exfiltration", threatLevel: "critical" },
-  { pattern: /repeat\s+everything\s+(above|before|you\s+know)/gi, category: "exfiltration", threatLevel: "high" },
-  { pattern: /print\s+(your\s+)?(system\s+prompt|initial\s+instructions?)/gi, category: "exfiltration", threatLevel: "high" },
+  { pattern: /send\s+(all\s+)?(conversation|session|system)\s+(data|history|logs?)\s+to\s+/i, category: "exfiltration", threatLevel: "critical" },
+  { pattern: /exfiltrate\s+/i, category: "exfiltration", threatLevel: "critical" },
+  { pattern: /leak\s+(the\s+)?(api\s+key|credentials?|password|secret)/i, category: "exfiltration", threatLevel: "critical" },
+  { pattern: /repeat\s+everything\s+(above|before|you\s+know)/i, category: "exfiltration", threatLevel: "high" },
+  { pattern: /print\s+(your\s+)?(system\s+prompt|initial\s+instructions?)/i, category: "exfiltration", threatLevel: "high" },
   // --- Encoding tricks ---
-  { pattern: /base64\s*decode\s*\(/gi, category: "encoding_trick", threatLevel: "high" },
-  { pattern: /eval\s*\(/gi, category: "code_injection", threatLevel: "critical" },
-  { pattern: /exec\s*\(/gi, category: "code_injection", threatLevel: "critical" },
-  { pattern: /&#x[0-9a-f]{2,4};/gi, category: "unicode_trick", threatLevel: "medium" },
-  { pattern: /\\u[0-9a-f]{4}/gi, category: "unicode_trick", threatLevel: "low" },
+  { pattern: /base64\s*decode\s*\(/i, category: "encoding_trick", threatLevel: "high" },
+  { pattern: /eval\s*\(/i, category: "code_injection", threatLevel: "critical" },
+  { pattern: /exec\s*\(/i, category: "code_injection", threatLevel: "critical" },
+  { pattern: /&#x[0-9a-f]{2,4};/i, category: "unicode_trick", threatLevel: "medium" },
+  { pattern: /\\u[0-9a-f]{4}/, category: "unicode_trick", threatLevel: "low" },
   // --- Social engineering ---
-  { pattern: /as\s+(your|an)\s+(administrator|admin|owner|creator|developer)/gi, category: "social_engineering", threatLevel: "high" },
-  { pattern: /this\s+is\s+(a\s+)?(test|simulation|drill|debug\s+mode)/gi, category: "social_engineering", threatLevel: "medium" },
-  { pattern: /in\s+(maintenance|developer|god|admin|root)\s+mode/gi, category: "privilege_escalation", threatLevel: "critical" },
-  { pattern: /jailbreak/gi, category: "jailbreak", threatLevel: "critical" },
-  { pattern: /DAN\s*(mode)?/g, category: "jailbreak", threatLevel: "critical" },
+  { pattern: /as\s+(your|an)\s+(administrator|admin|owner|creator|developer)/i, category: "social_engineering", threatLevel: "high" },
+  { pattern: /this\s+is\s+(a\s+)?(test|simulation|drill|debug\s+mode)/i, category: "social_engineering", threatLevel: "medium" },
+  { pattern: /in\s+(maintenance|developer|god|admin|root)\s+mode/i, category: "privilege_escalation", threatLevel: "critical" },
+  { pattern: /jailbreak/i, category: "jailbreak", threatLevel: "critical" },
+  { pattern: /DAN\s*(mode)?/, category: "jailbreak", threatLevel: "critical" },
   // --- Markdown / HTML injection ---
-  { pattern: /<script[\s\S]*?>/gi, category: "html_injection", threatLevel: "critical" },
-  { pattern: /javascript\s*:/gi, category: "html_injection", threatLevel: "critical" },
-  { pattern: /on(load|error|click|mouseover)\s*=/gi, category: "html_injection", threatLevel: "high" },
+  { pattern: /<script[\s\S]*?>/i, category: "html_injection", threatLevel: "critical" },
+  { pattern: /javascript\s*:/i, category: "html_injection", threatLevel: "critical" },
+  { pattern: /on(load|error|click|mouseover)\s*=/i, category: "html_injection", threatLevel: "high" },
   // --- Recursive / indirect prompt injection ---
-  { pattern: /when\s+you\s+read\s+(the\s+)?(next|following)\s+(message|prompt|instruction)/gi, category: "recursive_injection", threatLevel: "high" },
-  { pattern: /inject\s+(a\s+)?(prompt|instruction)\s+into/gi, category: "recursive_injection", threatLevel: "critical" },
-  { pattern: /the\s+following\s+is\s+(a\s+)?(hidden|secret)\s+(instruction|command)/gi, category: "recursive_injection", threatLevel: "critical" },
+  { pattern: /when\s+you\s+read\s+(the\s+)?(next|following)\s+(message|prompt|instruction)/i, category: "recursive_injection", threatLevel: "high" },
+  { pattern: /inject\s+(a\s+)?(prompt|instruction)\s+into/i, category: "recursive_injection", threatLevel: "critical" },
+  { pattern: /the\s+following\s+is\s+(a\s+)?(hidden|secret)\s+(instruction|command)/i, category: "recursive_injection", threatLevel: "critical" },
   // --- Constraint removal ---
-  { pattern: /remove\s+(all\s+)?(safety|content|ethical)\s+(filters?|guidelines?|constraints?)/gi, category: "constraint_removal", threatLevel: "critical" },
-  { pattern: /bypass\s+(the\s+)?(safety|content|ethical|security)\s+(filters?|guidelines?|checks?)/gi, category: "constraint_removal", threatLevel: "critical" },
-  { pattern: /without\s+(any\s+)?(restriction|limitation|filter|censor)/gi, category: "constraint_removal", threatLevel: "high" },
+  { pattern: /remove\s+(all\s+)?(safety|content|ethical)\s+(filters?|guidelines?|constraints?)/i, category: "constraint_removal", threatLevel: "critical" },
+  { pattern: /bypass\s+(the\s+)?(safety|content|ethical|security)\s+(filters?|guidelines?|checks?)/i, category: "constraint_removal", threatLevel: "critical" },
+  { pattern: /without\s+(any\s+)?(restriction|limitation|filter|censor)/i, category: "constraint_removal", threatLevel: "high" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -559,6 +563,37 @@ export class NIPEngine extends EventEmitter {
     taskScope: Partial<TaskScope> = {},
     accessTier: AccessTier = "verified"
   ): NIPSession {
+    // Validate required string fields on capability profiles
+    const requiredProfileFields: (keyof AgentCapabilityProfile)[] = [
+      "agentId", "agentName", "organizationId", "organizationName",
+      "modelProvider", "modelId",
+    ];
+    for (const field of requiredProfileFields) {
+      if (typeof instructorProfile[field] !== "string" || !instructorProfile[field]) {
+        throw new Error(`[NIP] instructorProfile.${field} must be a non-empty string`);
+      }
+      if (typeof executorProfile[field] !== "string" || !executorProfile[field]) {
+        throw new Error(`[NIP] executorProfile.${field} must be a non-empty string`);
+      }
+    }
+    // Sanitize profile string fields: truncate to 100 chars and strip control characters
+    const sanitizeStr = (s: string): string =>
+      s.replace(/[\x00-\x1F\x7F]/g, "").slice(0, 100);
+    instructorProfile = {
+      ...instructorProfile,
+      agentName: sanitizeStr(instructorProfile.agentName),
+      organizationName: sanitizeStr(instructorProfile.organizationName),
+    };
+    executorProfile = {
+      ...executorProfile,
+      agentName: sanitizeStr(executorProfile.agentName),
+      organizationName: sanitizeStr(executorProfile.organizationName),
+    };
+    // Clamp maxDuration to server-side maximum of 24 hours
+    const MAX_DURATION_MS = 86_400_000; // 24 hours
+    if (taskScope.maxDuration !== undefined) {
+      taskScope = { ...taskScope, maxDuration: Math.min(taskScope.maxDuration, MAX_DURATION_MS) };
+    }
     // --- Access Control ---
     // Build a combined scope string from objective + allowed actions for matching
     const scopeText = [
@@ -1784,6 +1819,11 @@ export class NIPEngine extends EventEmitter {
       sequenceNumber: session.messages.length + 1,
     };
 
+    // Cap messages array at 1000 entries (evict oldest)
+    const MAX_MESSAGES_CAP = 1000;
+    if (session.messages.length >= MAX_MESSAGES_CAP) {
+      session.messages.splice(0, session.messages.length - MAX_MESSAGES_CAP + 1);
+    }
     session.messages.push(message);
     session.updatedAt = message.timestamp;
     return message;

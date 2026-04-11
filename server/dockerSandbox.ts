@@ -70,9 +70,16 @@ interface ContainerState {
 
 // ─── DockerSandbox Class ─────────────────────────────────────────────────────
 
+/** Validate a docker container ID (64-char hex or 12-char short hex) */
+function isValidContainerId(id: string): boolean {
+  return /^[a-f0-9]{12,64}$/.test(id);
+}
+
 export class DockerSandbox {
   private config: DockerSandboxConfig;
   private containers = new Map<string, ContainerState>();
+  // Tracks sessions where container creation is in progress — prevents concurrent duplicate creation
+  private pendingCreation = new Map<string, Promise<ContainerState>>();
   private dockerAvailable: boolean | null = null;
   private reaperInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -158,6 +165,7 @@ export class DockerSandbox {
   /**
    * Get or create a container for a session.
    * Sessions map to agent runs — each run gets an isolated container.
+   * Handles concurrent creation via a pendingCreation map to avoid race conditions.
    */
   async getContainer(sessionId: string, sandboxDir: string): Promise<ContainerState> {
     // Reuse existing container for this session
@@ -165,6 +173,12 @@ export class DockerSandbox {
     if (existing && existing.status === "ready") {
       existing.lastUsedAt = Date.now();
       return existing;
+    }
+
+    // If creation is already in progress for this session, wait for it
+    const inFlight = this.pendingCreation.get(sessionId);
+    if (inFlight) {
+      return inFlight;
     }
 
     // Check pool limit
@@ -179,8 +193,11 @@ export class DockerSandbox {
       }
     }
 
-    // Create new container
-    return await this.createContainer(sessionId, sandboxDir);
+    // Create new container, tracking the promise to prevent concurrent duplicates
+    const creationPromise = this.createContainer(sessionId, sandboxDir)
+      .finally(() => this.pendingCreation.delete(sessionId));
+    this.pendingCreation.set(sessionId, creationPromise);
+    return creationPromise;
   }
 
   private async createContainer(sessionId: string, sandboxDir: string): Promise<ContainerState> {
@@ -241,7 +258,11 @@ export class DockerSandbox {
         timeout: 30_000,
       });
 
-      state.containerId = stdout.trim();
+      const rawId = stdout.trim();
+      if (!isValidContainerId(rawId)) {
+        throw new Error(`Docker returned unexpected container ID format: ${rawId.substring(0, 20)}`);
+      }
+      state.containerId = rawId;
       state.status = "ready";
 
       // Install basic tools if using bare ubuntu image
@@ -330,6 +351,10 @@ export class DockerSandbox {
 
     state.status = "stopping";
     try {
+      // Validate containerId before passing to shell to prevent injection
+      if (!isValidContainerId(state.containerId)) {
+        throw new Error(`Invalid containerId format: ${state.containerId.substring(0, 20)}`);
+      }
       await execAsync(`docker rm -f ${state.containerId}`, { timeout: 10_000 });
     } catch { /* already gone */ }
     state.status = "stopped";
@@ -419,11 +444,15 @@ function formatDuration(ms: number): string {
 
 export const dockerSandbox = new DockerSandbox();
 
-// Cleanup on process exit
-process.on("SIGTERM", () => dockerSandbox.shutdown());
-process.on("SIGINT", () => dockerSandbox.shutdown());
+// Cleanup on process exit — await shutdown before exiting
+process.on("SIGTERM", () => {
+  dockerSandbox.shutdown().finally(() => process.exit(0));
+});
+process.on("SIGINT", () => {
+  dockerSandbox.shutdown().finally(() => process.exit(0));
+});
 process.on("exit", () => {
-  // Synchronous cleanup — best effort
+  // Synchronous cleanup — best effort (async shutdown already runs on SIGTERM/SIGINT)
   try {
     execSync('docker rm -f $(docker ps -aq --filter "label=ultra-computer=sandbox") 2>/dev/null || true', {
       timeout: 5000,

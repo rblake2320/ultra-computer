@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { apiRequest, getSSEUrl } from "../lib/queryClient";
+import { useLocation } from "wouter";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
@@ -189,9 +190,11 @@ const TASK_TYPE_BADGE: Record<string, string> = {
 
 export function ChatPage({ conversationId }: { conversationId: string }) {
   const qc = useQueryClient();
+  const [, setLocation] = useLocation();
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
+  const [sseError, setSseError] = useState(false);
   // Legacy single streaming content — kept for backward compatibility with "message" event clearing
   const [streamingContent, setStreamingContent] = useState("");
   // Per-agent streaming state: keyed by agentRunId
@@ -210,12 +213,19 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
   // Ref always points to the latest handleEvent — avoids stale closure in the SSE effect
   const handleEventRef = useRef<(event: any) => void>(() => {});
 
-  const { data: conversation } = useQuery<Conversation>({
+  // Guard: redirect home if no conversationId
+  useEffect(() => {
+    if (!conversationId) setLocation("/");
+  }, [conversationId, setLocation]);
+
+  const { data: conversation, isError: convError } = useQuery<Conversation>({
     queryKey: [`/api/conversations/${conversationId}`],
+    enabled: !!conversationId,
   });
 
-  const { data: messages = [], refetch: refetchMessages } = useQuery<Message[]>({
+  const { data: messages = [], isError: msgsError, refetch: refetchMessages } = useQuery<Message[]>({
     queryKey: [`/api/conversations/${conversationId}/messages`],
+    enabled: !!conversationId,
   });
 
   const handleEvent = useCallback((event: any) => {
@@ -377,6 +387,9 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
       } catch {}
     };
 
+    es.onerror = () => { setSseError(true); };
+    es.onopen = () => { setSseError(false); };
+
     return () => { es.close(); sseRef.current = null; };
   }, [conversationId]);
 
@@ -503,10 +516,24 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
     return 0;
   });
 
+  if ((convError || msgsError) && !conversation) {
+    return (
+      <div className="p-8 text-center text-muted-foreground">
+        Failed to load conversation. Please try again.
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full">
       {/* Main chat area */}
       <div className="flex flex-col flex-1 min-w-0">
+        {/* SSE connection error banner */}
+        {sseError && (
+          <div className="px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-xs text-destructive">
+            Connection to server lost. Messages may not update in real time.
+          </div>
+        )}
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-card/50 shrink-0">
           <Network className="w-4 h-4 text-primary" />

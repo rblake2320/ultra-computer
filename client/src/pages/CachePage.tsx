@@ -541,12 +541,20 @@ function LoadingSkeleton() {
 export function CachePage() {
   const [autoRefresh, setAutoRefresh] = useState(false);
 
-  const { data: dashboard, isLoading } = useQuery<DashboardData>({
+  const { data: dashboard, isLoading, isError: dashboardError } = useQuery<DashboardData>({
     queryKey: ["/api/cache/dashboard"],
     refetchInterval: autoRefresh ? 5000 : false,
   });
 
-  if (isLoading || !dashboard) {
+  if (dashboardError) {
+    return (
+      <div className="p-8 text-center text-muted-foreground">
+        Failed to load cache data. Please try again.
+      </div>
+    );
+  }
+
+  if (!dashboard) {
     return <LoadingSkeleton />;
   }
 

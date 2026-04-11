@@ -65,6 +65,7 @@ export function SandboxPage() {
 
   const pullImage = useMutation({
     mutationFn: () => apiRequest("POST", "/api/sandbox/pull-image"),
+    onError: (e: any) => toast({ title: "Pull failed", description: e.message, variant: "destructive" }),
   });
 
   const resetDetection = useMutation({
@@ -89,6 +90,14 @@ export function SandboxPage() {
 
   const dockerOk = status?.dockerAvailable ?? false;
   const isActive = dockerOk && (form?.enabled ?? config?.enabled ?? false);
+
+  if (configLoading) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+        Loading configuration...
+      </div>
+    );
+  }
 
   return (
       <div className="max-w-3xl mx-auto p-6 space-y-6 overflow-auto h-full">
@@ -304,7 +313,7 @@ export function SandboxPage() {
         )}
 
         {/* Active Containers Table */}
-        {status && status.containers.length > 0 && (
+        {status && (status.containers?.length ?? 0) > 0 && (
           <div className="space-y-3">
             <h2 className="text-sm font-semibold text-muted-foreground">Active Containers</h2>
             <div className="border border-border rounded-lg overflow-hidden">

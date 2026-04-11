@@ -179,7 +179,7 @@ function ChannelsTab() {
   const [newConfig, setNewConfig] = useState<Record<string, string>>({});
   const [editConfig, setEditConfig] = useState<Record<string, string>>({});
 
-  const { data: channels = [], isLoading } = useQuery<Channel[]>({
+  const { data: channels = [], isLoading, isError: channelsError } = useQuery<Channel[]>({
     queryKey: ["/api/messaging/channels"],
   });
 
@@ -285,7 +285,11 @@ function ChannelsTab() {
         </Dialog>
       </div>
 
-      {isLoading ? (
+      {channelsError ? (
+        <div className="p-8 text-center text-muted-foreground">
+          Failed to load channels. Please try again.
+        </div>
+      ) : isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[...Array(3)].map((_, i) => (
             <Skeleton key={i} className="h-44 rounded-lg" />
@@ -403,7 +407,7 @@ function MessagesTab() {
   const { data: channels = [] } = useQuery<Channel[]>({ queryKey: ["/api/messaging/channels"] });
 
   const historyKey = `/api/messaging/history?limit=50${dirFilter ? `&direction=${dirFilter}` : ""}${channelFilter ? `&channelId=${channelFilter}` : ""}`;
-  const { data: messages = [], isLoading: msgsLoading, refetch } = useQuery<Message[]>({
+  const { data: messages = [], isLoading: msgsLoading, isError: msgsError, refetch } = useQuery<Message[]>({
     queryKey: [historyKey],
   });
 
@@ -479,7 +483,11 @@ function MessagesTab() {
 
       {/* Message list */}
       <ScrollArea className="h-[380px] rounded-lg border" data-testid="messages-list">
-        {msgsLoading ? (
+        {msgsError ? (
+          <div className="flex flex-col items-center justify-center h-40 text-center text-muted-foreground">
+            <p className="text-sm">Failed to load messages. Please try again.</p>
+          </div>
+        ) : msgsLoading ? (
           <div className="p-4 space-y-3">
             {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 rounded-md" />)}
           </div>

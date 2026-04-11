@@ -6,6 +6,7 @@
 
 import { storage } from "./storage.js";
 import type { Skill } from "@shared/schema";
+import { v4 as uuidv4 } from "uuid";
 
 // Simple keyword/cosine-sim-like matching without heavy embedding libs
 class SkillMatcher {
@@ -16,7 +17,13 @@ class SkillMatcher {
     const msgWords = new Set(userMessage.toLowerCase().split(/\W+/).filter(w => w.length > 2));
     
     const scored = skills.map(skill => {
-      const keywords: string[] = JSON.parse(skill.triggerKeywords || "[]");
+      let keywords: string[] = [];
+      try {
+        keywords = JSON.parse(skill.triggerKeywords || "[]");
+        if (!Array.isArray(keywords)) keywords = [];
+      } catch {
+        keywords = [];
+      }
       const descWords = skill.description.toLowerCase().split(/\W+/);
       const allTriggers = new Set([...keywords.map(k => k.toLowerCase()), ...descWords]);
       
@@ -171,12 +178,11 @@ Activate for data analysis, statistics, CSV/JSON processing, metrics interpretat
 
 export function seedBuiltInSkills() {
   const existing = storage.getSkills().filter(s => s.isBuiltIn);
-  if (existing.length >= BUILT_IN_SKILLS.length) return;
-
+  // Guard by name, not count, to handle partial seeding correctly
   for (const skill of BUILT_IN_SKILLS) {
     const exists = existing.find(e => e.name === skill.name);
     if (!exists) {
-      const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const id = uuidv4();
       storage.createSkill({ id, ...skill });
     }
   }

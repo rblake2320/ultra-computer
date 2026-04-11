@@ -27,6 +27,17 @@ import { CachePage } from "./pages/CachePage";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
+function NotFound() {
+  return (
+    <Layout>
+      <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3 p-8">
+        <p className="text-lg font-semibold">404 — Page Not Found</p>
+        <p className="text-sm">The page you are looking for does not exist.</p>
+      </div>
+    </Layout>
+  );
+}
+
 export default function App() {
   useKeyboardShortcuts();
   return (
@@ -93,7 +104,7 @@ export default function App() {
             <Route path="/cache">
               <Layout><ErrorBoundary><CachePage /></ErrorBoundary></Layout>
             </Route>
-            <Route component={WelcomePage} />
+            <Route component={NotFound} />
           </Switch>
         </Router>
         <Toaster />
