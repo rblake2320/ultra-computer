@@ -1,0 +1,291 @@
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
+
+// ─── Models Registry ─────────────────────────────────────────────────────────
+export const models = sqliteTable("models", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  provider: text("provider").notNull(), // openai | anthropic | google | ollama | openai_compat | custom
+  modelId: text("model_id").notNull(),  // e.g. gpt-4o, claude-opus-4-5, llama3.3:70b
+  baseUrl: text("base_url"),            // for custom/ollama endpoints
+  apiKey: text("api_key"),              // encrypted at rest
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  capabilities: text("capabilities").notNull().default("[]"), // JSON: ["chat","code","vision","search"]
+  contextWindow: integer("context_window").notNull().default(8192),
+  isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
+  isOrchestrator: integer("is_orchestrator", { mode: "boolean" }).notNull().default(false),
+  speedTier: text("speed_tier").notNull().default("medium"), // fast | medium | powerful
+  notes: text("notes"),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export const insertModelSchema = createInsertSchema(models).omit({ createdAt: true });
+export type InsertModel = z.infer<typeof insertModelSchema>;
+export type Model = typeof models.$inferSelect;
+
+// ─── Skills ───────────────────────────────────────────────────────────────────
+export const skills = sqliteTable("skills", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  content: text("content").notNull(),       // full .md content
+  triggerKeywords: text("trigger_keywords").notNull().default("[]"), // JSON string[]
+  embeddings: text("embeddings"),           // JSON float[] for semantic matching
+  isBuiltIn: integer("is_built_in", { mode: "boolean" }).notNull().default(false),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  usageCount: integer("usage_count").notNull().default(0),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export const insertSkillSchema = createInsertSchema(skills).omit({ createdAt: true, usageCount: true });
+export type InsertSkill = z.infer<typeof insertSkillSchema>;
+export type Skill = typeof skills.$inferSelect;
+
+// ─── Connectors ───────────────────────────────────────────────────────────────
+export const connectors = sqliteTable("connectors", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull(),             // oauth | api_key | mcp | open
+  category: text("category").notNull(),     // productivity | dev | data | crm | custom
+  logoUrl: text("logo_url"),
+  description: text("description").notNull(),
+  status: text("status").notNull().default("disconnected"), // connected | disconnected | error
+  config: text("config").notNull().default("{}"),           // JSON — keys, tokens, urls (server-side only)
+  mcpServerUrl: text("mcp_server_url"),
+  scopes: text("scopes").notNull().default("[]"),           // JSON string[]
+  lastSynced: integer("last_synced"),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export const insertConnectorSchema = createInsertSchema(connectors).omit({ createdAt: true });
+export type InsertConnector = z.infer<typeof insertConnectorSchema>;
+export type Connector = typeof connectors.$inferSelect;
+
+// ─── Memory ───────────────────────────────────────────────────────────────────
+export const memory = sqliteTable("memory", {
+  id: text("id").primaryKey(),
+  content: text("content").notNull(),
+  summary: text("summary"),
+  category: text("category").notNull().default("general"),
+  importance: real("importance").notNull().default(0.5), // 0-1
+  embeddings: text("embeddings"),                        // JSON float[]
+  sessionId: text("session_id"),
+  sourceMessageId: text("source_message_id"),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+  lastAccessedAt: integer("last_accessed_at"),
+});
+
+export const insertMemorySchema = createInsertSchema(memory).omit({ createdAt: true });
+export type InsertMemory = z.infer<typeof insertMemorySchema>;
+export type Memory = typeof memory.$inferSelect;
+
+// ─── Conversations (Sessions) ─────────────────────────────────────────────────
+export const conversations = sqliteTable("conversations", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull().default("New Session"),
+  status: text("status").notNull().default("idle"), // idle | planning | running | complete | error
+  orchestratorModelId: text("orchestrator_model_id"),
+  activeSkillIds: text("active_skill_ids").notNull().default("[]"), // JSON string[]
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+  updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export const insertConversationSchema = createInsertSchema(conversations).omit({ createdAt: true, updatedAt: true });
+export type InsertConversation = z.infer<typeof insertConversationSchema>;
+export type Conversation = typeof conversations.$inferSelect;
+
+// ─── Messages ─────────────────────────────────────────────────────────────────
+export const messages = sqliteTable("messages", {
+  id: text("id").primaryKey(),
+  conversationId: text("conversation_id").notNull(),
+  role: text("role").notNull(),   // user | assistant | system | tool | agent
+  content: text("content").notNull(),
+  modelId: text("model_id"),
+  agentId: text("agent_id"),
+  taskId: text("task_id"),
+  metadata: text("metadata").notNull().default("{}"), // JSON
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export const insertMessageSchema = createInsertSchema(messages).omit({ createdAt: true });
+export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type Message = typeof messages.$inferSelect;
+
+// ─── Task Graph ───────────────────────────────────────────────────────────────
+export const tasks = sqliteTable("tasks", {
+  id: text("id").primaryKey(),
+  conversationId: text("conversation_id").notNull(),
+  parentTaskId: text("parent_task_id"),   // null = root orchestrator task
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  taskType: text("task_type").notNull().default("general"), // research | code | write | browse | analyze | general
+  status: text("status").notNull().default("pending"),     // pending | running | complete | failed | cancelled
+  dependsOn: text("depends_on").notNull().default("[]"),   // JSON string[] of task IDs
+  assignedModelId: text("assigned_model_id"),
+  result: text("result"),             // final output text
+  resultPath: text("result_path"),    // filesystem IPC path for large payloads
+  error: text("error"),
+  startedAt: integer("started_at"),
+  completedAt: integer("completed_at"),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export const insertTaskSchema = createInsertSchema(tasks).omit({ createdAt: true });
+export type InsertTask = z.infer<typeof insertTaskSchema>;
+export type Task = typeof tasks.$inferSelect;
+
+// ─── Agent Runs ───────────────────────────────────────────────────────────────
+export const agentRuns = sqliteTable("agent_runs", {
+  id: text("id").primaryKey(),
+  taskId: text("task_id").notNull(),
+  conversationId: text("conversation_id").notNull(),
+  level: integer("level").notNull().default(1),     // 0 = orchestrator, 1 = worker
+  modelId: text("model_id").notNull(),
+  systemPrompt: text("system_prompt").notNull(),
+  inputContext: text("input_context").notNull(),    // context injected at spawn time
+  output: text("output"),
+  toolCalls: text("tool_calls").notNull().default("[]"),     // JSON
+  ipcPath: text("ipc_path"),                                 // filesystem message path
+  status: text("status").notNull().default("running"),
+  tokenUsage: text("token_usage").notNull().default("{}"),   // JSON {prompt, completion, total}
+  startedAt: integer("started_at").notNull().$defaultFn(() => Date.now()),
+  completedAt: integer("completed_at"),
+});
+
+export const insertAgentRunSchema = createInsertSchema(agentRuns).omit({ startedAt: true });
+export type InsertAgentRun = z.infer<typeof insertAgentRunSchema>;
+export type AgentRun = typeof agentRuns.$inferSelect;
+
+// ─── Skill Scripts (Persistent Library) ───────────────────────────────────────
+export const skillScripts = sqliteTable("skill_scripts", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  language: text("language").notNull().default("bash"),     // bash | python | javascript | typescript
+  content: text("content").notNull(),                        // the script body
+  tags: text("tags").notNull().default("[]"),                 // JSON string[]
+  version: integer("version").notNull().default(1),
+  sourceConversationId: text("source_conversation_id"),       // which session it was captured from
+  sourceToolCallId: text("source_tool_call_id"),              // the specific tool call that produced it
+  filePath: text("file_path"),                                // optional workspace file path
+  usageCount: integer("usage_count").notNull().default(0),
+  isFavorite: integer("is_favorite", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+  updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export const insertSkillScriptSchema = createInsertSchema(skillScripts).omit({ createdAt: true, updatedAt: true, usageCount: true });
+export type InsertSkillScript = z.infer<typeof insertSkillScriptSchema>;
+export type SkillScript = typeof skillScripts.$inferSelect;
+
+// ─── Skill Script Versions ────────────────────────────────────────────────────
+export const skillScriptVersions = sqliteTable("skill_script_versions", {
+  id: text("id").primaryKey(),
+  scriptId: text("script_id").notNull(),
+  version: integer("version").notNull(),
+  content: text("content").notNull(),
+  changeNote: text("change_note").notNull().default(""),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export const insertSkillScriptVersionSchema = createInsertSchema(skillScriptVersions).omit({ createdAt: true });
+export type InsertSkillScriptVersion = z.infer<typeof insertSkillScriptVersionSchema>;
+export type SkillScriptVersion = typeof skillScriptVersions.$inferSelect;
+
+// ─── Marketplace: Published Skills ────────────────────────────────────────────
+export const marketplaceSkills = sqliteTable("marketplace_skills", {
+  id: text("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  longDescription: text("long_description").notNull().default(""),
+  authorName: text("author_name").notNull(),
+  authorEmail: text("author_email"),
+  authorAvatarUrl: text("author_avatar_url"),
+  category: text("category").notNull().default("general"),
+  tags: text("tags").notNull().default("[]"),
+  license: text("license").notNull().default("MIT"),
+  repoUrl: text("repo_url"),
+  currentVersion: text("current_version").notNull().default("1.0.0"),
+  visibility: text("visibility").notNull().default("public"),
+  installCount: integer("install_count").notNull().default(0),
+  ratingSum: integer("rating_sum").notNull().default(0),
+  ratingCount: integer("rating_count").notNull().default(0),
+  forkedFromId: text("forked_from_id"),
+  forkCount: integer("fork_count").notNull().default(0),
+  featured: integer("featured", { mode: "boolean" }).notNull().default(false),
+  verified: integer("verified", { mode: "boolean" }).notNull().default(false),
+  // ─── Quality scoring pipeline columns ─────────────────────────────────────
+  qualityScore: real("quality_score").notNull().default(0),           // 0-100 composite
+  installVelocity: real("install_velocity").notNull().default(0),     // installs per day (7d window)
+  ratingBayesian: real("rating_bayesian").notNull().default(0),       // bayesian avg rating (0-5)
+  ratingVariance: real("rating_variance").notNull().default(0),       // variance across ratings
+  forkDepth: integer("fork_depth").notNull().default(0),              // 0 = original, 1+ = fork chain depth
+  versionFrequency: real("version_frequency").notNull().default(0),   // versions per 30 days
+  contentRichness: real("content_richness").notNull().default(0),     // heuristic 0-1 (length, structure)
+  scoreTier: text("score_tier").notNull().default("unranked"),        // unranked | bronze | silver | gold | platinum
+  lastScoredAt: integer("last_scored_at"),
+  publishedAt: integer("published_at").notNull().$defaultFn(() => Date.now()),
+  updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export const insertMarketplaceSkillSchema = createInsertSchema(marketplaceSkills).omit({ publishedAt: true, updatedAt: true, installCount: true, ratingSum: true, ratingCount: true, forkCount: true, qualityScore: true, installVelocity: true, ratingBayesian: true, ratingVariance: true, forkDepth: true, versionFrequency: true, contentRichness: true, scoreTier: true, lastScoredAt: true });
+export type InsertMarketplaceSkill = z.infer<typeof insertMarketplaceSkillSchema>;
+export type MarketplaceSkill = typeof marketplaceSkills.$inferSelect;
+
+// ─── Marketplace: Skill Versions ──────────────────────────────────────────────
+export const marketplaceVersions = sqliteTable("marketplace_versions", {
+  id: text("id").primaryKey(),
+  skillId: text("skill_id").notNull(),
+  version: text("version").notNull(),
+  content: text("content").notNull(),
+  changelog: text("changelog").notNull().default(""),
+  skillType: text("skill_type").notNull().default("instruction"),
+  language: text("language"),
+  triggerKeywords: text("trigger_keywords").notNull().default("[]"),
+  fileSize: integer("file_size").notNull().default(0),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export const insertMarketplaceVersionSchema = createInsertSchema(marketplaceVersions).omit({ createdAt: true });
+export type InsertMarketplaceVersion = z.infer<typeof insertMarketplaceVersionSchema>;
+export type MarketplaceVersion = typeof marketplaceVersions.$inferSelect;
+
+// ─── Marketplace: Ratings ─────────────────────────────────────────────────────
+export const marketplaceRatings = sqliteTable("marketplace_ratings", {
+  id: text("id").primaryKey(),
+  skillId: text("skill_id").notNull(),
+  userId: text("user_id").notNull(),
+  rating: integer("rating").notNull(),
+  review: text("review"),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export const insertMarketplaceRatingSchema = createInsertSchema(marketplaceRatings).omit({ createdAt: true });
+export type InsertMarketplaceRating = z.infer<typeof insertMarketplaceRatingSchema>;
+export type MarketplaceRating = typeof marketplaceRatings.$inferSelect;
+
+// ─── Marketplace: Installations ───────────────────────────────────────────────
+export const marketplaceInstalls = sqliteTable("marketplace_installs", {
+  id: text("id").primaryKey(),
+  skillId: text("skill_id").notNull(),
+  localSkillId: text("local_skill_id"),
+  localType: text("local_type").notNull().default("instruction"),
+  installedVersion: text("installed_version").notNull(),
+  autoUpdate: integer("auto_update", { mode: "boolean" }).notNull().default(false),
+  installedAt: integer("installed_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export const insertMarketplaceInstallSchema = createInsertSchema(marketplaceInstalls).omit({ installedAt: true });
+export type InsertMarketplaceInstall = z.infer<typeof insertMarketplaceInstallSchema>;
+export type MarketplaceInstall = typeof marketplaceInstalls.$inferSelect;
+
+// ─── Settings ─────────────────────────────────────────────────────────────────
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export type Setting = typeof settings.$inferSelect;

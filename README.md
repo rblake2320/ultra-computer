@@ -1,0 +1,219 @@
+# Ultra Computer
+
+**AI Agent Orchestration Platform** — A production-grade autonomous agent harness with self-healing, self-learning, multi-protocol communication, and tamper-proof identity management.
+
+> **Status**: Beta v0.1.0 — Active development, not yet production-hardened.
+
+---
+
+## What Is This?
+
+Ultra Computer is a complete agent orchestration system that manages AI model routing, tool execution, browser automation, skill libraries, and multi-agent coordination. It provides the infrastructure for agents to operate autonomously with human-in-the-loop safety controls.
+
+### Key Capabilities
+
+| Module | Description |
+|--------|-------------|
+| **Model Router** | Multi-provider model routing with speed tiers and automatic failover |
+| **Orchestrator** | Conversation-driven task decomposition with sub-agent spawning |
+| **Tool System** | Extensible tool execution with sandboxed Docker environments |
+| **Skill Library** | Persistent, versioned skill scripts with search and auto-improvement |
+| **Memory Manager** | Long-term memory with semantic search and session context |
+| **Connector Registry** | MCP-compatible integrations for external services |
+| **Browser Automation** | Playwright-based browser tool for web interactions |
+| **Marketplace** | Community skill marketplace with quality scoring pipeline |
+| **Autonomy Suite** | Self-healing watchdog, task checkpointing, cron scheduler, circuit breakers |
+| **Protocol Hub** | A2A, MCP, and CLI protocol adapters for agent interoperability |
+| **Messaging Hub** | Omni-channel messaging (Slack, Gmail, Webhooks) with delivery queues |
+| **NIP Engine** | AI-to-AI bidirectional NLP instruction protocol with safety monitoring |
+| **Identity System** | Tamper-proof cryptographic identity with verification tiers and trust scoring |
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   Frontend (React)                    │
+│  Chat · Models · Skills · Connectors · Memory · NIP  │
+│  Sandbox · Browser · Marketplace · Autonomy · Identity│
+└──────────────────────┬──────────────────────────────┘
+                       │ REST + SSE
+┌──────────────────────┴──────────────────────────────┐
+│                Express 5 API Server                   │
+├───────────────┬───────────────┬───────────────────────┤
+│  Orchestrator │  Model Router │  Tool Execution Layer │
+├───────────────┼───────────────┼───────────────────────┤
+│  Skill System │  Memory Mgr   │  Connector Registry   │
+├───────────────┼───────────────┼───────────────────────┤
+│  A2A Protocol │  MCP Protocol │  CLI Tool Engine      │
+├───────────────┼───────────────┼───────────────────────┤
+│  NIP Engine   │  Identity Sys │  Messaging Hub        │
+├───────────────┼───────────────┼───────────────────────┤
+│  Self-Healing │  Self-Learning│  Cron Scheduler       │
+└───────────────┴───────────────┴───────────────────────┘
+                       │
+              ┌────────┴────────┐
+              │    SQLite DB    │
+              │  (Drizzle ORM)  │
+              └─────────────────┘
+```
+
+### Tech Stack
+
+- **Runtime**: Node.js 20+ with TypeScript
+- **Server**: Express 5.2 with esbuild bundling
+- **Frontend**: React 19 + Vite + Tailwind CSS + shadcn/ui
+- **Database**: SQLite via Drizzle ORM
+- **ORM**: Drizzle with push migrations
+- **Build**: esbuild (server) + Vite (client) via custom `script/build.ts`
+
+---
+
+## NLP Instruction Protocol (NIP)
+
+A novel protocol for AI-to-AI bidirectional natural language instruction. One agent teaches another through conversation, with full safety monitoring.
+
+**What makes NIP unique:**
+- **NLP-native** — agents communicate in natural language, not structured JSON
+- **Bidirectional** — both sides can instruct, question, and provide feedback
+- **Cross-trust-boundary** — works between separate organizations
+- **Traceable** — every message logged, human-readable reports auto-generated
+- **Safety-monitored** — inline prompt injection detection (39 patterns), scope drift detection, rate limiting, auto-lockdown
+
+## Tamper-Proof Identity System
+
+Every user/agent gets a cryptographic identity that cannot be spoofed, faked, or duplicated.
+
+- **CryptoID**: SHA-256 hash from 64 random bytes + timestamp + process entropy (64-char hex, immutable)
+- **Fingerprint**: Short 16-char identifier for display
+- **Verification Tiers**: Unverified → Verified → Premium → Enterprise → Admin
+- **Trust Scoring**: Dynamic 0-100 score based on account age, session completion, alerts, reports, community contributions
+- **Block Lists**: Users can block others; blocked-by count visible without revealing who
+- **Audit Trail**: Every identity action logged immutably
+
+---
+
+## Quick Start
+
+```bash
+# Install dependencies
+npm install
+
+# Development (hot reload)
+npm run dev
+
+# Production build
+npm run build
+NODE_ENV=production node dist/index.cjs
+
+# The app serves on http://localhost:5000
+```
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | Server port | `5000` |
+| `NODE_ENV` | Environment | `development` |
+| `DATABASE_URL` | SQLite path | `./ultra_computer.db` |
+
+---
+
+## API Overview
+
+All endpoints are under `/api/`. Key groups:
+
+| Prefix | Module | Endpoints |
+|--------|--------|-----------|
+| `/api/conversations` | Chat | CRUD + messages + SSE stream |
+| `/api/models` | Models | CRUD + test connection |
+| `/api/skills` | Skills | CRUD + trigger keywords |
+| `/api/connectors` | Connectors | CRUD + connect + MCP tool calls |
+| `/api/memory` | Memory | CRUD + semantic search |
+| `/api/sandbox` | Docker | Status + config + pull + cleanup |
+| `/api/skill-scripts` | Library | CRUD + versioning + run |
+| `/api/files` | Files | Browse + read + write + delete |
+| `/api/browser` | Browser | Navigate + screenshot + actions |
+| `/api/marketplace` | Marketplace | Skills + ratings + quality scores |
+| `/api/autonomy` | Autonomy | Watchdog + cron + checkpoints + learning |
+| `/api/protocols` | Protocols | A2A + MCP + CLI adapters |
+| `/api/messaging` | Messaging | Channels + send + webhooks + subscriptions |
+| `/api/nip` | NIP | Sessions + messages + monitor + reports + access |
+| `/api/identity` | Identity | Register + verify + trust + blocks + directory |
+
+Full API documentation: [Notion Page](https://www.notion.so/33f16b3224c981dca6c9c74293e36a47)
+
+---
+
+## Project Structure
+
+```
+ultra-computer/
+├── client/                  # React frontend
+│   └── src/
+│       ├── components/      # Shared UI components
+│       ├── pages/           # Route pages (19 pages)
+│       ├── hooks/           # Custom React hooks
+│       └── lib/             # API client, utilities
+├── server/                  # Express backend
+│   ├── routes.ts            # Route registration hub
+│   ├── storage.ts           # Drizzle ORM data layer
+│   ├── orchestrator.ts      # Agent orchestration engine
+│   ├── modelRouter.ts       # Multi-provider model routing
+│   ├── tools.ts             # Tool execution + Docker sandbox
+│   ├── skillSystem.ts       # Skill management
+│   ├── memoryManager.ts     # Long-term memory
+│   ├── connectorRegistry.ts # External service connectors
+│   ├── a2aProtocol.ts       # Agent-to-Agent protocol
+│   ├── mcpProtocol.ts       # Model Context Protocol
+│   ├── cliToolEngine.ts     # CLI tool adapter
+│   ├── nipEngine.ts         # NLP Instruction Protocol
+│   ├── identityEngine.ts    # Cryptographic identity system
+│   ├── messagingHub.ts      # Omni-channel messaging
+│   ├── selfLearning.ts      # Self-improvement loops
+│   ├── processWatchdog.ts   # Health monitoring
+│   └── ... (38 server files)
+├── shared/                  # Shared types & schema
+│   └── schema.ts            # Drizzle database schema
+├── script/
+│   └── build.ts             # Custom build pipeline
+└── package.json
+```
+
+---
+
+## Versioning
+
+This project follows [Semantic Versioning](https://semver.org/):
+
+- **v0.x.x** — Beta releases, API may change
+- **v1.0.0** — First stable release (planned)
+
+### Changelog
+
+#### v0.1.0 (2026-04-11) — Initial Beta
+- Core agent orchestration (model router, orchestrator, tool system)
+- 19-page frontend with full CRUD for all modules
+- Skill library with versioning and auto-improvement
+- Docker sandbox execution environment
+- Playwright browser automation
+- Community skill marketplace with quality scoring
+- Autonomy suite (self-healing, self-learning, cron, circuit breakers)
+- Protocol hub (A2A, MCP, CLI)
+- Omni-channel messaging (Slack, Gmail, Webhooks)
+- NLP Instruction Protocol (AI-to-AI bidirectional instruction)
+- Tamper-proof cryptographic identity system
+- Full API documentation in Notion
+
+---
+
+## License
+
+Proprietary — Blakes Innovations. All rights reserved.
+
+---
+
+## Author
+
+**Rob Blake** — Blakes Innovations

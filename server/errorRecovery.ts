@@ -1,0 +1,255 @@
+/**
+ * Error Recovery — Retry + Model Fallback
+ *
+ * Wraps LLM calls with intelligent retry logic and graceful model fallback.
+ * Uses exponential backoff, error classification, and same-tier preference
+ * when falling back to an alternative model.
+ */
+
+import { storage } from "./storage.js";
+import type { Model } from "@shared/schema";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface RetryConfig {
+  /** Maximum number of retry attempts before giving up or falling back. */
+  maxRetries: number;
+  /** Initial backoff delay in milliseconds. */
+  backoffMs: number;
+  /** Multiplier applied to backoffMs after each failed attempt. */
+  backoffMultiplier: number;
+  /** Whether to try a fallback model when all retries on the primary fail. */
+  fallbackToNextModel: boolean;
+}
+
+export const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  backoffMs: 1000,
+  backoffMultiplier: 2,
+  fallbackToNextModel: true,
+};
+
+export type ErrorClass =
+  | "transient"
+  | "auth"
+  | "rate_limit"
+  | "model_error"
+  | "unknown";
+
+// ─── Error Classification ─────────────────────────────────────────────────────
+
+/**
+ * Classifies an error into one of five categories so retry / fallback
+ * decisions can be made without inspecting raw error messages at the call site.
+ */
+export function classifyError(error: Error): ErrorClass {
+  const msg = (error.message ?? "").toLowerCase();
+  const stack = (error.stack ?? "").toLowerCase();
+  const combined = `${msg} ${stack}`;
+
+  // Auth errors — do not retry, fallback immediately.
+  if (
+    combined.includes("401") ||
+    combined.includes("403") ||
+    combined.includes("unauthorized") ||
+    combined.includes("invalid api key") ||
+    combined.includes("authentication") ||
+    combined.includes("forbidden")
+  ) {
+    return "auth";
+  }
+
+  // Rate-limit errors — wait longer before retry.
+  if (
+    combined.includes("429") ||
+    combined.includes("rate limit") ||
+    combined.includes("rate_limit") ||
+    combined.includes("quota") ||
+    combined.includes("too many requests")
+  ) {
+    return "rate_limit";
+  }
+
+  // Model-specific errors — the model itself is the problem; fallback immediately.
+  if (
+    combined.includes("model not found") ||
+    combined.includes("does not exist") ||
+    combined.includes("model_not_found") ||
+    combined.includes("no such model") ||
+    combined.includes("invalid model") ||
+    combined.includes("model is currently overloaded") ||
+    combined.includes("decommissioned")
+  ) {
+    return "model_error";
+  }
+
+  // Transient network/infra errors — safe to retry.
+  if (
+    combined.includes("timeout") ||
+    combined.includes("timed out") ||
+    combined.includes("econnreset") ||
+    combined.includes("econnrefused") ||
+    combined.includes("enotfound") ||
+    combined.includes("network") ||
+    combined.includes("socket") ||
+    combined.includes("epipe") ||
+    combined.includes("503") ||
+    combined.includes("502") ||
+    combined.includes("504")
+  ) {
+    return "transient";
+  }
+
+  return "unknown";
+}
+
+// ─── Fallback Model Selection ─────────────────────────────────────────────────
+
+/**
+ * Returns the best available fallback model when `failedModelId` is unusable.
+ *
+ * Strategy:
+ * 1. Determine the speed tier of the failed model.
+ * 2. Prefer another enabled model in the same tier.
+ * 3. If none available, return any other enabled model.
+ * 4. Return null if no alternative exists.
+ */
+export function getFallbackModel(failedModelId: string): string | null {
+  let allModels: Model[];
+  try {
+    allModels = storage.getModels();
+  } catch (err: any) {
+    console.error(
+      "[ErrorRecovery] getFallbackModel: could not read models from storage:",
+      err?.message ?? err
+    );
+    return null;
+  }
+
+  const enabledModels = allModels.filter(
+    (m) => m.enabled && m.id !== failedModelId
+  );
+
+  if (enabledModels.length === 0) {
+    return null;
+  }
+
+  // Find the speed tier of the failed model (may not be in storage if already deleted).
+  const failedModel = allModels.find((m) => m.id === failedModelId);
+  const targetTier = failedModel?.speedTier ?? "medium";
+
+  // Prefer same tier.
+  const sameTier = enabledModels.filter((m) => m.speedTier === targetTier);
+  if (sameTier.length > 0) {
+    return sameTier[0].id;
+  }
+
+  // Fall back to any available model.
+  return enabledModels[0].id;
+}
+
+// ─── Retry + Fallback Wrapper ─────────────────────────────────────────────────
+
+/**
+ * Executes `fn(modelId)` with retry and optional model-fallback logic.
+ *
+ * Returns the successful result along with metadata about how many attempts
+ * were needed and whether a fallback model was used.
+ *
+ * Throws the last error if all strategies are exhausted.
+ */
+export async function withRetryAndFallback<T>(
+  fn: (modelId: string) => Promise<T>,
+  modelId: string,
+  config?: Partial<RetryConfig>
+): Promise<{ result: T; usedModelId: string; attempts: number; fellBack: boolean }> {
+  const cfg: RetryConfig = { ...DEFAULT_RETRY_CONFIG, ...config };
+
+  let attempts = 0;
+  let lastError: Error = new Error("No attempts made");
+  let currentDelay = cfg.backoffMs;
+
+  // ── Phase 1: Retry loop on primary model ─────────────────────────────────
+  for (let i = 0; i < cfg.maxRetries; i++) {
+    attempts++;
+
+    try {
+      const result = await fn(modelId);
+      return { result, usedModelId: modelId, attempts, fellBack: false };
+    } catch (err: any) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      const errClass = classifyError(lastError);
+
+      console.warn(
+        `[ErrorRecovery] Attempt ${attempts} failed for model ${modelId} ` +
+          `(${errClass}): ${lastError.message}`
+      );
+
+      // Auth and model errors won't resolve with retries — skip straight to fallback.
+      if (errClass === "auth" || errClass === "model_error") {
+        console.warn(
+          `[ErrorRecovery] Non-retryable error class "${errClass}" — ` +
+            "skipping remaining retries on primary model."
+        );
+        break;
+      }
+
+      // Rate-limit: wait 3× longer.
+      const waitMs =
+        errClass === "rate_limit" ? currentDelay * 3 : currentDelay;
+
+      // Don't sleep after the last iteration.
+      if (i < cfg.maxRetries - 1) {
+        await sleep(waitMs);
+      }
+
+      currentDelay = Math.round(currentDelay * cfg.backoffMultiplier);
+    }
+  }
+
+  // ── Phase 2: Fallback to another model ───────────────────────────────────
+  if (cfg.fallbackToNextModel) {
+    const fallbackModelId = getFallbackModel(modelId);
+
+    if (fallbackModelId) {
+      console.log(
+        `[ErrorRecovery] Falling back from model ${modelId} → ${fallbackModelId}`
+      );
+      attempts++;
+
+      try {
+        const result = await fn(fallbackModelId);
+        console.log(
+          `[ErrorRecovery] Fallback succeeded on model ${fallbackModelId} ` +
+            `after ${attempts} total attempts.`
+        );
+        return {
+          result,
+          usedModelId: fallbackModelId,
+          attempts,
+          fellBack: true,
+        };
+      } catch (err: any) {
+        const fallbackErr = err instanceof Error ? err : new Error(String(err));
+        console.error(
+          `[ErrorRecovery] Fallback model ${fallbackModelId} also failed:`,
+          fallbackErr.message
+        );
+        lastError = fallbackErr;
+      }
+    } else {
+      console.warn(
+        "[ErrorRecovery] No fallback model available — all models exhausted."
+      );
+    }
+  }
+
+  // Everything failed — surface the last error.
+  throw lastError;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
