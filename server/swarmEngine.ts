@@ -256,6 +256,97 @@ class SwarmEngine {
 
   constructor() {
     this.agentMailboxes.setMaxListeners(200);
+    this.rehydrateFromDB();
+  }
+
+  /** Reload persisted sessions from SQLite on startup */
+  private rehydrateFromDB(): void {
+    try {
+      const dbSessions = storage.getAllSwarmSessions();
+      for (const row of dbSessions) {
+        if (this.swarms.has(row.id)) continue; // skip if already in memory
+        const config: SwarmConfig = row.config ? JSON.parse(row.config as string) : {
+          id: row.id, name: row.name || "restored", description: row.description || "",
+          mode: row.mode || "collaborative", defaultModelId: null,
+          maxTasksPerAgent: 5, consensusStrategy: "majority_vote" as ConsensusStrategy,
+          consensusThreshold: 0.6, maxConsensusRounds: 3,
+          enableDynamicSpawning: true, enableStigmergy: true, enableHandoffs: true,
+          enableRoleNegotiation: true, enableDeadlockDetection: true,
+          taskClaimTimeout: 30000, agentIdleTimeout: 120000,
+          safety: { ...DEFAULT_SAFETY }, blackboardTTLMs: null, createdAt: row.createdAt || Date.now(),
+        };
+
+        const session: SwarmSession = {
+          config,
+          status: (row.status as SwarmSession["status"]) || "idle",
+          agents: new Map(),
+          tasks: new Map(),
+          blackboard: new Map(),
+          handoffs: [],
+          consensusRounds: new Map(),
+          startedAt: row.startedAt || null,
+          completedAt: row.completedAt || null,
+          error: row.error || null,
+          totalTokensUsed: row.totalTokensUsed || 0,
+          totalAgentsSpawned: row.totalAgentsSpawned || 0,
+          consecutiveFailures: 0,
+          circuitBroken: false,
+          gcTimer: null,
+          deadlockTimer: null,
+        };
+
+        // Restore agents
+        try {
+          const dbAgents = storage.getSwarmAgents(row.id);
+          for (const a of dbAgents) {
+            session.agents.set(a.id, {
+              id: a.id, swarmSessionId: row.id,
+              parentAgentId: a.parentAgentId || null,
+              name: a.name, role: a.role,
+              instructions: a.instructions || `${a.role} agent`,
+              modelId: a.modelId || null,
+              tools: a.tools ? JSON.parse(a.tools as string) : [],
+              canHandoffTo: a.canHandoffTo ? JSON.parse(a.canHandoffTo as string) : [],
+              canSpawn: a.canSpawn ?? false,
+              spawnDepth: a.spawnDepth ?? 0,
+              status: (a.status as any) || "idle",
+              currentTaskId: a.currentTaskId || null,
+              tokenUsage: a.tokenUsage ? JSON.parse(a.tokenUsage as string) : { prompt: 0, completion: 0, total: 0 },
+              messagesProcessed: a.messagesProcessed ?? 0,
+              handoffsMade: a.handoffsMade ?? 0,
+              capabilityProfile: a.capabilityProfile ? JSON.parse(a.capabilityProfile as string) : { speed: 0.5, accuracy: 0.5, cost: 0.5, specialties: [] },
+              lastActiveAt: a.lastActiveAt || Date.now(),
+              createdAt: a.createdAt || Date.now(),
+            });
+          }
+        } catch { /* ok — agents table might differ */ }
+
+        // Restore tasks
+        try {
+          const dbTasks = storage.getSwarmTasks(row.id);
+          for (const t of dbTasks) {
+            session.tasks.set(t.id, {
+              id: t.id, swarmSessionId: row.id,
+              description: t.description, taskType: t.taskType || "general",
+              priority: t.priority ?? 50, claimedBy: t.claimedBy || null,
+              status: (t.status as any) || "pending",
+              result: t.result || null,
+              dependencies: t.dependencies ? JSON.parse(t.dependencies as string) : [],
+              metadata: t.metadata ? JSON.parse(t.metadata as string) : {},
+              claimedAt: t.claimedAt || null, completedAt: t.completedAt || null,
+              createdAt: t.createdAt || Date.now(),
+            });
+          }
+        } catch { /* ok */ }
+
+        this.swarms.set(row.id, session);
+      }
+      if (dbSessions.length > 0) {
+        console.log(`[swarm] Rehydrated ${dbSessions.length} session(s) from DB`);
+      }
+    } catch (e) {
+      console.error("[swarm] Rehydration failed (non-fatal):", e);
+    }
   }
 
   // ── Swarm Lifecycle ─────────────────────────────────────────────────────

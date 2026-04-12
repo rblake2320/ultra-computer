@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 
-const API_BASE = (import.meta as any).env?.VITE_API_BASE || "__PORT_5000__";
+const RAW_BASE = "__PORT_5000__";
+const API_BASE = (import.meta as any).env?.VITE_API_BASE || (RAW_BASE.startsWith("__") ? "" : RAW_BASE);
 
 export async function apiRequest(method: string, path: string, body?: any) {
   const url = `${API_BASE}${path}`;
