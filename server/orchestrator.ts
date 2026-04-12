@@ -286,6 +286,9 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
       conversationId
     );
 
+    // 7b. Mark synthesis agent as complete
+    emit(conversationId, { type: "agent_complete", agentRunId: "synthesis", tokenCount: finalResponse.length });
+
     // 8. Save assistant message
     const msgId = uuidv4();
     storage.createMessage({

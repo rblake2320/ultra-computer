@@ -359,6 +359,20 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
       case "done":
         setIsStreaming(false);
         setStatusMsg("");
+        // Mark all agent streams as complete (safety net)
+        setAgentStreams(prev => {
+          const next = new Map(prev);
+          for (const [key, stream] of next) {
+            if (stream.status === "running") {
+              next.set(key, { ...stream, status: "complete", completedAt: Date.now() });
+            }
+          }
+          return next;
+        });
+        // Mark all tasks as complete
+        setTasks(prev => prev.map(t => t.status === "running" ? { ...t, status: "complete" } : t));
+        // Mark all tool calls as done
+        setToolCalls(prev => prev.map(tc => tc.status === "running" ? { ...tc, status: "done" as const } : tc));
         qc.invalidateQueries({ queryKey: ["/api/conversations"] });
         refetchMessages();
         break;
