@@ -92,7 +92,8 @@ interface ExecutionSample {
 
 // In-memory execution buffer so we don't write to disk on every call
 // (flushed to JSON on `analyzeSkillPerformance` / `analyzeAllSkills`)
-const executionBuffer = new Map<string, ExecutionSample[]>();
+import { BoundedMap } from "./boundedMap.js";
+const executionBuffer = new BoundedMap<string, ExecutionSample[]>(200);
 
 // ─── JSON helpers ──────────────────────────────────────────────────────────────
 
@@ -402,7 +403,7 @@ export function analyzeAllSkills(): SkillPerformanceRecord[] {
 // ─── Co-activation tracking ────────────────────────────────────────────────────
 
 // Tracks which skill pairs were activated together (skillId → Set of co-skillIds)
-const coActivationLog = new Map<string, Map<string, number>>();
+const coActivationLog = new BoundedMap<string, Map<string, number>>(500);
 
 /**
  * Call this whenever multiple skills activate in the same session.

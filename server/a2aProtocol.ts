@@ -212,7 +212,8 @@ function evictIfNeeded<K, V>(map: Map<K, V>, maxSize: number): void {
  * In-memory task registry.
  * Maps taskId → A2ATask for all tasks handled in this process lifetime.
  */
-const taskRegistry = new Map<string, A2ATask>();
+import { BoundedMap } from "./boundedMap.js";
+const taskRegistry = new BoundedMap<string, A2ATask>(1000);
 
 /**
  * In-memory remote agent registry.

@@ -5,6 +5,7 @@
 import type { Express, Request, Response } from "express";
 import { voiceEngine, checkNIMHealth } from "./voiceEngine.js";
 import type { ASRRequest, TTSRequest, VoiceConfig } from "./voiceEngine.js";
+import { apiCache } from "./apiCache.js";
 
 export function registerVoiceRoutes(app: Express) {
   // ─── Health & Capabilities ──────────────────────────────────────────────────
@@ -33,8 +34,8 @@ export function registerVoiceRoutes(app: Express) {
     }
   });
 
-  /** GET /api/voice/capabilities — List all voice capabilities */
-  app.get("/api/voice/capabilities", (_req: Request, res: Response) => {
+  /** GET /api/voice/capabilities — List all voice capabilities (cached 60s) */
+  app.get("/api/voice/capabilities", apiCache(60_000), (_req: Request, res: Response) => {
     const config = voiceEngine.getConfig();
     res.json({
       asr: {
@@ -241,8 +242,8 @@ export function registerVoiceRoutes(app: Express) {
 
   // ─── Voices & Languages ─────────────────────────────────────────────────────
 
-  /** GET /api/voice/voices — List available voices */
-  app.get("/api/voice/voices", (_req: Request, res: Response) => {
+  /** GET /api/voice/voices — List available voices (cached 60s) */
+  app.get("/api/voice/voices", apiCache(60_000), (_req: Request, res: Response) => {
     const voices = voiceEngine.getVoices();
     const language = (_req.query.language as string) || undefined;
 
@@ -253,8 +254,8 @@ export function registerVoiceRoutes(app: Express) {
     }
   });
 
-  /** GET /api/voice/languages — List supported languages */
-  app.get("/api/voice/languages", (_req: Request, res: Response) => {
+  /** GET /api/voice/languages — List supported languages (cached 60s) */
+  app.get("/api/voice/languages", apiCache(60_000), (_req: Request, res: Response) => {
     res.json(voiceEngine.getLanguages());
   });
 

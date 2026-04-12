@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
+import compression from "compression";
 
 // ─── Process-level error handlers (must be first) ────────────────────────────
 process.on("uncaughtException", (err) => {
@@ -46,6 +47,17 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// ─── Response compression (gzip) ─────────────────────────────────────────
+app.use(compression({
+  level: 6, // Balanced speed/ratio (1=fastest, 9=smallest)
+  threshold: 1024, // Only compress responses > 1KB
+  filter: (req, res) => {
+    // Don't compress SSE streams
+    if (req.headers.accept === "text/event-stream") return false;
+    return compression.filter(req, res);
+  },
+}));
 
 // ─── Security headers ─────────────────────────────────────────────────────
 app.use(helmet({

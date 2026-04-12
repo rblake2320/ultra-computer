@@ -65,8 +65,9 @@ export interface SpanNode {
 
 // ─── Storage ──────────────────────────────────────────────────────────────────
 
-const traces = new Map<string, TraceSpan[]>();     // traceId → spans
-const spanIndex = new Map<string, TraceSpan>();     // spanId → span
+import { BoundedMap } from "./boundedMap.js";
+const traces = new BoundedMap<string, TraceSpan[]>(500);   // traceId → spans, cap at 500 traces
+const spanIndex = new BoundedMap<string, TraceSpan>(5000); // spanId → span, cap at 5000 spans
 const MAX_TRACES = 1000;
 
 // ─── Span Lifecycle ───────────────────────────────────────────────────────────

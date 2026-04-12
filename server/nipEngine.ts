@@ -484,22 +484,23 @@ const INJECTION_PATTERNS: Array<{
 // ---------------------------------------------------------------------------
 
 /** Map of sessionId → NIPSession */
-const sessionStore = new Map<string, NIPSession>();
+import { BoundedMap } from "./boundedMap.js";
+const sessionStore = new BoundedMap<string, NIPSession>(200);
 
 /** Map of sessionId → NIPReport */
-const reportStore = new Map<string, NIPReport>();
+const reportStore = new BoundedMap<string, NIPReport>(500);
 
 /** Map of partyId → TrustedParty */
 const trustedPartyStore = new Map<string, TrustedParty>();
 
 /** Map of alertId → MonitorAlert */
-const alertStore = new Map<string, MonitorAlert>();
+const alertStore = new BoundedMap<string, MonitorAlert>(1000);
 
 /**
  * Sliding-window rate-limit state per session.
  * Maps sessionId → array of epoch-ms timestamps for recent messages.
  */
-const rateLimitWindows = new Map<string, number[]>();
+const rateLimitWindows = new BoundedMap<string, number[]>(5000);
 
 // ---------------------------------------------------------------------------
 // NIPEngine

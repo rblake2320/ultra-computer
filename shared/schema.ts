@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -82,7 +82,11 @@ export const memory = sqliteTable("memory", {
   sourceMessageId: text("source_message_id"),
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
   lastAccessedAt: integer("last_accessed_at"),
-});
+}, (table) => ([
+  index("idx_memory_category").on(table.category),
+  index("idx_memory_importance").on(table.importance),
+  index("idx_memory_session").on(table.sessionId),
+]));
 
 export const insertMemorySchema = createInsertSchema(memory).omit({ createdAt: true });
 export type InsertMemory = z.infer<typeof insertMemorySchema>;
@@ -114,7 +118,10 @@ export const messages = sqliteTable("messages", {
   taskId: text("task_id"),
   metadata: text("metadata").notNull().default("{}"), // JSON
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
-});
+}, (table) => ([
+  index("idx_messages_conversation").on(table.conversationId),
+  index("idx_messages_conversation_created").on(table.conversationId, table.createdAt),
+]));
 
 export const insertMessageSchema = createInsertSchema(messages).omit({ createdAt: true });
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
@@ -137,7 +144,11 @@ export const tasks = sqliteTable("tasks", {
   startedAt: integer("started_at"),
   completedAt: integer("completed_at"),
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
-});
+}, (table) => ([
+  index("idx_tasks_conversation").on(table.conversationId),
+  index("idx_tasks_status").on(table.status),
+  index("idx_tasks_parent").on(table.parentTaskId),
+]));
 
 export const insertTaskSchema = createInsertSchema(tasks).omit({ createdAt: true });
 export type InsertTask = z.infer<typeof insertTaskSchema>;
@@ -159,7 +170,11 @@ export const agentRuns = sqliteTable("agent_runs", {
   tokenUsage: text("token_usage").notNull().default("{}"),   // JSON {prompt, completion, total}
   startedAt: integer("started_at").notNull().$defaultFn(() => Date.now()),
   completedAt: integer("completed_at"),
-});
+}, (table) => ([
+  index("idx_agent_runs_task").on(table.taskId),
+  index("idx_agent_runs_conversation").on(table.conversationId),
+  index("idx_agent_runs_status").on(table.status),
+]));
 
 export const insertAgentRunSchema = createInsertSchema(agentRuns).omit({ startedAt: true });
 export type InsertAgentRun = z.infer<typeof insertAgentRunSchema>;
@@ -195,7 +210,9 @@ export const skillScriptVersions = sqliteTable("skill_script_versions", {
   content: text("content").notNull(),
   changeNote: text("change_note").notNull().default(""),
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
-});
+}, (table) => ([
+  index("idx_script_versions_script").on(table.scriptId),
+]));
 
 export const insertSkillScriptVersionSchema = createInsertSchema(skillScriptVersions).omit({ createdAt: true });
 export type InsertSkillScriptVersion = z.infer<typeof insertSkillScriptVersionSchema>;
@@ -254,7 +271,9 @@ export const marketplaceVersions = sqliteTable("marketplace_versions", {
   triggerKeywords: text("trigger_keywords").notNull().default("[]"),
   fileSize: integer("file_size").notNull().default(0),
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
-});
+}, (table) => ([
+  index("idx_marketplace_versions_skill").on(table.skillId),
+]));
 
 export const insertMarketplaceVersionSchema = createInsertSchema(marketplaceVersions).omit({ createdAt: true });
 export type InsertMarketplaceVersion = z.infer<typeof insertMarketplaceVersionSchema>;
@@ -268,7 +287,9 @@ export const marketplaceRatings = sqliteTable("marketplace_ratings", {
   rating: integer("rating").notNull(),
   review: text("review"),
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
-});
+}, (table) => ([
+  index("idx_marketplace_ratings_skill").on(table.skillId),
+]));
 
 export const insertMarketplaceRatingSchema = createInsertSchema(marketplaceRatings).omit({ createdAt: true });
 export type InsertMarketplaceRating = z.infer<typeof insertMarketplaceRatingSchema>;
@@ -283,7 +304,9 @@ export const marketplaceInstalls = sqliteTable("marketplace_installs", {
   installedVersion: text("installed_version").notNull(),
   autoUpdate: integer("auto_update", { mode: "boolean" }).notNull().default(false),
   installedAt: integer("installed_at").notNull().$defaultFn(() => Date.now()),
-});
+}, (table) => ([
+  index("idx_marketplace_installs_skill").on(table.skillId),
+]));
 
 export const insertMarketplaceInstallSchema = createInsertSchema(marketplaceInstalls).omit({ installedAt: true });
 export type InsertMarketplaceInstall = z.infer<typeof insertMarketplaceInstallSchema>;
@@ -344,7 +367,7 @@ export type InsertSwarmSession = typeof swarmSessions.$inferInsert;
 // ─── Swarm Agents ───────────────────────────────────────────────────────────
 export const swarmAgents = sqliteTable("swarm_agents", {
   id: text("id").primaryKey(),
-  swarmSessionId: text("swarm_session_id").notNull(),
+  swarmSessionId: text("swarm_session_id").notNull(), // indexed below
   parentAgentId: text("parent_agent_id"),               // null for top-level agents
   name: text("name").notNull(),
   role: text("role").notNull(),
@@ -362,7 +385,10 @@ export const swarmAgents = sqliteTable("swarm_agents", {
   capabilityProfile: text("capability_profile").notNull().default("{}"), // JSON: speed, accuracy, cost, specialties[]
   lastActiveAt: integer("last_active_at"),
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
-});
+}, (table) => ([
+  index("idx_swarm_agents_session").on(table.swarmSessionId),
+  index("idx_swarm_agents_status").on(table.status),
+]));
 export type SwarmAgent = typeof swarmAgents.$inferSelect;
 export type InsertSwarmAgent = typeof swarmAgents.$inferInsert;
 
@@ -384,7 +410,10 @@ export const blackboardEntries = sqliteTable("blackboard_entries", {
   expiresAt: integer("expires_at"),
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
   updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
-});
+}, (table) => ([
+  index("idx_blackboard_session").on(table.swarmSessionId),
+  index("idx_blackboard_topic").on(table.topic),
+]));
 export type BlackboardEntry = typeof blackboardEntries.$inferSelect;
 export type InsertBlackboardEntry = typeof blackboardEntries.$inferInsert;
 
@@ -417,7 +446,9 @@ export const swarmMessages = sqliteTable("swarm_messages", {
   metadata: text("metadata").notNull().default("{}"),    // JSON extra data
   acknowledged: integer("acknowledged", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
-});
+}, (table) => ([
+  index("idx_swarm_messages_session").on(table.swarmSessionId),
+]));
 export type SwarmMessage = typeof swarmMessages.$inferSelect;
 export type InsertSwarmMessage = typeof swarmMessages.$inferInsert;
 
@@ -436,7 +467,10 @@ export const swarmTasks = sqliteTable("swarm_tasks", {
   claimedAt: integer("claimed_at"),
   completedAt: integer("completed_at"),
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
-});
+}, (table) => ([
+  index("idx_swarm_tasks_session").on(table.swarmSessionId),
+  index("idx_swarm_tasks_status").on(table.status),
+]));
 export type SwarmTask = typeof swarmTasks.$inferSelect;
 export type InsertSwarmTask = typeof swarmTasks.$inferInsert;
 
@@ -476,7 +510,7 @@ export type InsertTelemetrySetting = typeof telemetrySettings.$inferInsert;
 // Contains NO individual user data — only counts, rates, and distributions.
 export const aggregateAnalytics = sqliteTable("aggregate_analytics", {
   id: text("id").primaryKey(),
-  period: text("period").notNull(), // "hourly" | "daily" | "weekly"
+  period: text("period").notNull(), // "hourly" | "daily" | "weekly" — indexed below
   periodStart: integer("period_start").notNull(), // epoch ms
   periodEnd: integer("period_end").notNull(),
   // Execution metrics (anonymized aggregates)
@@ -503,6 +537,8 @@ export const aggregateAnalytics = sqliteTable("aggregate_analytics", {
   positiveRatings: integer("positive_ratings").notNull().default(0),
   negativeRatings: integer("negative_ratings").notNull().default(0),
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
-});
+}, (table) => ([
+  index("idx_analytics_period").on(table.period, table.periodStart),
+]));
 export type AggregateAnalytic = typeof aggregateAnalytics.$inferSelect;
 export type InsertAggregateAnalytic = typeof aggregateAnalytics.$inferInsert;
