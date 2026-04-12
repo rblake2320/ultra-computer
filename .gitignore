@@ -42,3 +42,4 @@ tmp/
 ipc/
 sandbox/
 ultra_computer.db*
+.setup-complete
