@@ -32,6 +32,7 @@ import { cacheEngine } from "./cacheEngine.js";
 import { knowledgeEngine } from "./knowledgeEngine.js";
 import { registerSwarmRoutes } from "./swarmRoutes.js";
 import { registerQualityGateRoutes } from "./qualityGateRoutes.js";
+import { registerVoiceRoutes } from "./voiceRoutes.js";
 import { swarmEngine } from "./swarmEngine.js";
 
 export async function registerRoutes(httpServer: Server, app: Express) {
@@ -54,6 +55,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   registerCacheRoutes(app);
   registerSwarmRoutes(app);
   registerQualityGateRoutes(app);
+  registerVoiceRoutes(app);
 
   // ─── Restore persisted swarms from SQLite ──────────────────────────────────
   swarmEngine.restoreFromDB();

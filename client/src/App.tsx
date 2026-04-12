@@ -27,6 +27,7 @@ import { CachePage } from "./pages/CachePage";
 import { KnowledgePage } from "./pages/KnowledgePage";
 import { SwarmPage } from "./pages/SwarmPage";
 import TelemetryPage from "./pages/TelemetryPage";
+import VoicePage from "./pages/VoicePage";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
@@ -115,6 +116,9 @@ export default function App() {
             </Route>
             <Route path="/privacy">
               <Layout><ErrorBoundary><TelemetryPage /></ErrorBoundary></Layout>
+            </Route>
+            <Route path="/voice">
+              <Layout><ErrorBoundary><VoicePage /></ErrorBoundary></Layout>
             </Route>
             <Route component={NotFound} />
           </Switch>
