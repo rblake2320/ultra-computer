@@ -117,12 +117,14 @@ export function registerAutonomyRoutes(app: Express) {
 
   app.post("/api/autonomy/checkpoints/:id/complete", (req, res) => {
     completeTask(req.params.id);
-    res.json({ ok: true });
+    const cp = getCheckpoint(req.params.id);
+    res.json(cp || { ok: true, status: "completed" });
   });
 
   app.post("/api/autonomy/checkpoints/:id/fail", (req, res) => {
-    failTask(req.params.id, req.body.reason || "Unknown failure");
-    res.json({ ok: true });
+    failTask(req.params.id, req.body.reason || req.body.error || "Unknown failure");
+    const cp = getCheckpoint(req.params.id);
+    res.json(cp || { ok: true, status: "failed" });
   });
 
   app.post("/api/autonomy/checkpoints/abandon-stale", (req, res) => {

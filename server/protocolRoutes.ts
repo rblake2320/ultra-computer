@@ -222,6 +222,14 @@ export function registerProtocolRoutes(app: Express) {
   });
 
   /**
+   * GET /api/protocols/mcp/token
+   * Retrieve the MCP bearer token for client configuration.
+   */
+  app.get("/api/protocols/mcp/token", (_req: Request, res: Response) => {
+    res.json({ token: mcpProtocol.getMCPBearerToken() });
+  });
+
+  /**
    * GET /api/protocols/mcp/servers
    * List all connected MCP servers.
    */
