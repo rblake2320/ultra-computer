@@ -15,6 +15,8 @@ import {
   Mic, Volume2, Settings, BarChart3, Play, Square,
   Upload, Globe, Zap, Clock, CheckCircle2,
   Languages, User, AudioLines, Podcast, Activity,
+  Server, Wifi, WifiOff, RefreshCw, Shield, Cpu,
+  ArrowRight, AlertTriangle,
 } from "lucide-react";
 
 export default function VoicePage() {
@@ -25,11 +27,19 @@ export default function VoicePage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [apiKeyInput, setApiKeyInput] = useState("");
+  const [nimEndpointInput, setNimEndpointInput] = useState("");
+  const [asrFunctionIdInput, setAsrFunctionIdInput] = useState("");
+  const [ttsFunctionIdInput, setTtsFunctionIdInput] = useState("");
 
   // ─── Queries ──────────────────────────────────────────────────────────────
 
   const { data: health } = useQuery<any>({
     queryKey: ["/api/voice/health"],
+  });
+
+  const { data: nimHealth, refetch: refetchNimHealth } = useQuery<any>({
+    queryKey: ["/api/voice/nim/health"],
+    refetchInterval: 30000,
   });
 
   const { data: capabilities } = useQuery<any>({
@@ -121,6 +131,7 @@ export default function VoicePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/voice/config"] });
       queryClient.invalidateQueries({ queryKey: ["/api/voice/health"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/voice/nim/health"] });
       toast({ title: "Voice config updated" });
     },
     onError: (err: any) => {
@@ -181,6 +192,8 @@ export default function VoicePage() {
   }
 
   const isConfigured = health?.configured;
+  const isNimProvider = config?.provider === "nvidia_nim" || config?.provider === "nvidia_cloud";
+  const nimReady = nimHealth?.ready === true;
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6" data-testid="voice-page">
@@ -200,18 +213,77 @@ export default function VoicePage() {
             {isConfigured ? "API KEY SET" : "NO API KEY"}
           </Badge>
           <Badge variant="outline" className="text-xs">
-            {health?.provider?.toUpperCase() || "NVIDIA NIM"}
+            {config?.provider?.replace(/_/g, " ").toUpperCase() || "NVIDIA NIM"}
           </Badge>
         </div>
       </div>
 
+      {/* NIM Status Banner */}
+      {isNimProvider && (
+        <Card className={`border ${nimReady ? "border-green-500/30 bg-green-500/5" : "border-yellow-500/30 bg-yellow-500/5"}`}>
+          <CardContent className="py-3 px-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${nimReady ? "bg-green-500/20" : "bg-yellow-500/20"}`}>
+                  <Cpu className={`w-4 h-4 ${nimReady ? "text-green-400" : "text-yellow-400"}`} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">NVIDIA NIM</span>
+                    {nimReady ? (
+                      <Badge variant="outline" className="text-[10px] text-green-400 border-green-500/30">
+                        <Wifi className="w-2.5 h-2.5 mr-1" />READY
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] text-yellow-400 border-yellow-500/30">
+                        <WifiOff className="w-2.5 h-2.5 mr-1" />UNREACHABLE
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {nimReady
+                      ? `Self-hosted endpoint ready at ${nimHealth?.endpoint}`
+                      : `Will fall back to cloud gRPC (grpc.nvcf.nvidia.com:443) or other providers`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => refetchNimHealth()}
+                  className="h-7 px-2"
+                  data-testid="nim-health-refresh"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </div>
+            {/* Provider Chain Indicator */}
+            <div className="flex items-center gap-1.5 mt-2.5 text-[10px] text-muted-foreground">
+              <span className="font-medium">Provider chain:</span>
+              <Badge variant="secondary" className="text-[10px] h-4">NIM HTTP</Badge>
+              <ArrowRight className="w-2.5 h-2.5" />
+              <Badge variant="secondary" className="text-[10px] h-4">Cloud gRPC</Badge>
+              <ArrowRight className="w-2.5 h-2.5" />
+              <Badge variant="secondary" className="text-[10px] h-4">OpenAI</Badge>
+              <ArrowRight className="w-2.5 h-2.5" />
+              <Badge variant="secondary" className="text-[10px] h-4">Fallback</Badge>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Tabs defaultValue="tts" className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="tts" className="flex items-center gap-1.5" data-testid="tab-tts">
             <Volume2 className="w-3.5 h-3.5" /> TTS
           </TabsTrigger>
           <TabsTrigger value="asr" className="flex items-center gap-1.5" data-testid="tab-asr">
             <Mic className="w-3.5 h-3.5" /> ASR
+          </TabsTrigger>
+          <TabsTrigger value="nim" className="flex items-center gap-1.5" data-testid="tab-nim">
+            <Cpu className="w-3.5 h-3.5" /> NIM
           </TabsTrigger>
           <TabsTrigger value="config" className="flex items-center gap-1.5" data-testid="tab-config">
             <Settings className="w-3.5 h-3.5" /> Config
@@ -293,7 +365,7 @@ export default function VoicePage() {
                   Quick Test
                 </Button>
                 <span className="text-xs text-muted-foreground">
-                  Plays a default test phrase using fallback TTS
+                  Plays a default test phrase using the active provider chain
                 </span>
               </div>
             </CardContent>
@@ -443,6 +515,253 @@ export default function VoicePage() {
           </Card>
         </TabsContent>
 
+        {/* ─── NIM Tab ─────────────────────────────────────────────────────── */}
+        <TabsContent value="nim" className="space-y-4 mt-4">
+          {/* NIM Overview */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Cpu className="w-4 h-4 text-green-400" />
+                NVIDIA NIM Integration
+              </CardTitle>
+              <CardDescription>
+                Self-hosted Docker and cloud gRPC connectivity for Riva ASR/TTS
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Connection Status Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Self-Hosted NIM */}
+                <div className={`p-4 rounded-lg border ${nimReady ? "border-green-500/30 bg-green-500/5" : "border-border"}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Server className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Self-Hosted NIM (HTTP)</span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Status</span>
+                      {nimReady ? (
+                        <Badge variant="outline" className="text-[10px] text-green-400 border-green-500/30">
+                          <Wifi className="w-2.5 h-2.5 mr-1" />Connected
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                          <WifiOff className="w-2.5 h-2.5 mr-1" />Not Available
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Endpoint</span>
+                      <span className="font-mono">{config?.nimEndpoint || "http://localhost:9000"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">ASR Path</span>
+                      <span className="font-mono">/v1/audio/transcriptions</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">TTS Path</span>
+                      <span className="font-mono">/v1/audio/synthesize</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Health</span>
+                      <span className="font-mono">/v1/health/ready</span>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full mt-3 h-7 text-xs"
+                    onClick={() => refetchNimHealth()}
+                    data-testid="nim-http-check"
+                  >
+                    <RefreshCw className="w-3 h-3 mr-1" /> Check Connection
+                  </Button>
+                </div>
+
+                {/* Cloud gRPC */}
+                <div className="p-4 rounded-lg border">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Globe className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Cloud gRPC (NVIDIA NVCF)</span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Status</span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {isConfigured ? (
+                          <><Shield className="w-2.5 h-2.5 mr-1 text-blue-400" />Authenticated</>
+                        ) : (
+                          <><AlertTriangle className="w-2.5 h-2.5 mr-1 text-yellow-400" />No API Key</>
+                        )}
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Endpoint</span>
+                      <span className="font-mono">grpc.nvcf.nvidia.com:443</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">ASR Function</span>
+                      <span className="font-mono text-[10px]">{config?.asrFunctionId?.slice(0, 18) || "1598d209..."}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">TTS Function</span>
+                      <span className="font-mono text-[10px]">{config?.ttsFunctionId?.slice(0, 18) || "0149dedb..."}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Protocol</span>
+                      <span className="font-mono">Riva gRPC + SSL</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* NIM Configuration */}
+              <div className="space-y-3">
+                <h3 className="text-sm font-medium">NIM Endpoints & Function IDs</h3>
+
+                <div className="space-y-2">
+                  <label className="text-xs text-muted-foreground">Self-Hosted NIM Endpoint</label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={nimEndpointInput}
+                      onChange={(e) => setNimEndpointInput(e.target.value)}
+                      placeholder={config?.nimEndpoint || "http://localhost:9000"}
+                      className="font-mono text-xs"
+                      data-testid="nim-endpoint-input"
+                    />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={!nimEndpointInput.trim()}
+                      onClick={() => {
+                        updateConfig.mutate({ nimEndpoint: nimEndpointInput.trim() });
+                        setNimEndpointInput("");
+                      }}
+                      data-testid="nim-endpoint-save"
+                    >
+                      Save
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <label className="text-xs text-muted-foreground">ASR Function ID (Parakeet Streaming)</label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={asrFunctionIdInput}
+                        onChange={(e) => setAsrFunctionIdInput(e.target.value)}
+                        placeholder={config?.asrFunctionId || "1598d209-5e27-4d3c-8079-4751568b1081"}
+                        className="font-mono text-xs"
+                        data-testid="asr-function-id-input"
+                      />
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={!asrFunctionIdInput.trim()}
+                        onClick={() => {
+                          updateConfig.mutate({ asrFunctionId: asrFunctionIdInput.trim() });
+                          setAsrFunctionIdInput("");
+                        }}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs text-muted-foreground">TTS Function ID (FastPitch HiFiGAN)</label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={ttsFunctionIdInput}
+                        onChange={(e) => setTtsFunctionIdInput(e.target.value)}
+                        placeholder={config?.ttsFunctionId || "0149dedb-2be8-4195-b9a0-e57e0e14f972"}
+                        className="font-mono text-xs"
+                        data-testid="tts-function-id-input"
+                      />
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={!ttsFunctionIdInput.trim()}
+                        onClick={() => {
+                          updateConfig.mutate({ ttsFunctionId: ttsFunctionIdInput.trim() });
+                          setTtsFunctionIdInput("");
+                        }}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* NIM Docker Instructions */}
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium flex items-center gap-2">
+                  <Server className="w-3.5 h-3.5" />
+                  Self-Hosted Docker Setup
+                </h3>
+                <div className="bg-muted rounded-lg p-3 font-mono text-xs space-y-1.5 overflow-x-auto">
+                  <p className="text-muted-foreground"># Pull and run NVIDIA NIM ASR container</p>
+                  <p>docker run -d --gpus all \</p>
+                  <p className="pl-4">-p 9000:9000 \</p>
+                  <p className="pl-4">-e NGC_API_KEY=$NGC_API_KEY \</p>
+                  <p className="pl-4">nvcr.io/nim/nvidia/riva-asr:latest</p>
+                  <p className="text-muted-foreground mt-2"># Pull and run NVIDIA NIM TTS container</p>
+                  <p>docker run -d --gpus all \</p>
+                  <p className="pl-4">-p 9001:9000 \</p>
+                  <p className="pl-4">-e NGC_API_KEY=$NGC_API_KEY \</p>
+                  <p className="pl-4">nvcr.io/nim/nvidia/riva-tts:latest</p>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  After starting the container, set the NIM Endpoint above and click "Check Connection" to verify.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Model Info */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Mic className="w-3.5 h-3.5 text-green-400" />
+                  ASR Model: Parakeet CTC 1.1B
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1.5 text-xs">
+                <div className="flex justify-between"><span className="text-muted-foreground">Architecture</span><span>CTC Streaming</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Parameters</span><span>1.1B</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Languages</span><span>13+ (multilingual)</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Streaming</span><span>Yes (real-time)</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Punctuation</span><span>Automatic</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Word Timestamps</span><span>Supported</span></div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Volume2 className="w-3.5 h-3.5 text-blue-400" />
+                  TTS Model: Magpie Multilingual
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1.5 text-xs">
+                <div className="flex justify-between"><span className="text-muted-foreground">Architecture</span><span>FastPitch + HiFi-GAN</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Voices</span><span>10+ multilingual</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Languages</span><span>9 (en, es, fr, de, zh, ja, ko, hi, vi)</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Voice Cloning</span><span>Zero-shot (audio prompt)</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Sample Rate</span><span>22050 Hz</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Output</span><span>WAV / PCM</span></div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
         {/* ─── Config Tab ─────────────────────────────────────────────────────── */}
         <TabsContent value="config" className="space-y-4 mt-4">
           <Card>
@@ -464,7 +783,8 @@ export default function VoicePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="nvidia_nim">NVIDIA NIM (Nemotron / Magpie)</SelectItem>
+                    <SelectItem value="nvidia_nim">NVIDIA NIM (Self-Hosted HTTP + Cloud gRPC)</SelectItem>
+                    <SelectItem value="nvidia_cloud">NVIDIA Cloud gRPC Only</SelectItem>
                     <SelectItem value="openai_whisper">OpenAI (Whisper / TTS)</SelectItem>
                     <SelectItem value="custom">Custom Endpoint</SelectItem>
                   </SelectContent>
@@ -496,8 +816,8 @@ export default function VoicePage() {
                   </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {config?.provider === "nvidia_nim"
-                    ? "Get your NGC API key from build.nvidia.com"
+                  {config?.provider === "nvidia_nim" || config?.provider === "nvidia_cloud"
+                    ? "NGC API key from build.nvidia.com — used for both self-hosted and cloud gRPC"
                     : config?.provider === "openai_whisper"
                     ? "Get your API key from platform.openai.com"
                     : "Enter your custom provider API key"}

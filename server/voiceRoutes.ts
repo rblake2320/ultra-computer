@@ -3,7 +3,7 @@
  */
 
 import type { Express, Request, Response } from "express";
-import { voiceEngine } from "./voiceEngine.js";
+import { voiceEngine, checkNIMHealth } from "./voiceEngine.js";
 import type { ASRRequest, TTSRequest, VoiceConfig } from "./voiceEngine.js";
 
 export function registerVoiceRoutes(app: Express) {
@@ -21,6 +21,16 @@ export function registerVoiceRoutes(app: Express) {
       defaultLanguage: config.defaultLanguage,
       defaultVoice: config.defaultVoice,
     });
+  });
+
+  /** GET /api/voice/nim/health — NVIDIA NIM health check (self-hosted) */
+  app.get("/api/voice/nim/health", async (_req: Request, res: Response) => {
+    try {
+      const result = await checkNIMHealth();
+      res.json(result);
+    } catch (error: any) {
+      res.json({ ready: false, endpoint: "unknown", error: error.message });
+    }
   });
 
   /** GET /api/voice/capabilities — List all voice capabilities */
@@ -260,7 +270,8 @@ export function registerVoiceRoutes(app: Express) {
     try {
       const updates: Partial<VoiceConfig> = {};
       const allowed = [
-        "provider", "apiKey", "asrEndpoint", "ttsEndpoint",
+        "provider", "apiKey", "nimEndpoint", "asrEndpoint", "ttsEndpoint",
+        "asrFunctionId", "ttsFunctionId",
         "defaultLanguage", "defaultVoice", "sampleRate", "enableStreaming"
       ];
 
