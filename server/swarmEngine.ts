@@ -408,11 +408,13 @@ class SwarmEngine {
   // ── Agent Management ────────────────────────────────────────────────────
 
   addAgent(swarmId: string, agentDef: {
+    id?: string;
     name: string;
     role: string;
-    instructions: string;
+    instructions?: string;
     modelId?: string | null;
     tools?: string[];
+    capabilities?: string[];
     canHandoffTo?: string[];
     canSpawn?: boolean;
     spawnDepth?: number;
@@ -426,14 +428,14 @@ class SwarmEngine {
     }
 
     const agent: SwarmAgentMem = {
-      id: randomUUID(),
+      id: agentDef.id || randomUUID(),
       swarmSessionId: swarmId,
       parentAgentId: agentDef.parentAgentId ?? null,
       name: agentDef.name,
       role: agentDef.role,
-      instructions: agentDef.instructions,
+      instructions: agentDef.instructions || `${agentDef.role} agent`,
       modelId: agentDef.modelId ?? null,
-      tools: agentDef.tools || [],
+      tools: agentDef.tools || agentDef.capabilities || [],
       canHandoffTo: agentDef.canHandoffTo || [],
       canSpawn: agentDef.canSpawn ?? false,
       spawnDepth: agentDef.spawnDepth ?? 0,

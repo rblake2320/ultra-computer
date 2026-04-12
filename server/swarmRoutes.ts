@@ -76,8 +76,15 @@ export function registerSwarmRoutes(app: Express): void {
 
   app.post("/api/swarm/sessions", (req: Request, res: Response) => {
     try {
-      const session = swarmEngine.createSwarm(req.body);
-      res.status(201).json({ ...session.config, status: session.status });
+      const { agents, ...config } = req.body;
+      const session = swarmEngine.createSwarm(config);
+      // Auto-add agents if provided in the create body
+      if (Array.isArray(agents)) {
+        for (const agentDef of agents) {
+          try { swarmEngine.addAgent(session.config.id, agentDef); } catch { /* skip invalid */ }
+        }
+      }
+      res.status(201).json({ ...session.config, status: session.status, agentCount: session.agents.size });
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
@@ -222,8 +229,39 @@ export function registerSwarmRoutes(app: Express): void {
   });
 
   app.post("/api/swarm/sessions/:id/agents/:agentId/spawn", (req: Request, res: Response) => {
-    const agent = swarmEngine.spawnAgent(req.params.id, req.params.agentId, req.body);
-    if (!agent) return res.status(400).json({ error: "Spawn failed — check spawning permissions, depth limits, and rate limits" });
+    // Build spawn definition with sensible defaults
+    const spawnDef = {
+      name: req.body.name || req.body.role || "spawned-agent",
+      role: req.body.role || "worker",
+      instructions: req.body.instructions || req.body.reason || `Spawned by ${req.params.agentId} for: ${req.body.role || "task assistance"}`,
+      modelId: req.body.modelId || req.body.model || null,
+      tools: req.body.tools || [],
+      taskType: req.body.taskType || null,
+      priority: req.body.priority || null,
+      context: req.body.context || null,
+    };
+    const agent = swarmEngine.spawnAgent(req.params.id, req.params.agentId, spawnDef);
+    if (!agent) {
+      // Provide diagnostic reasons
+      const reasons: string[] = [];
+      const session = swarmEngine.getSwarm(req.params.id);
+      if (!session) reasons.push("Session not found");
+      else {
+        if (!session.config.enableDynamicSpawning) reasons.push("enableDynamicSpawning is false in session config");
+        const parent = session.agents?.get?.(req.params.agentId) || (session as any).agents?.find?.((a: any) => a.id === req.params.agentId);
+        if (!parent) reasons.push(`Parent agent ${req.params.agentId} not found in session`);
+        else {
+          if (!parent.canSpawn) reasons.push("Parent agent has canSpawn: false");
+          if (parent.spawnDepth >= (session.config.safety?.maxSpawnDepth || 2)) reasons.push(`Max spawn depth reached (${parent.spawnDepth}/${session.config.safety?.maxSpawnDepth || 2})`);
+        }
+        if ((session.agents?.size || 0) >= session.config.maxAgents) reasons.push(`Max agents reached (${session.agents?.size}/${session.config.maxAgents})`);
+      }
+      return res.status(400).json({
+        error: "Spawn failed",
+        reasons: reasons.length ? reasons : ["Check spawning permissions, depth limits, and rate limits"],
+        hint: "Required config: enableDynamicSpawning: true. Parent agent must have canSpawn: true."
+      });
+    }
     res.status(201).json(agent);
   });
 
@@ -371,17 +409,30 @@ export function registerSwarmRoutes(app: Express): void {
 
   app.get("/api/swarm/sessions/:id/messages", (req: Request, res: Response) => {
     const limit = parseInt(req.query.limit as string) || 200;
-    res.json(swarmEngine.getMessages(req.params.id, limit));
+    let messages = swarmEngine.getMessages(req.params.id, limit);
+    // Optional filters: ?agentId= (from or to), ?type= (messageType)
+    const agentFilter = req.query.agentId as string;
+    const typeFilter = req.query.type as string;
+    if (agentFilter) {
+      messages = messages.filter((m: any) => m.fromAgentId === agentFilter || m.toAgentId === agentFilter);
+    }
+    if (typeFilter) {
+      messages = messages.filter((m: any) => m.messageType === typeFilter);
+    }
+    res.json(messages);
   });
 
   app.post("/api/swarm/sessions/:id/messages", (req: Request, res: Response) => {
-    const { fromAgentId, toAgentId, messageType, content, metadata } = req.body;
+    // Accept field aliases: fromAgentId / fromAgent / from, toAgentId / toAgent / to
+    const fromId = req.body.fromAgentId || req.body.fromAgent || req.body.from || "human_operator";
+    const toId = req.body.toAgentId || req.body.toAgent || req.body.to || null;
+    const { messageType, content, metadata } = req.body;
     if (!content) return res.status(400).json({ error: "content required" });
     swarmEngine.sendAgentMessage(
       req.params.id,
-      fromAgentId || "human_operator",
-      toAgentId || null,
-      messageType || "broadcast",
+      fromId,
+      toId,
+      messageType || (toId ? "info" : "broadcast"),
       content,
       metadata,
     );
@@ -395,11 +446,14 @@ export function registerSwarmRoutes(app: Express): void {
   });
 
   app.post("/api/swarm/sessions/:id/handoffs", (req: Request, res: Response) => {
-    const { fromAgentId, toAgentId, reason, context } = req.body;
-    if (!fromAgentId || !toAgentId) {
-      return res.status(400).json({ error: "fromAgentId and toAgentId required" });
+    // Accept field aliases: fromAgentId / fromAgent / from, toAgentId / toAgent / to
+    const fromId = req.body.fromAgentId || req.body.fromAgent || req.body.from;
+    const toId = req.body.toAgentId || req.body.toAgent || req.body.to;
+    const { reason, context, taskId } = req.body;
+    if (!fromId || !toId) {
+      return res.status(400).json({ error: "fromAgentId and toAgentId required (also accepts fromAgent/toAgent or from/to)" });
     }
-    const record = swarmEngine.handoff(req.params.id, fromAgentId, toAgentId, reason || "", context || "");
+    const record = swarmEngine.handoff(req.params.id, fromId, toId, reason || "", context || "");
     if (!record) return res.status(400).json({ error: "Handoff failed — check agent IDs and permissions" });
     res.status(201).json(record);
   });
@@ -435,8 +489,14 @@ export function registerSwarmRoutes(app: Express): void {
 
   app.post("/api/swarm", (req: Request, res: Response) => {
     try {
-      const session = swarmEngine.createSwarm(req.body);
-      res.status(201).json({ ...session.config, status: session.status });
+      const { agents, ...config } = req.body;
+      const session = swarmEngine.createSwarm(config);
+      if (Array.isArray(agents)) {
+        for (const agentDef of agents) {
+          try { swarmEngine.addAgent(session.config.id, agentDef); } catch { /* skip */ }
+        }
+      }
+      res.status(201).json({ ...session.config, status: session.status, agentCount: session.agents.size });
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
