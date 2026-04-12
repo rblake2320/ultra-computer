@@ -320,26 +320,122 @@ export const knowledgeBase = sqliteTable("knowledge_base", {
 export type KnowledgeEntry = typeof knowledgeBase.$inferSelect;
 export type InsertKnowledgeEntry = typeof knowledgeBase.$inferInsert;
 
-// ─── Swarm Persistence ──────────────────────────────────────────────────────
-export const swarms = sqliteTable("swarms", {
+// ─── Swarm Sessions ─────────────────────────────────────────────────────────
+export const swarmSessions = sqliteTable("swarm_sessions", {
   id: text("id").primaryKey(),
+  conversationId: text("conversation_id"),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
   config: text("config").notNull(),                    // full JSON SwarmConfig
-  status: text("status").notNull().default("idle"),     // idle | running | paused | completed | failed
+  status: text("status").notNull().default("idle"),     // idle | running | paused | completed | failed | terminated
+  mode: text("mode").notNull().default("collaborative"), // collaborative | competitive | exploratory
+  totalAgentsSpawned: integer("total_agents_spawned").notNull().default(0),
   totalTokensUsed: integer("total_tokens_used").notNull().default(0),
   consecutiveFailures: integer("consecutive_failures").notNull().default(0),
   circuitBroken: integer("circuit_broken").notNull().default(0),
-  agentsJson: text("agents_json").notNull().default("[]"),
-  tasksJson: text("tasks_json").notNull().default("[]"),
-  blackboardJson: text("blackboard_json").notNull().default("[]"),
-  handoffsJson: text("handoffs_json").notNull().default("[]"),
-  consensusJson: text("consensus_json").notNull().default("[]"),
   startedAt: integer("started_at"),
   completedAt: integer("completed_at"),
   error: text("error"),
   createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
 });
+export type SwarmSession = typeof swarmSessions.$inferSelect;
+export type InsertSwarmSession = typeof swarmSessions.$inferInsert;
 
-export type SwarmRecord = typeof swarms.$inferSelect;
-export type InsertSwarmRecord = typeof swarms.$inferInsert;
+// ─── Swarm Agents ───────────────────────────────────────────────────────────
+export const swarmAgents = sqliteTable("swarm_agents", {
+  id: text("id").primaryKey(),
+  swarmSessionId: text("swarm_session_id").notNull(),
+  parentAgentId: text("parent_agent_id"),               // null for top-level agents
+  name: text("name").notNull(),
+  role: text("role").notNull(),
+  instructions: text("instructions").notNull(),
+  modelId: text("model_id"),
+  tools: text("tools").notNull().default("[]"),          // JSON string[]
+  canHandoffTo: text("can_handoff_to").notNull().default("[]"), // JSON string[]
+  canSpawn: integer("can_spawn", { mode: "boolean" }).notNull().default(false),
+  spawnDepth: integer("spawn_depth").notNull().default(0),
+  status: text("status").notNull().default("idle"),      // idle | working | waiting | handed_off | completed | failed | terminated
+  currentTaskId: text("current_task_id"),
+  tokensUsed: integer("tokens_used").notNull().default(0),
+  messagesProcessed: integer("messages_processed").notNull().default(0),
+  handoffsMade: integer("handoffs_made").notNull().default(0),
+  capabilityProfile: text("capability_profile").notNull().default("{}"), // JSON: speed, accuracy, cost, specialties[]
+  lastActiveAt: integer("last_active_at"),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+export type SwarmAgent = typeof swarmAgents.$inferSelect;
+export type InsertSwarmAgent = typeof swarmAgents.$inferInsert;
+
+// ─── Blackboard Entries ─────────────────────────────────────────────────────
+export const blackboardEntries = sqliteTable("blackboard_entries", {
+  id: text("id").primaryKey(),
+  swarmSessionId: text("swarm_session_id").notNull(),
+  authorAgentId: text("author_agent_id").notNull(),
+  entryType: text("entry_type").notNull().default("fact"), // fact | hypothesis | partial_result | signal | request | decision | conflict
+  topic: text("topic").notNull(),                       // dot-notation namespacing (e.g., research.findings)
+  key: text("key").notNull(),
+  content: text("content").notNull(),
+  confidence: real("confidence").notNull().default(0.5), // 0-1
+  priority: integer("priority").notNull().default(50),   // 0-100, stigmergy signal
+  version: integer("version").notNull().default(1),
+  supersedesEntryId: text("supersedes_entry_id"),        // points to entry this replaces
+  readByAgentIds: text("read_by_agent_ids").notNull().default("[]"), // JSON string[]
+  ttlMs: integer("ttl_ms"),                              // time-to-live in ms
+  expiresAt: integer("expires_at"),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+  updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
+});
+export type BlackboardEntry = typeof blackboardEntries.$inferSelect;
+export type InsertBlackboardEntry = typeof blackboardEntries.$inferInsert;
+
+// ─── Consensus Rounds ───────────────────────────────────────────────────────
+export const consensusRounds = sqliteTable("consensus_rounds", {
+  id: text("id").primaryKey(),
+  swarmSessionId: text("swarm_session_id").notNull(),
+  subject: text("subject").notNull(),                   // the question being voted on
+  strategy: text("strategy").notNull().default("majority_vote"), // majority_vote | weighted_majority | unanimity | reconciliation_agent
+  status: text("status").notNull().default("open"),      // open | voting | reconciling | resolved | deadlocked
+  votes: text("votes").notNull().default("[]"),          // JSON ConsensusVote[]
+  result: text("result"),                                // JSON { winner, confidence, reasoning }
+  participantAgentIds: text("participant_agent_ids").notNull().default("[]"), // JSON string[]
+  maxRounds: integer("max_rounds").notNull().default(3),
+  currentRound: integer("current_round").notNull().default(0),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+  resolvedAt: integer("resolved_at"),
+});
+export type ConsensusRound = typeof consensusRounds.$inferSelect;
+export type InsertConsensusRound = typeof consensusRounds.$inferInsert;
+
+// ─── Swarm Messages ─────────────────────────────────────────────────────────
+export const swarmMessages = sqliteTable("swarm_messages", {
+  id: text("id").primaryKey(),
+  swarmSessionId: text("swarm_session_id").notNull(),
+  fromAgentId: text("from_agent_id").notNull(),
+  toAgentId: text("to_agent_id"),                       // null = broadcast
+  messageType: text("message_type").notNull().default("info"), // ping | info_request | info_response | delegation | signal | merge_request | handoff | broadcast
+  content: text("content").notNull(),
+  metadata: text("metadata").notNull().default("{}"),    // JSON extra data
+  acknowledged: integer("acknowledged", { mode: "boolean" }).notNull().default(false),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+export type SwarmMessage = typeof swarmMessages.$inferSelect;
+export type InsertSwarmMessage = typeof swarmMessages.$inferInsert;
+
+// ─── Swarm Tasks ────────────────────────────────────────────────────────────
+export const swarmTasks = sqliteTable("swarm_tasks", {
+  id: text("id").primaryKey(),
+  swarmSessionId: text("swarm_session_id").notNull(),
+  description: text("description").notNull(),
+  taskType: text("task_type").notNull().default("general"), // research | code | write | analyze | general
+  priority: integer("priority").notNull().default(50),  // 0-100
+  claimedBy: text("claimed_by"),                         // agent ID
+  status: text("status").notNull().default("pending"),   // pending | claimed | running | completed | failed
+  result: text("result"),
+  dependencies: text("dependencies").notNull().default("[]"), // JSON taskId[] — tasks that must finish first
+  metadata: text("metadata").notNull().default("{}"),
+  claimedAt: integer("claimed_at"),
+  completedAt: integer("completed_at"),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+export type SwarmTask = typeof swarmTasks.$inferSelect;
+export type InsertSwarmTask = typeof swarmTasks.$inferInsert;

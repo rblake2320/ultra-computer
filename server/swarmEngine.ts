@@ -1,46 +1,28 @@
 /**
- * SwarmEngine — Multi-Agent Swarm Intelligence Layer (Layer 2: Full Execution)
+ * SwarmEngine — Layer 3: Complete Swarm Coordination System
  *
- * Combines the best patterns from OpenAI Swarm, LangGraph, CrewAI, and AutoGen:
+ * Full production-grade multi-agent swarm with:
+ *  1. BLACKBOARD — Persistent shared workspace with topic namespacing, subscriptions,
+ *     signal pheromones, TTL/GC, confidence scoring, and conflict detection
+ *  2. HANDOFFS — Agent-to-agent task transfer with context preservation
+ *  3. DYNAMIC SPAWNING — Runtime agent creation with depth limits
+ *  4. CONSENSUS — 4 strategies: majority, weighted_majority, unanimity, reconciliation_agent
+ *  5. STIGMERGY — Priority signals on blackboard entries to attract agents
+ *  6. ROLE NEGOTIATION — Contract Net Protocol with algorithmic bidding
+ *  7. DELIBERATION — Conflict resolution between agents via NIP
+ *  8. DEADLOCK DETECTION — Cycle detection, stale agents, mutual-wait resolution
+ *  9. MESSAGING — Agent-to-agent lateral communication via EventEmitter mailbox
+ * 10. SAFETY — Token budgets, spawn depth, wall-clock, circuit breaker, budget enforcement
+ * 11. PERSISTENCE — Full 6-table SQLite schema (sessions, agents, tasks, blackboard, consensus, messages)
+ * 12. SSE STREAMING — Real-time events for frontend topology/blackboard/consensus views
+ * 13. SELF-LEARNING — Swarm outcomes feed into learning loop
  *
- *  1. BLACKBOARD (shared state):  Agents read/write to a common state store.
- *     No direct coupling — agents discover work by observing the blackboard.
- *
- *  2. HANDOFFS (OpenAI Swarm pattern):  Agents can transfer full control to
- *     another agent when a task falls outside their expertise.
- *
- *  3. DYNAMIC SPAWNING:  Agents can request new agents be created at runtime
- *     based on what they discover during execution.
- *
- *  4. CONSENSUS / VOTING:  Multiple agents evaluate the same input and the
- *     system reconciles via majority vote, weighted confidence, or debate rounds.
- *
- *  5. STIGMERGY (pheromone signals):  Agents leave priority signals on the
- *     blackboard that attract other agents to high-value work areas.
- *
- *  6. ROLE NEGOTIATION:  Agents claim tasks from a shared pool rather than
- *     being assigned by a central orchestrator.
- *
- * Layer 2 additions:
- *  - Safety caps: token budgets, spawn depth limits, wall-clock timeouts, circuit breaker
- *  - SQLite persistence via storage interface
- *  - Blackboard subscriptions (topic-level listeners)
- *  - SSE streaming for real-time events
- *  - Blackboard TTL/GC (time-to-live with automatic cleanup)
- *  - Messaging hub integration (swarm_internal channel type)
- *  - LLM + tool execution per swarm agent (via orchestrator's worker agent)
- *  - Self-learning integration (swarm outcomes feed back into learning loop)
- *
- * Integration points with existing Ultra Computer systems:
- *  - MessagingHub → blackboard pub/sub (channels become blackboard topics)
- *  - NIP Engine → agent-to-agent negotiation protocol
- *  - Orchestrator → swarm mode as alternative to DAG mode
- *  - ModelRouter → each swarm agent gets its own model assignment
- *  - KnowledgeEngine → shared KB context injected into all swarm agents
- *  - SelfLearning → swarm execution outcomes feed back into learning loop
+ * Architecture: Hybrid Blackboard + DAG + Ensemble
+ * The engine wraps the existing orchestrator, adding swarm mode as a drop-in.
  */
 
 import { randomUUID } from "crypto";
+import { EventEmitter } from "events";
 import { logExecution } from "./selfLearning.js";
 import { chat, chatStream, selectModelForTask, type ChatMessage, type TaskType } from "./modelRouter.js";
 import { TOOL_SCHEMAS, executeTool, type ToolResult } from "./tools.js";
@@ -50,54 +32,127 @@ import { storage } from "./storage.js";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-export type SwarmStatus = "idle" | "running" | "paused" | "completed" | "failed";
-export type AgentStatus = "idle" | "working" | "waiting" | "handed_off" | "completed" | "failed";
-export type ConsensusStrategy = "majority_vote" | "weighted_confidence" | "debate" | "unanimous";
+export type SwarmStatus = "idle" | "running" | "paused" | "completed" | "failed" | "terminated";
+export type AgentStatus = "idle" | "working" | "waiting" | "handed_off" | "completed" | "failed" | "terminated";
+export type ConsensusStrategy = "majority_vote" | "weighted_majority" | "unanimity" | "reconciliation_agent";
+export type BlackboardEntryType = "fact" | "hypothesis" | "partial_result" | "signal" | "request" | "decision" | "conflict";
+export type SwarmMessageType = "ping" | "info_request" | "info_response" | "delegation" | "signal" | "merge_request" | "handoff" | "broadcast";
 
-export interface SwarmAgent {
+export interface SafetyCaps {
+  maxTotalTokens: number;
+  maxSpawnDepth: number;
+  maxWallClockMs: number;
+  maxAgentIterations: number;
+  maxAgents: number;
+  maxConcurrentAgents: number;
+  circuitBreakerThreshold: number;
+  deadlockDetectionMs: number;
+  budgetWarningPct: number;  // emit warning at this % of token budget (0-1)
+}
+
+export interface SwarmConfig {
   id: string;
   name: string;
+  description: string;
+  conversationId?: string;
+  mode: "collaborative" | "competitive" | "exploratory";
+  defaultModelId: string | null;
+  maxTasksPerAgent: number;
+  consensusStrategy: ConsensusStrategy;
+  consensusThreshold: number;
+  maxConsensusRounds: number;
+  enableDynamicSpawning: boolean;
+  enableStigmergy: boolean;
+  enableHandoffs: boolean;
+  enableRoleNegotiation: boolean;
+  enableDeadlockDetection: boolean;
+  taskClaimTimeout: number;
+  agentIdleTimeout: number;
+  safety: SafetyCaps;
+  blackboardTTLMs: number | null;
+  createdAt: number;
+}
+
+// In-memory agent representation (richer than DB row)
+export interface SwarmAgentMem {
+  id: string;
+  swarmSessionId: string;
+  parentAgentId: string | null;
+  name: string;
   role: string;
-  instructions: string;                // system prompt for this agent
-  modelId: string | null;              // null = use swarm default
-  tools: string[];                     // tool names this agent can use
-  canHandoffTo: string[];              // agent IDs this agent can hand off to
-  canSpawn: boolean;                   // whether this agent can dynamically spawn new agents
-  spawnDepth: number;                  // how many levels deep this agent was spawned (0 = original)
+  instructions: string;
+  modelId: string | null;
+  tools: string[];
+  canHandoffTo: string[];
+  canSpawn: boolean;
+  spawnDepth: number;
   status: AgentStatus;
   currentTaskId: string | null;
   tokenUsage: { prompt: number; completion: number; total: number };
   messagesProcessed: number;
   handoffsMade: number;
-  startedAt: number;
+  capabilityProfile: { speed: number; accuracy: number; cost: number; specialties: string[] };
   lastActiveAt: number;
+  createdAt: number;
 }
 
-export interface SwarmTask {
+export interface SwarmTaskMem {
   id: string;
+  swarmSessionId: string;
   description: string;
-  priority: number;                    // 0-100, higher = more attractive to agents
-  claimedBy: string | null;            // agent ID that claimed this task
+  taskType: string;
+  priority: number;
+  claimedBy: string | null;
   status: "pending" | "claimed" | "running" | "completed" | "failed";
   result: string | null;
-  createdAt: number;
+  dependencies: string[];
+  metadata: Record<string, unknown>;
   claimedAt: number | null;
   completedAt: number | null;
-  metadata: Record<string, unknown>;
+  createdAt: number;
 }
 
-export interface BlackboardEntry {
+export interface BlackboardEntryMem {
   id: string;
-  topic: string;                       // grouping key (e.g., "research", "code", "analysis")
-  key: string;                         // specific entry key within topic
-  value: string;                       // the content
-  author: string;                      // agent ID that wrote this
-  priority: number;                    // stigmergy signal — higher attracts more attention
-  version: number;                     // incremented on each update
-  ttl: number | null;                  // time-to-live in ms (null = never expires)
-  expiresAt: number | null;            // computed expiry timestamp
+  swarmSessionId: string;
+  authorAgentId: string;
+  entryType: BlackboardEntryType;
+  topic: string;
+  key: string;
+  content: string;
+  confidence: number;
+  priority: number;
+  version: number;
+  supersedesEntryId: string | null;
+  readByAgentIds: string[];
+  ttlMs: number | null;
+  expiresAt: number | null;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface ConsensusVote {
+  agentId: string;
+  answer: string;
+  confidence: number;
+  reasoning: string;
+  round: number;
+  timestamp: number;
+}
+
+export interface ConsensusRoundMem {
+  id: string;
+  swarmSessionId: string;
+  subject: string;
+  strategy: ConsensusStrategy;
+  status: "open" | "voting" | "reconciling" | "resolved" | "deadlocked";
+  votes: ConsensusVote[];
+  result: { winner: string; confidence: number; reasoning: string } | null;
+  participantAgentIds: string[];
+  maxRounds: number;
+  currentRound: number;
+  createdAt: number;
+  resolvedAt: number | null;
 }
 
 export interface HandoffRecord {
@@ -105,80 +160,28 @@ export interface HandoffRecord {
   fromAgentId: string;
   toAgentId: string;
   reason: string;
-  context: string;                     // conversation context passed along
+  context: string;
+  taskId: string | null;
   timestamp: number;
 }
 
-export interface ConsensusRound {
-  id: string;
-  question: string;
-  strategy: ConsensusStrategy;
-  agents: string[];                    // agent IDs participating
-  votes: ConsensusVote[];
-  result: string | null;
-  confidence: number;
-  rounds: number;                      // debate rounds completed
-  maxRounds: number;
-  status: "voting" | "debating" | "resolved" | "deadlocked";
-  startedAt: number;
-  resolvedAt: number | null;
-}
-
-export interface ConsensusVote {
-  agentId: string;
-  answer: string;
-  confidence: number;                  // 0-1
-  reasoning: string;
-  round: number;
-  timestamp: number;
-}
-
-export interface SafetyCaps {
-  maxTotalTokens: number;             // total tokens across all agents before circuit breaks
-  maxSpawnDepth: number;              // maximum dynamic spawn nesting depth
-  maxWallClockMs: number;            // wall-clock timeout for entire swarm execution
-  maxAgentIterations: number;        // max tool-call iterations per agent per task
-  circuitBreakerThreshold: number;   // consecutive failures before breaker trips
-  deadlockDetectionMs: number;       // interval to check for stuck agents
-}
-
-export interface SwarmConfig {
-  id: string;
-  name: string;
-  description: string;
-  mode: "collaborative" | "competitive" | "exploratory";
-  defaultModelId: string | null;
-  maxAgents: number;
-  maxTasksPerAgent: number;
-  consensusStrategy: ConsensusStrategy;
-  consensusThreshold: number;          // 0-1, minimum agreement to resolve
-  maxConsensusRounds: number;
-  enableDynamicSpawning: boolean;
-  enableStigmergy: boolean;
-  enableHandoffs: boolean;
-  taskClaimTimeout: number;            // ms before unclaimed task is re-offered
-  agentIdleTimeout: number;            // ms before idle agent is recycled
-  safety: SafetyCaps;
-  blackboardTTLMs: number | null;     // default TTL for blackboard entries (null = forever)
-  createdAt: number;
-}
-
-export interface Swarm {
+export interface SwarmSession {
   config: SwarmConfig;
   status: SwarmStatus;
-  agents: Map<string, SwarmAgent>;
-  tasks: Map<string, SwarmTask>;
-  blackboard: Map<string, BlackboardEntry>;
+  agents: Map<string, SwarmAgentMem>;
+  tasks: Map<string, SwarmTaskMem>;
+  blackboard: Map<string, BlackboardEntryMem>;  // key: topic:key
   handoffs: HandoffRecord[];
-  consensusRounds: Map<string, ConsensusRound>;
+  consensusRounds: Map<string, ConsensusRoundMem>;
   startedAt: number | null;
   completedAt: number | null;
   error: string | null;
-  // Safety tracking
   totalTokensUsed: number;
+  totalAgentsSpawned: number;
   consecutiveFailures: number;
   circuitBroken: boolean;
   gcTimer: ReturnType<typeof setInterval> | null;
+  deadlockTimer: ReturnType<typeof setInterval> | null;
 }
 
 export interface SwarmStats {
@@ -190,26 +193,31 @@ export interface SwarmStats {
   completedTasks: number;
   failedTasks: number;
   pendingTasks: number;
+  runningTasks: number;
   blackboardEntries: number;
   handoffCount: number;
   consensusRounds: number;
   totalTokens: number;
+  totalAgentsSpawned: number;
   uptime: number;
-  throughput: number;                  // tasks completed per minute
+  throughput: number;
   circuitBroken: boolean;
   consecutiveFailures: number;
+  budgetUsedPct: number;
 }
 
 // ─── Event System ───────────────────────────────────────────────────────────
 
 export type SwarmEventType =
-  | "agent_joined" | "agent_left" | "agent_status_changed"
+  | "agent_spawned" | "agent_status" | "agent_completed" | "agent_terminated"
   | "task_created" | "task_claimed" | "task_completed" | "task_failed"
-  | "blackboard_write" | "blackboard_update" | "blackboard_expired"
+  | "blackboard_write" | "blackboard_read" | "blackboard_expired"
   | "handoff_initiated" | "handoff_completed"
-  | "consensus_started" | "consensus_vote" | "consensus_resolved"
-  | "agent_spawned" | "swarm_started" | "swarm_completed" | "swarm_error"
-  | "safety_warning" | "circuit_broken" | "agent_executing";
+  | "consensus_started" | "vote_cast" | "consensus_resolved"
+  | "message_sent" | "budget_warning" | "safety_alert"
+  | "swarm_started" | "swarm_completed" | "swarm_error"
+  | "circuit_broken" | "deadlock_detected"
+  | "bid_awarded" | "negotiation_complete";
 
 export interface SwarmEvent {
   type: SwarmEventType;
@@ -219,43 +227,48 @@ export interface SwarmEvent {
 }
 
 type SwarmEventListener = (event: SwarmEvent) => void;
-
-// Blackboard subscription callback
-type BlackboardSubscriber = (entry: BlackboardEntry, eventType: "write" | "update" | "expired") => void;
-
-// SSE client callback
+type BlackboardSubscriber = (entry: BlackboardEntryMem, eventType: "write" | "update" | "expired") => void;
 type SSEClient = (event: SwarmEvent) => void;
 
 const DEFAULT_SAFETY: SafetyCaps = {
   maxTotalTokens: 500_000,
-  maxSpawnDepth: 3,
+  maxSpawnDepth: 2,
   maxWallClockMs: 10 * 60 * 1000,    // 10 minutes
   maxAgentIterations: 10,
+  maxAgents: 12,
+  maxConcurrentAgents: 6,
   circuitBreakerThreshold: 5,
-  deadlockDetectionMs: 30_000,
+  deadlockDetectionMs: 5_000,
+  budgetWarningPct: 0.9,
 };
 
 // ─── SwarmEngine ────────────────────────────────────────────────────────────
 
 class SwarmEngine {
-  private swarms: Map<string, Swarm> = new Map();
+  private swarms: Map<string, SwarmSession> = new Map();
   private listeners: Map<string, SwarmEventListener[]> = new Map();
   private sseClients: Map<string, SSEClient[]> = new Map();
-  private blackboardSubscribers: Map<string, BlackboardSubscriber[]> = new Map(); // key: swarmId:topic
+  private bbSubscribers: Map<string, BlackboardSubscriber[]> = new Map(); // key: swarmId:topicPattern
+  private agentMailboxes = new EventEmitter();
   private eventLog: SwarmEvent[] = [];
-  private maxEventLog = 2000;
+  private maxEventLog = 5000;
+  private spawnRateTracker: Map<string, number[]> = new Map(); // swarmId -> timestamps
+
+  constructor() {
+    this.agentMailboxes.setMaxListeners(200);
+  }
 
   // ── Swarm Lifecycle ─────────────────────────────────────────────────────
 
-  createSwarm(config: Partial<SwarmConfig> & { name: string }): Swarm {
+  createSwarm(config: Partial<SwarmConfig> & { name: string }): SwarmSession {
     const id = config.id || randomUUID();
     const fullConfig: SwarmConfig = {
       id,
       name: config.name,
       description: config.description || "",
+      conversationId: config.conversationId,
       mode: config.mode || "collaborative",
       defaultModelId: config.defaultModelId || null,
-      maxAgents: config.maxAgents || 20,
       maxTasksPerAgent: config.maxTasksPerAgent || 5,
       consensusStrategy: config.consensusStrategy || "majority_vote",
       consensusThreshold: config.consensusThreshold || 0.6,
@@ -263,6 +276,8 @@ class SwarmEngine {
       enableDynamicSpawning: config.enableDynamicSpawning ?? true,
       enableStigmergy: config.enableStigmergy ?? true,
       enableHandoffs: config.enableHandoffs ?? true,
+      enableRoleNegotiation: config.enableRoleNegotiation ?? true,
+      enableDeadlockDetection: config.enableDeadlockDetection ?? true,
       taskClaimTimeout: config.taskClaimTimeout || 30000,
       agentIdleTimeout: config.agentIdleTimeout || 120000,
       safety: { ...DEFAULT_SAFETY, ...(config.safety || {}) },
@@ -270,7 +285,7 @@ class SwarmEngine {
       createdAt: Date.now(),
     };
 
-    const swarm: Swarm = {
+    const session: SwarmSession = {
       config: fullConfig,
       status: "idle",
       agents: new Map(),
@@ -282,93 +297,112 @@ class SwarmEngine {
       completedAt: null,
       error: null,
       totalTokensUsed: 0,
+      totalAgentsSpawned: 0,
       consecutiveFailures: 0,
       circuitBroken: false,
       gcTimer: null,
+      deadlockTimer: null,
     };
 
-    this.swarms.set(id, swarm);
-
-    // Persist to SQLite
-    this.persistSwarm(swarm);
-
-    return swarm;
+    this.swarms.set(id, session);
+    this.persistSession(session);
+    return session;
   }
 
-  getSwarm(id: string): Swarm | undefined {
-    return this.swarms.get(id);
-  }
+  getSwarm(id: string): SwarmSession | undefined { return this.swarms.get(id); }
 
-  listSwarms(): Swarm[] {
-    return Array.from(this.swarms.values());
-  }
+  listSwarms(): SwarmSession[] { return Array.from(this.swarms.values()); }
 
   deleteSwarm(id: string): boolean {
-    const swarm = this.swarms.get(id);
-    if (!swarm) return false;
-    if (swarm.status === "running") this.stopSwarm(id);
-    if (swarm.gcTimer) clearInterval(swarm.gcTimer);
+    const session = this.swarms.get(id);
+    if (!session) return false;
+    if (session.status === "running") this.terminateSwarm(id, "Deleted by user");
+    this.cleanupTimers(session);
     this.swarms.delete(id);
     this.listeners.delete(id);
     this.sseClients.delete(id);
-    // Clean up blackboard subscriptions
-    for (const key of this.blackboardSubscribers.keys()) {
-      if (key.startsWith(`${id}:`)) this.blackboardSubscribers.delete(key);
+    this.spawnRateTracker.delete(id);
+    for (const key of this.bbSubscribers.keys()) {
+      if (key.startsWith(`${id}:`)) this.bbSubscribers.delete(key);
     }
-    // Persist deletion
-    this.deletePersistedSwarm(id);
+    try { storage.deleteSwarmSession(id); } catch (e) { console.error("[swarm] Delete error:", e); }
     return true;
   }
 
-  startSwarm(id: string): Swarm {
-    const swarm = this.swarms.get(id);
-    if (!swarm) throw new Error(`Swarm ${id} not found`);
-    if (swarm.status === "running") return swarm;
+  startSwarm(id: string): SwarmSession {
+    const session = this.swarms.get(id);
+    if (!session) throw new Error(`Swarm ${id} not found`);
+    if (session.status === "running") return session;
 
-    swarm.status = "running";
-    swarm.startedAt = Date.now();
-    swarm.completedAt = null;
-    swarm.error = null;
-    swarm.circuitBroken = false;
-    swarm.consecutiveFailures = 0;
+    session.status = "running";
+    session.startedAt = Date.now();
+    session.completedAt = null;
+    session.error = null;
+    session.circuitBroken = false;
+    session.consecutiveFailures = 0;
 
     // Start blackboard GC timer
-    if (swarm.config.blackboardTTLMs) {
-      swarm.gcTimer = setInterval(() => this.runBlackboardGC(id), 15_000);
-      if (swarm.gcTimer.unref) swarm.gcTimer.unref();
+    if (session.config.blackboardTTLMs) {
+      session.gcTimer = setInterval(() => this.runBlackboardGC(id), 15_000);
+      if (session.gcTimer.unref) session.gcTimer.unref();
     }
 
-    this.emit(id, { type: "swarm_started", swarmId: id, timestamp: Date.now(), data: {} });
-    this.persistSwarm(swarm);
-    return swarm;
+    // Start deadlock detection
+    if (session.config.enableDeadlockDetection) {
+      session.deadlockTimer = setInterval(() => this.detectDeadlocks(id), session.config.safety.deadlockDetectionMs);
+      if (session.deadlockTimer.unref) session.deadlockTimer.unref();
+    }
+
+    this.emitEvent(id, "swarm_started", {});
+    this.persistSession(session);
+    return session;
   }
 
-  stopSwarm(id: string): Swarm {
-    const swarm = this.swarms.get(id);
-    if (!swarm) throw new Error(`Swarm ${id} not found`);
+  stopSwarm(id: string): SwarmSession {
+    const session = this.swarms.get(id);
+    if (!session) throw new Error(`Swarm ${id} not found`);
 
-    swarm.status = "completed";
-    swarm.completedAt = Date.now();
+    session.status = "completed";
+    session.completedAt = Date.now();
+    this.cleanupTimers(session);
 
-    // Stop GC timer
-    if (swarm.gcTimer) {
-      clearInterval(swarm.gcTimer);
-      swarm.gcTimer = null;
-    }
-
-    // Mark all active agents as idle
-    for (const agent of swarm.agents.values()) {
+    for (const agent of session.agents.values()) {
       if (agent.status === "working" || agent.status === "waiting") {
-        agent.status = "idle";
+        agent.status = "completed";
+        this.persistAgent(session.config.id, agent);
       }
     }
 
-    // Log to self-learning
-    this.logSwarmOutcome(swarm);
+    this.logSwarmOutcome(session);
+    this.emitEvent(id, "swarm_completed", {});
+    this.persistSession(session);
+    return session;
+  }
 
-    this.emit(id, { type: "swarm_completed", swarmId: id, timestamp: Date.now(), data: {} });
-    this.persistSwarm(swarm);
-    return swarm;
+  terminateSwarm(id: string, reason: string): SwarmSession {
+    const session = this.swarms.get(id);
+    if (!session) throw new Error(`Swarm ${id} not found`);
+
+    session.status = "terminated";
+    session.completedAt = Date.now();
+    session.error = reason;
+    this.cleanupTimers(session);
+
+    for (const agent of session.agents.values()) {
+      if (agent.status !== "completed" && agent.status !== "failed") {
+        agent.status = "terminated";
+        this.persistAgent(session.config.id, agent);
+      }
+    }
+
+    this.emitEvent(id, "swarm_error", { reason });
+    this.persistSession(session);
+    return session;
+  }
+
+  private cleanupTimers(session: SwarmSession): void {
+    if (session.gcTimer) { clearInterval(session.gcTimer); session.gcTimer = null; }
+    if (session.deadlockTimer) { clearInterval(session.deadlockTimer); session.deadlockTimer = null; }
   }
 
   // ── Agent Management ────────────────────────────────────────────────────
@@ -382,15 +416,19 @@ class SwarmEngine {
     canHandoffTo?: string[];
     canSpawn?: boolean;
     spawnDepth?: number;
-  }): SwarmAgent {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) throw new Error(`Swarm ${swarmId} not found`);
-    if (swarm.agents.size >= swarm.config.maxAgents) {
-      throw new Error(`Swarm at max capacity (${swarm.config.maxAgents} agents)`);
+    parentAgentId?: string | null;
+    capabilityProfile?: { speed: number; accuracy: number; cost: number; specialties: string[] };
+  }): SwarmAgentMem {
+    const session = this.swarms.get(swarmId);
+    if (!session) throw new Error(`Swarm ${swarmId} not found`);
+    if (session.agents.size >= session.config.safety.maxAgents) {
+      throw new Error(`Swarm at max capacity (${session.config.safety.maxAgents} agents)`);
     }
 
-    const agent: SwarmAgent = {
+    const agent: SwarmAgentMem = {
       id: randomUUID(),
+      swarmSessionId: swarmId,
+      parentAgentId: agentDef.parentAgentId ?? null,
       name: agentDef.name,
       role: agentDef.role,
       instructions: agentDef.instructions,
@@ -404,387 +442,485 @@ class SwarmEngine {
       tokenUsage: { prompt: 0, completion: 0, total: 0 },
       messagesProcessed: 0,
       handoffsMade: 0,
-      startedAt: Date.now(),
+      capabilityProfile: agentDef.capabilityProfile || { speed: 0.5, accuracy: 0.5, cost: 0.5, specialties: [] },
       lastActiveAt: Date.now(),
+      createdAt: Date.now(),
     };
 
-    swarm.agents.set(agent.id, agent);
-
-    this.emit(swarmId, {
-      type: "agent_joined",
-      swarmId,
-      timestamp: Date.now(),
-      data: { agentId: agent.id, name: agent.name, role: agent.role },
-    });
-
+    session.agents.set(agent.id, agent);
+    session.totalAgentsSpawned++;
+    this.persistAgent(swarmId, agent);
+    this.emitEvent(swarmId, "agent_spawned", { agentId: agent.id, name: agent.name, role: agent.role, depth: agent.spawnDepth });
     return agent;
   }
 
   removeAgent(swarmId: string, agentId: string): boolean {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) return false;
-
-    const agent = swarm.agents.get(agentId);
+    const session = this.swarms.get(swarmId);
+    if (!session) return false;
+    const agent = session.agents.get(agentId);
     if (!agent) return false;
 
-    // Release any claimed tasks back to the pool
+    // Release claimed tasks
     if (agent.currentTaskId) {
-      const task = swarm.tasks.get(agent.currentTaskId);
+      const task = session.tasks.get(agent.currentTaskId);
       if (task && (task.status === "claimed" || task.status === "running")) {
         task.status = "pending";
         task.claimedBy = null;
         task.claimedAt = null;
+        this.persistTask(swarmId, task);
       }
     }
 
-    swarm.agents.delete(agentId);
-
-    // Remove from other agents' handoff lists
-    for (const other of swarm.agents.values()) {
+    session.agents.delete(agentId);
+    for (const other of session.agents.values()) {
       other.canHandoffTo = other.canHandoffTo.filter(id => id !== agentId);
     }
 
-    this.emit(swarmId, {
-      type: "agent_left",
-      swarmId,
-      timestamp: Date.now(),
-      data: { agentId, name: agent.name },
-    });
-
+    try { storage.deleteSwarmAgent(agentId); } catch { /* ok */ }
+    this.emitEvent(swarmId, "agent_terminated", { agentId, name: agent.name });
     return true;
   }
 
-  getAgent(swarmId: string, agentId: string): SwarmAgent | undefined {
+  getAgent(swarmId: string, agentId: string): SwarmAgentMem | undefined {
     return this.swarms.get(swarmId)?.agents.get(agentId);
   }
 
-  listAgents(swarmId: string): SwarmAgent[] {
-    const swarm = this.swarms.get(swarmId);
-    return swarm ? Array.from(swarm.agents.values()) : [];
+  listAgents(swarmId: string): SwarmAgentMem[] {
+    const session = this.swarms.get(swarmId);
+    return session ? Array.from(session.agents.values()) : [];
   }
 
-  // Dynamic spawning — an agent requests a new agent be created
+  // Dynamic spawning with rate limiting
   spawnAgent(swarmId: string, requestingAgentId: string, agentDef: {
     name: string;
     role: string;
     instructions: string;
     modelId?: string | null;
     tools?: string[];
-  }): SwarmAgent | null {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) return null;
+    taskType?: string;
+    priority?: string;
+    context?: string;
+  }): SwarmAgentMem | null {
+    const session = this.swarms.get(swarmId);
+    if (!session || !session.config.enableDynamicSpawning) return null;
 
-    if (!swarm.config.enableDynamicSpawning) return null;
-
-    const requestor = swarm.agents.get(requestingAgentId);
+    const requestor = session.agents.get(requestingAgentId);
     if (!requestor || !requestor.canSpawn) return null;
 
-    // Safety: check spawn depth
-    if (requestor.spawnDepth >= swarm.config.safety.maxSpawnDepth) {
-      this.emit(swarmId, {
-        type: "safety_warning",
-        swarmId,
-        timestamp: Date.now(),
-        data: { reason: "max_spawn_depth", agentId: requestingAgentId, depth: requestor.spawnDepth },
-      });
+    // Check spawn depth
+    if (requestor.spawnDepth >= session.config.safety.maxSpawnDepth) {
+      this.emitEvent(swarmId, "safety_alert", { reason: "max_spawn_depth", agentId: requestingAgentId, depth: requestor.spawnDepth });
       return null;
     }
 
-    const agent = this.addAgent(swarmId, {
+    // Check spawn rate (circuit breaker pattern — max 5 spawns per 10s window)
+    const now = Date.now();
+    const tracker = this.spawnRateTracker.get(swarmId) || [];
+    const recentSpawns = tracker.filter(t => now - t < 10_000);
+    if (recentSpawns.length >= 5) {
+      this.emitEvent(swarmId, "safety_alert", { reason: "spawn_rate_limit", recentSpawns: recentSpawns.length });
+      return null;
+    }
+    recentSpawns.push(now);
+    this.spawnRateTracker.set(swarmId, recentSpawns);
+
+    return this.addAgent(swarmId, {
       ...agentDef,
+      parentAgentId: requestingAgentId,
       spawnDepth: requestor.spawnDepth + 1,
+      canSpawn: requestor.spawnDepth + 1 < session.config.safety.maxSpawnDepth,
     });
-
-    this.emit(swarmId, {
-      type: "agent_spawned",
-      swarmId,
-      timestamp: Date.now(),
-      data: { spawnedBy: requestingAgentId, agentId: agent.id, role: agent.role, depth: agent.spawnDepth },
-    });
-
-    return agent;
   }
 
-  // ── Task Pool (Role Negotiation) ────────────────────────────────────────
+  // ── Task Pool ─────────────────────────────────────────────────────────
 
   addTask(swarmId: string, taskDef: {
     description: string;
+    taskType?: string;
     priority?: number;
+    dependencies?: string[];
     metadata?: Record<string, unknown>;
-  }): SwarmTask {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) throw new Error(`Swarm ${swarmId} not found`);
+  }): SwarmTaskMem {
+    const session = this.swarms.get(swarmId);
+    if (!session) throw new Error(`Swarm ${swarmId} not found`);
 
-    const task: SwarmTask = {
+    const task: SwarmTaskMem = {
       id: randomUUID(),
+      swarmSessionId: swarmId,
       description: taskDef.description,
+      taskType: taskDef.taskType || "general",
       priority: taskDef.priority ?? 50,
       claimedBy: null,
       status: "pending",
       result: null,
-      createdAt: Date.now(),
+      dependencies: taskDef.dependencies || [],
+      metadata: taskDef.metadata || {},
       claimedAt: null,
       completedAt: null,
-      metadata: taskDef.metadata || {},
+      createdAt: Date.now(),
     };
 
-    swarm.tasks.set(task.id, task);
-
-    this.emit(swarmId, {
-      type: "task_created",
-      swarmId,
-      timestamp: Date.now(),
-      data: { taskId: task.id, description: task.description, priority: task.priority },
-    });
-
+    session.tasks.set(task.id, task);
+    this.persistTask(swarmId, task);
+    this.emitEvent(swarmId, "task_created", { taskId: task.id, description: task.description.slice(0, 200), priority: task.priority });
     return task;
   }
 
-  // Agent claims a task from the pool (role negotiation)
-  claimTask(swarmId: string, agentId: string, taskId: string): boolean {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) return false;
+  // Role Negotiation: Algorithmic bid scoring (Contract Net Protocol)
+  negotiateTaskAssignment(swarmId: string, taskId: string): { agentId: string; score: number } | null {
+    const session = this.swarms.get(swarmId);
+    if (!session || !session.config.enableRoleNegotiation) return null;
 
-    const agent = swarm.agents.get(agentId);
-    const task = swarm.tasks.get(taskId);
+    const task = session.tasks.get(taskId);
+    if (!task || task.status !== "pending") return null;
+
+    // Check task dependencies
+    for (const depId of task.dependencies) {
+      const dep = session.tasks.get(depId);
+      if (dep && dep.status !== "completed") return null; // dependency not met
+    }
+
+    const idleAgents = Array.from(session.agents.values()).filter(a => a.status === "idle");
+    if (idleAgents.length === 0) return null;
+
+    let bestAgent: SwarmAgentMem | null = null;
+    let bestScore = -1;
+
+    for (const agent of idleAgents) {
+      const cap = agent.capabilityProfile;
+
+      // Capability match: does agent's specialty match task type?
+      const capabilityScore = cap.specialties.includes(task.taskType) ? 1.0
+        : cap.specialties.length === 0 ? 0.5 // generalist
+        : 0.2;
+
+      // Load: how many tasks has this agent already done?
+      const completedByAgent = Array.from(session.tasks.values()).filter(t => t.claimedBy === agent.id && t.status === "completed").length;
+      const loadFactor = 1 - Math.min(1, completedByAgent / session.config.maxTasksPerAgent);
+
+      // Speed bonus: faster agents preferred for lower-priority tasks
+      const speedBonus = task.priority < 50 ? cap.speed : (1 - cap.speed) * 0.3;
+
+      // Algorithmic bid: capability * 0.5 + (1 - load) * 0.3 + speedBonus * 0.2
+      const score = capabilityScore * 0.5 + loadFactor * 0.3 + speedBonus * 0.2;
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestAgent = agent;
+      }
+    }
+
+    if (!bestAgent) return null;
+
+    this.emitEvent(swarmId, "bid_awarded", {
+      taskId,
+      agentId: bestAgent.id,
+      agentName: bestAgent.name,
+      score: bestScore,
+      candidates: idleAgents.length,
+    });
+
+    return { agentId: bestAgent.id, score: bestScore };
+  }
+
+  claimTask(swarmId: string, agentId: string, taskId: string): boolean {
+    const session = this.swarms.get(swarmId);
+    if (!session) return false;
+
+    const agent = session.agents.get(agentId);
+    const task = session.tasks.get(taskId);
     if (!agent || !task) return false;
-    if (task.status !== "pending") return false; // already claimed
+    if (task.status !== "pending") return false;
+
+    // Check dependencies
+    for (const depId of task.dependencies) {
+      const dep = session.tasks.get(depId);
+      if (dep && dep.status !== "completed") return false;
+    }
 
     task.status = "claimed";
     task.claimedBy = agentId;
     task.claimedAt = Date.now();
-
     agent.status = "working";
     agent.currentTaskId = taskId;
     agent.lastActiveAt = Date.now();
 
-    this.emit(swarmId, {
-      type: "task_claimed",
-      swarmId,
-      timestamp: Date.now(),
-      data: { taskId, agentId, agentName: agent.name },
-    });
-
+    this.persistTask(swarmId, task);
+    this.persistAgent(swarmId, agent);
+    this.emitEvent(swarmId, "task_claimed", { taskId, agentId, agentName: agent.name });
     return true;
   }
 
-  // Agent completes a task
   completeTask(swarmId: string, agentId: string, taskId: string, result: string): boolean {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) return false;
+    const session = this.swarms.get(swarmId);
+    if (!session) return false;
 
-    const task = swarm.tasks.get(taskId);
-    const agent = swarm.agents.get(agentId);
+    const task = session.tasks.get(taskId);
+    const agent = session.agents.get(agentId);
     if (!task || !agent) return false;
     if (task.claimedBy !== agentId) return false;
 
     task.status = "completed";
     task.result = result;
     task.completedAt = Date.now();
-
     agent.status = "idle";
     agent.currentTaskId = null;
     agent.lastActiveAt = Date.now();
+    session.consecutiveFailures = 0;
 
-    // Reset consecutive failures on success
-    swarm.consecutiveFailures = 0;
-
-    this.emit(swarmId, {
-      type: "task_completed",
-      swarmId,
-      timestamp: Date.now(),
-      data: { taskId, agentId, resultPreview: result.slice(0, 200) },
-    });
-
-    // Check if all tasks are done
+    this.persistTask(swarmId, task);
+    this.persistAgent(swarmId, agent);
+    this.emitEvent(swarmId, "task_completed", { taskId, agentId, resultPreview: result.slice(0, 200) });
     this.checkSwarmCompletion(swarmId);
-
     return true;
   }
 
   failTask(swarmId: string, agentId: string, taskId: string, error: string): boolean {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) return false;
+    const session = this.swarms.get(swarmId);
+    if (!session) return false;
 
-    const task = swarm.tasks.get(taskId);
-    const agent = swarm.agents.get(agentId);
+    const task = session.tasks.get(taskId);
+    const agent = session.agents.get(agentId);
     if (!task || !agent) return false;
 
     task.status = "failed";
     task.result = `ERROR: ${error}`;
     task.completedAt = Date.now();
-
     agent.status = "idle";
     agent.currentTaskId = null;
 
-    // Track consecutive failures for circuit breaker
-    swarm.consecutiveFailures++;
-    if (swarm.consecutiveFailures >= swarm.config.safety.circuitBreakerThreshold) {
-      swarm.circuitBroken = true;
-      this.emit(swarmId, {
-        type: "circuit_broken",
-        swarmId,
-        timestamp: Date.now(),
-        data: { consecutiveFailures: swarm.consecutiveFailures, threshold: swarm.config.safety.circuitBreakerThreshold },
-      });
+    session.consecutiveFailures++;
+    if (session.consecutiveFailures >= session.config.safety.circuitBreakerThreshold) {
+      session.circuitBroken = true;
+      this.emitEvent(swarmId, "circuit_broken", { consecutiveFailures: session.consecutiveFailures });
     }
 
-    this.emit(swarmId, {
-      type: "task_failed",
-      swarmId,
-      timestamp: Date.now(),
-      data: { taskId, agentId, error },
-    });
-
+    this.persistTask(swarmId, task);
+    this.persistAgent(swarmId, agent);
+    this.emitEvent(swarmId, "task_failed", { taskId, agentId, error });
     this.checkSwarmCompletion(swarmId);
     return true;
   }
 
-  // Get available tasks sorted by priority (stigmergy — higher priority attracts agents)
-  getAvailableTasks(swarmId: string): SwarmTask[] {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) return [];
-    return Array.from(swarm.tasks.values())
-      .filter(t => t.status === "pending")
+  getAvailableTasks(swarmId: string): SwarmTaskMem[] {
+    const session = this.swarms.get(swarmId);
+    if (!session) return [];
+    return Array.from(session.tasks.values())
+      .filter(t => {
+        if (t.status !== "pending") return false;
+        // Check dependencies are met
+        for (const depId of t.dependencies) {
+          const dep = session.tasks.get(depId);
+          if (dep && dep.status !== "completed") return false;
+        }
+        return true;
+      })
       .sort((a, b) => b.priority - a.priority);
   }
 
   // ── Blackboard (Shared State) ───────────────────────────────────────────
 
-  writeBlackboard(swarmId: string, agentId: string, topic: string, key: string, value: string, priority = 50, ttlMs?: number): BlackboardEntry {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) throw new Error(`Swarm ${swarmId} not found`);
+  writeBlackboard(swarmId: string, agentId: string, entry: {
+    topic: string;
+    key: string;
+    content: string;
+    entryType?: BlackboardEntryType;
+    confidence?: number;
+    priority?: number;
+    ttlMs?: number;
+  }): BlackboardEntryMem {
+    const session = this.swarms.get(swarmId);
+    if (!session) throw new Error(`Swarm ${swarmId} not found`);
 
-    const existingKey = `${topic}:${key}`;
-    const existing = swarm.blackboard.get(existingKey);
-
-    const effectiveTTL = ttlMs ?? swarm.config.blackboardTTLMs ?? null;
+    const compositeKey = `${entry.topic}:${entry.key}`;
+    const existing = session.blackboard.get(compositeKey);
+    const effectiveTTL = entry.ttlMs ?? session.config.blackboardTTLMs ?? null;
     const now = Date.now();
 
-    const entry: BlackboardEntry = {
+    const bbEntry: BlackboardEntryMem = {
       id: existing?.id || randomUUID(),
-      topic,
-      key,
-      value,
-      author: agentId,
-      priority: existing ? Math.max(existing.priority, priority) : priority,
+      swarmSessionId: swarmId,
+      authorAgentId: agentId,
+      entryType: entry.entryType || "fact",
+      topic: entry.topic,
+      key: entry.key,
+      content: entry.content,
+      confidence: entry.confidence ?? 0.5,
+      priority: existing ? Math.max(existing.priority, entry.priority ?? 50) : (entry.priority ?? 50),
       version: existing ? existing.version + 1 : 1,
-      ttl: effectiveTTL,
+      supersedesEntryId: existing?.id || null,
+      readByAgentIds: [],
+      ttlMs: effectiveTTL,
       expiresAt: effectiveTTL ? now + effectiveTTL : null,
       createdAt: existing?.createdAt || now,
       updatedAt: now,
     };
 
-    swarm.blackboard.set(existingKey, entry);
+    session.blackboard.set(compositeKey, bbEntry);
 
-    const eventType = existing ? "blackboard_update" : "blackboard_write";
-    this.emit(swarmId, {
-      type: eventType,
-      swarmId,
-      timestamp: now,
-      data: { topic, key, author: agentId, priority, version: entry.version },
-    });
+    // Persist to SQLite
+    try {
+      if (existing) {
+        storage.updateBlackboardEntry(bbEntry.id, {
+          content: bbEntry.content,
+          confidence: bbEntry.confidence,
+          priority: bbEntry.priority,
+          version: bbEntry.version,
+          authorAgentId: bbEntry.authorAgentId,
+          readByAgentIds: JSON.stringify(bbEntry.readByAgentIds),
+        });
+      } else {
+        storage.createBlackboardEntry({
+          id: bbEntry.id,
+          swarmSessionId: swarmId,
+          authorAgentId: agentId,
+          entryType: bbEntry.entryType,
+          topic: bbEntry.topic,
+          key: bbEntry.key,
+          content: bbEntry.content,
+          confidence: bbEntry.confidence,
+          priority: bbEntry.priority,
+          version: bbEntry.version,
+          supersedesEntryId: bbEntry.supersedesEntryId,
+          readByAgentIds: JSON.stringify(bbEntry.readByAgentIds),
+          ttlMs: bbEntry.ttlMs,
+          expiresAt: bbEntry.expiresAt,
+        });
+      }
+    } catch (e) { console.error("[swarm] Blackboard persist error:", e); }
 
-    // Notify blackboard subscribers
-    this.notifyBlackboardSubscribers(swarmId, topic, entry, existing ? "update" : "write");
+    const evtType = existing ? "blackboard_write" : "blackboard_write";
+    this.emitEvent(swarmId, evtType, { topic: entry.topic, key: entry.key, author: agentId, version: bbEntry.version, entryType: bbEntry.entryType });
+    this.notifyBBSubscribers(swarmId, entry.topic, bbEntry, existing ? "update" : "write");
 
-    return entry;
+    // Detect conflicts: same topic+key from different agents with different content
+    if (existing && existing.authorAgentId !== agentId && existing.content !== entry.content) {
+      this.emitEvent(swarmId, "blackboard_write", {
+        subType: "conflict_detected",
+        topic: entry.topic,
+        key: entry.key,
+        agents: [existing.authorAgentId, agentId],
+      });
+    }
+
+    return bbEntry;
   }
 
-  readBlackboard(swarmId: string, topic?: string): BlackboardEntry[] {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) return [];
+  readBlackboard(swarmId: string, filters?: { topic?: string; entryType?: string; agentId?: string; minPriority?: number }): BlackboardEntryMem[] {
+    const session = this.swarms.get(swarmId);
+    if (!session) return [];
 
     const now = Date.now();
-    const entries = Array.from(swarm.blackboard.values())
-      .filter(e => !e.expiresAt || e.expiresAt > now); // filter expired
+    let entries = Array.from(session.blackboard.values())
+      .filter(e => !e.expiresAt || e.expiresAt > now);
 
-    if (topic) return entries.filter(e => e.topic === topic);
+    if (filters?.topic) entries = entries.filter(e => e.topic === filters.topic || e.topic.startsWith(filters.topic + "."));
+    if (filters?.entryType) entries = entries.filter(e => e.entryType === filters.entryType);
+    if (filters?.agentId) entries = entries.filter(e => e.authorAgentId === filters.agentId);
+    if (filters?.minPriority) entries = entries.filter(e => e.priority >= filters.minPriority!);
+
     return entries.sort((a, b) => b.priority - a.priority);
   }
 
-  // Stigmergy: boost a blackboard entry's priority (attracting agent attention)
+  markBlackboardRead(swarmId: string, entryId: string, agentId: string): void {
+    const session = this.swarms.get(swarmId);
+    if (!session) return;
+    for (const entry of session.blackboard.values()) {
+      if (entry.id === entryId && !entry.readByAgentIds.includes(agentId)) {
+        entry.readByAgentIds.push(agentId);
+        this.emitEvent(swarmId, "blackboard_read", { entryId, agentId, topic: entry.topic });
+      }
+    }
+  }
+
+  // Blackboard snapshot for context injection into agent prompts
+  blackboardSnapshot(swarmId: string, maxEntries = 30): string {
+    const entries = this.readBlackboard(swarmId);
+    if (entries.length === 0) return "";
+    const topEntries = entries.slice(0, maxEntries);
+    const lines = topEntries.map(e =>
+      `[${e.entryType}] ${e.topic}/${e.key} (confidence:${e.confidence.toFixed(2)}, priority:${e.priority}) by agent:${e.authorAgentId.slice(0, 8)}\n  ${e.content.slice(0, 500)}`
+    );
+    return `## Shared Blackboard (${entries.length} entries)\n${lines.join("\n")}`;
+  }
+
   boostSignal(swarmId: string, topic: string, key: string, amount = 10): boolean {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) return false;
-
-    const entry = swarm.blackboard.get(`${topic}:${key}`);
+    const session = this.swarms.get(swarmId);
+    if (!session) return false;
+    const entry = session.blackboard.get(`${topic}:${key}`);
     if (!entry) return false;
-
     entry.priority = Math.min(100, entry.priority + amount);
     entry.updatedAt = Date.now();
     return true;
   }
 
-  // Blackboard subscriptions — subscribe to topic changes
-  subscribeToBlackboard(swarmId: string, topic: string, callback: BlackboardSubscriber): void {
-    const key = `${swarmId}:${topic}`;
-    const list = this.blackboardSubscribers.get(key) || [];
+  // Blackboard subscriptions
+  subscribeToBB(swarmId: string, topicPattern: string, callback: BlackboardSubscriber): void {
+    const key = `${swarmId}:${topicPattern}`;
+    const list = this.bbSubscribers.get(key) || [];
     list.push(callback);
-    this.blackboardSubscribers.set(key, list);
+    this.bbSubscribers.set(key, list);
   }
 
-  unsubscribeFromBlackboard(swarmId: string, topic: string, callback: BlackboardSubscriber): void {
-    const key = `${swarmId}:${topic}`;
-    const list = this.blackboardSubscribers.get(key) || [];
-    this.blackboardSubscribers.set(key, list.filter(cb => cb !== callback));
+  unsubscribeFromBB(swarmId: string, topicPattern: string, callback: BlackboardSubscriber): void {
+    const key = `${swarmId}:${topicPattern}`;
+    const list = this.bbSubscribers.get(key) || [];
+    this.bbSubscribers.set(key, list.filter(cb => cb !== callback));
   }
 
-  private notifyBlackboardSubscribers(swarmId: string, topic: string, entry: BlackboardEntry, eventType: "write" | "update" | "expired"): void {
-    // Topic-specific subscribers
+  private notifyBBSubscribers(swarmId: string, topic: string, entry: BlackboardEntryMem, eventType: "write" | "update" | "expired"): void {
+    // Exact topic match
     const topicKey = `${swarmId}:${topic}`;
-    for (const cb of this.blackboardSubscribers.get(topicKey) || []) {
+    for (const cb of this.bbSubscribers.get(topicKey) || []) {
       try { cb(entry, eventType); } catch { /* swallow */ }
     }
-    // Wildcard subscribers (subscribed to "*")
-    const wildcardKey = `${swarmId}:*`;
-    for (const cb of this.blackboardSubscribers.get(wildcardKey) || []) {
+    // Wildcard
+    for (const cb of this.bbSubscribers.get(`${swarmId}:*`) || []) {
       try { cb(entry, eventType); } catch { /* swallow */ }
+    }
+    // Parent topic match (e.g., "research" matches "research.findings")
+    const parts = topic.split(".");
+    for (let i = 1; i < parts.length; i++) {
+      const parentTopic = parts.slice(0, i).join(".");
+      for (const cb of this.bbSubscribers.get(`${swarmId}:${parentTopic}`) || []) {
+        try { cb(entry, eventType); } catch { /* swallow */ }
+      }
     }
   }
 
-  // Blackboard TTL / GC — remove expired entries
+  // Blackboard TTL / GC
   private runBlackboardGC(swarmId: string): void {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) return;
+    const session = this.swarms.get(swarmId);
+    if (!session) return;
 
     const now = Date.now();
     const expired: string[] = [];
 
-    for (const [compositeKey, entry] of swarm.blackboard.entries()) {
+    for (const [compositeKey, entry] of session.blackboard.entries()) {
       if (entry.expiresAt && entry.expiresAt <= now) {
         expired.push(compositeKey);
-        this.notifyBlackboardSubscribers(swarmId, entry.topic, entry, "expired");
-        this.emit(swarmId, {
-          type: "blackboard_expired",
-          swarmId,
-          timestamp: now,
-          data: { topic: entry.topic, key: entry.key, author: entry.author },
-        });
+        this.notifyBBSubscribers(swarmId, entry.topic, entry, "expired");
+        this.emitEvent(swarmId, "blackboard_expired", { topic: entry.topic, key: entry.key });
       }
     }
 
-    for (const key of expired) {
-      swarm.blackboard.delete(key);
-    }
-
+    for (const key of expired) { session.blackboard.delete(key); }
     if (expired.length > 0) {
-      console.log(`[swarm] GC cleaned ${expired.length} expired blackboard entries from swarm ${swarmId}`);
+      try { storage.deleteExpiredBlackboardEntries(swarmId, now); } catch { /* ok */ }
+      console.log(`[swarm] GC cleaned ${expired.length} expired entries from ${swarmId}`);
     }
   }
 
-  // ── Handoffs (Agent-to-Agent Transfer) ──────────────────────────────────
+  // ── Handoffs ──────────────────────────────────────────────────────────
 
   handoff(swarmId: string, fromAgentId: string, toAgentId: string, reason: string, context: string): HandoffRecord | null {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm || !swarm.config.enableHandoffs) return null;
+    const session = this.swarms.get(swarmId);
+    if (!session || !session.config.enableHandoffs) return null;
 
-    const from = swarm.agents.get(fromAgentId);
-    const to = swarm.agents.get(toAgentId);
+    const from = session.agents.get(fromAgentId);
+    const to = session.agents.get(toAgentId);
     if (!from || !to) return null;
-
-    // Verify handoff is allowed
-    if (!from.canHandoffTo.includes(toAgentId) && from.canHandoffTo.length > 0) return null;
+    if (from.canHandoffTo.length > 0 && !from.canHandoffTo.includes(toAgentId)) return null;
 
     const record: HandoffRecord = {
       id: randomUUID(),
@@ -792,19 +928,21 @@ class SwarmEngine {
       toAgentId,
       reason,
       context,
+      taskId: from.currentTaskId,
       timestamp: Date.now(),
     };
 
-    swarm.handoffs.push(record);
+    session.handoffs.push(record);
 
-    // Transfer current task if the from-agent has one
+    // Transfer task
     if (from.currentTaskId) {
-      const task = swarm.tasks.get(from.currentTaskId);
+      const task = session.tasks.get(from.currentTaskId);
       if (task) {
         task.claimedBy = toAgentId;
         to.currentTaskId = from.currentTaskId;
         to.status = "working";
         from.currentTaskId = null;
+        this.persistTask(swarmId, task);
       }
     }
 
@@ -813,394 +951,465 @@ class SwarmEngine {
     from.lastActiveAt = Date.now();
     to.lastActiveAt = Date.now();
 
-    this.emit(swarmId, {
-      type: "handoff_completed",
-      swarmId,
-      timestamp: Date.now(),
-      data: {
-        fromAgent: from.name,
-        toAgent: to.name,
-        reason,
-        hasTask: !!to.currentTaskId,
-      },
-    });
+    this.persistAgent(swarmId, from);
+    this.persistAgent(swarmId, to);
 
+    // Persist as swarm message
+    try {
+      storage.createSwarmMessage({
+        id: record.id,
+        swarmSessionId: swarmId,
+        fromAgentId,
+        toAgentId,
+        messageType: "handoff",
+        content: JSON.stringify({ reason, context, taskId: record.taskId }),
+      });
+    } catch { /* ok */ }
+
+    this.emitEvent(swarmId, "handoff_completed", { fromAgent: from.name, toAgent: to.name, reason, taskId: record.taskId });
     return record;
   }
 
-  getHandoffs(swarmId: string): HandoffRecord[] {
-    return this.swarms.get(swarmId)?.handoffs || [];
+  getHandoffs(swarmId: string): HandoffRecord[] { return this.swarms.get(swarmId)?.handoffs || []; }
+
+  // ── Agent Messaging (Lateral Communication) ───────────────────────────
+
+  sendAgentMessage(swarmId: string, fromAgentId: string, toAgentId: string | null, messageType: SwarmMessageType, content: string, metadata?: Record<string, unknown>): void {
+    const session = this.swarms.get(swarmId);
+    if (!session) return;
+
+    const msg = {
+      id: randomUUID(),
+      swarmSessionId: swarmId,
+      fromAgentId,
+      toAgentId,
+      messageType,
+      content,
+      metadata: JSON.stringify(metadata || {}),
+    };
+
+    try { storage.createSwarmMessage(msg); } catch { /* ok */ }
+
+    // Emit to mailbox
+    if (toAgentId) {
+      this.agentMailboxes.emit(`${swarmId}:${toAgentId}`, { ...msg, metadata });
+    } else {
+      // Broadcast
+      for (const agent of session.agents.values()) {
+        if (agent.id !== fromAgentId) {
+          this.agentMailboxes.emit(`${swarmId}:${agent.id}`, { ...msg, metadata });
+        }
+      }
+    }
+
+    this.emitEvent(swarmId, "message_sent", { fromAgentId, toAgentId, messageType });
+  }
+
+  getMessages(swarmId: string, limit = 200): any[] {
+    try { return storage.getSwarmMessages(swarmId, limit); } catch { return []; }
   }
 
   // ── Consensus / Voting ──────────────────────────────────────────────────
 
-  startConsensus(swarmId: string, question: string, agentIds: string[], strategy?: ConsensusStrategy): ConsensusRound | null {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) return null;
+  startConsensus(swarmId: string, subject: string, agentIds: string[], strategy?: ConsensusStrategy): ConsensusRoundMem | null {
+    const session = this.swarms.get(swarmId);
+    if (!session) return null;
 
-    // Verify all agents exist
-    const validAgents = agentIds.filter(id => swarm.agents.has(id));
-    if (validAgents.length < 2) return null; // need at least 2 for consensus
+    const validAgents = agentIds.filter(id => session.agents.has(id));
+    if (validAgents.length < 2) return null;
 
-    const round: ConsensusRound = {
+    const round: ConsensusRoundMem = {
       id: randomUUID(),
-      question,
-      strategy: strategy || swarm.config.consensusStrategy,
-      agents: validAgents,
+      swarmSessionId: swarmId,
+      subject,
+      strategy: strategy || session.config.consensusStrategy,
+      status: "voting",
       votes: [],
       result: null,
-      confidence: 0,
-      rounds: 0,
-      maxRounds: swarm.config.maxConsensusRounds,
-      status: "voting",
-      startedAt: Date.now(),
+      participantAgentIds: validAgents,
+      maxRounds: session.config.maxConsensusRounds,
+      currentRound: 0,
+      createdAt: Date.now(),
       resolvedAt: null,
     };
 
-    swarm.consensusRounds.set(round.id, round);
-
-    this.emit(swarmId, {
-      type: "consensus_started",
-      swarmId,
-      timestamp: Date.now(),
-      data: { roundId: round.id, question, agents: validAgents.length, strategy: round.strategy },
-    });
-
+    session.consensusRounds.set(round.id, round);
+    this.persistConsensus(swarmId, round);
+    this.emitEvent(swarmId, "consensus_started", { roundId: round.id, subject, agents: validAgents.length, strategy: round.strategy });
     return round;
   }
 
   submitVote(swarmId: string, roundId: string, agentId: string, answer: string, confidence: number, reasoning: string): boolean {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) return false;
+    const session = this.swarms.get(swarmId);
+    if (!session) return false;
 
-    const round = swarm.consensusRounds.get(roundId);
+    const round = session.consensusRounds.get(roundId);
     if (!round || round.status === "resolved" || round.status === "deadlocked") return false;
-    if (!round.agents.includes(agentId)) return false;
+    if (!round.participantAgentIds.includes(agentId)) return false;
 
     const vote: ConsensusVote = {
       agentId,
       answer,
       confidence: Math.max(0, Math.min(1, confidence)),
       reasoning,
-      round: round.rounds,
+      round: round.currentRound,
       timestamp: Date.now(),
     };
 
     round.votes.push(vote);
+    this.emitEvent(swarmId, "vote_cast", { roundId, agentId, confidence: vote.confidence });
 
-    this.emit(swarmId, {
-      type: "consensus_vote",
-      swarmId,
-      timestamp: Date.now(),
-      data: { roundId, agentId, confidence: vote.confidence, round: round.rounds },
-    });
-
-    // Check if all agents in this round have voted
-    const currentRoundVotes = round.votes.filter(v => v.round === round.rounds);
-    if (currentRoundVotes.length >= round.agents.length) {
+    // Check if all agents voted this round
+    const currentRoundVotes = round.votes.filter(v => v.round === round.currentRound);
+    if (currentRoundVotes.length >= round.participantAgentIds.length) {
       this.resolveConsensus(swarmId, roundId);
     }
 
+    this.persistConsensus(swarmId, round);
     return true;
   }
 
-  private resolveConsensus(swarmId: string, roundId: string): void {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) return;
+  // Human override vote
+  submitHumanVote(swarmId: string, roundId: string, answer: string, reasoning: string): boolean {
+    return this.submitVote(swarmId, roundId, "human_override", answer, 1.0, `[HUMAN OVERRIDE] ${reasoning}`);
+  }
 
-    const round = swarm.consensusRounds.get(roundId);
+  private resolveConsensus(swarmId: string, roundId: string): void {
+    const session = this.swarms.get(swarmId);
+    if (!session) return;
+    const round = session.consensusRounds.get(roundId);
     if (!round) return;
 
-    const currentVotes = round.votes.filter(v => v.round === round.rounds);
-    round.rounds++;
+    const currentVotes = round.votes.filter(v => v.round === round.currentRound);
+    round.currentRound++;
 
     switch (round.strategy) {
       case "majority_vote": {
         const tally = new Map<string, { count: number; totalConf: number }>();
         for (const v of currentVotes) {
-          const existing = tally.get(v.answer) || { count: 0, totalConf: 0 };
-          existing.count++;
-          existing.totalConf += v.confidence;
-          tally.set(v.answer, existing);
+          const e = tally.get(v.answer) || { count: 0, totalConf: 0 };
+          e.count++;
+          e.totalConf += v.confidence;
+          tally.set(v.answer, e);
         }
-
-        let best = "";
-        let bestCount = 0;
-        let bestConf = 0;
-        for (const [answer, stats] of tally) {
+        let best = ""; let bestCount = 0; let bestConf = 0;
+        for (const [ans, stats] of tally) {
           if (stats.count > bestCount || (stats.count === bestCount && stats.totalConf > bestConf)) {
-            best = answer;
-            bestCount = stats.count;
-            bestConf = stats.totalConf;
+            best = ans; bestCount = stats.count; bestConf = stats.totalConf;
           }
         }
-
         const agreement = bestCount / currentVotes.length;
-        if (agreement >= swarm.config.consensusThreshold) {
-          round.result = best;
-          round.confidence = agreement;
+        if (agreement >= session.config.consensusThreshold) {
+          round.result = { winner: best, confidence: agreement, reasoning: `Majority vote: ${bestCount}/${currentVotes.length}` };
           round.status = "resolved";
           round.resolvedAt = Date.now();
-        } else if (round.rounds >= round.maxRounds) {
-          round.result = best;
-          round.confidence = agreement;
+        } else if (round.currentRound >= round.maxRounds) {
+          round.result = { winner: best, confidence: agreement, reasoning: `Deadlocked after ${round.maxRounds} rounds` };
           round.status = "deadlocked";
           round.resolvedAt = Date.now();
         } else {
-          round.status = "debating";
+          round.status = "voting"; // another round
         }
         break;
       }
 
-      case "weighted_confidence": {
-        const weighted = new Map<string, number>();
+      case "weighted_majority": {
+        // ACL 2025: argument-quality-weighted voting (not naive majority)
+        const weighted = new Map<string, { weight: number; bestReasoning: string }>();
         let totalWeight = 0;
         for (const v of currentVotes) {
-          weighted.set(v.answer, (weighted.get(v.answer) || 0) + v.confidence);
-          totalWeight += v.confidence;
+          // Weight = confidence * reasoning quality proxy (length > 50 chars = higher quality)
+          const qualityBonus = v.reasoning.length > 50 ? 1.2 : v.reasoning.length > 20 ? 1.0 : 0.8;
+          const weight = v.confidence * qualityBonus;
+          const existing = weighted.get(v.answer) || { weight: 0, bestReasoning: "" };
+          existing.weight += weight;
+          if (v.reasoning.length > existing.bestReasoning.length) existing.bestReasoning = v.reasoning;
+          weighted.set(v.answer, existing);
+          totalWeight += weight;
         }
-
-        let best = "";
-        let bestWeight = 0;
-        for (const [answer, weight] of weighted) {
-          if (weight > bestWeight) {
-            best = answer;
-            bestWeight = weight;
-          }
+        let best = ""; let bestWeight = 0; let bestReasoning = "";
+        for (const [ans, data] of weighted) {
+          if (data.weight > bestWeight) { best = ans; bestWeight = data.weight; bestReasoning = data.bestReasoning; }
         }
-
-        round.result = best;
-        round.confidence = totalWeight > 0 ? bestWeight / totalWeight : 0;
-        round.status = round.confidence >= swarm.config.consensusThreshold ? "resolved" : "deadlocked";
+        const conf = totalWeight > 0 ? bestWeight / totalWeight : 0;
+        round.result = { winner: best, confidence: conf, reasoning: bestReasoning };
+        round.status = conf >= session.config.consensusThreshold ? "resolved" : "deadlocked";
         round.resolvedAt = Date.now();
         break;
       }
 
-      case "unanimous": {
+      case "unanimity": {
         const answers = new Set(currentVotes.map(v => v.answer));
         if (answers.size === 1) {
-          round.result = currentVotes[0].answer;
-          round.confidence = 1;
+          round.result = { winner: currentVotes[0].answer, confidence: 1, reasoning: "Unanimous agreement" };
           round.status = "resolved";
           round.resolvedAt = Date.now();
-        } else if (round.rounds >= round.maxRounds) {
+        } else if (round.currentRound >= round.maxRounds) {
+          // Fall back to majority
           const tally = new Map<string, number>();
           for (const v of currentVotes) tally.set(v.answer, (tally.get(v.answer) || 0) + 1);
           let best = ""; let bestCount = 0;
           for (const [a, c] of tally) { if (c > bestCount) { best = a; bestCount = c; } }
-          round.result = best;
-          round.confidence = bestCount / currentVotes.length;
+          round.result = { winner: best, confidence: bestCount / currentVotes.length, reasoning: `No unanimity after ${round.maxRounds} rounds, fell back to majority` };
           round.status = "deadlocked";
           round.resolvedAt = Date.now();
         } else {
-          round.status = "debating";
+          round.status = "voting";
         }
         break;
       }
 
-      case "debate": {
-        if (round.rounds >= round.maxRounds) {
-          const weighted = new Map<string, number>();
-          for (const v of round.votes) {
-            const roundWeight = 1 + (v.round * 0.5);
-            weighted.set(v.answer, (weighted.get(v.answer) || 0) + v.confidence * roundWeight);
-          }
-          let best = ""; let bestWeight = 0;
-          for (const [a, w] of weighted) { if (w > bestWeight) { best = a; bestWeight = w; } }
-          round.result = best;
-          round.confidence = bestWeight / (round.votes.length * 1.5);
+      case "reconciliation_agent": {
+        if (round.currentRound >= round.maxRounds) {
+          // Collect all reasoning and let the reconciler decide
+          const allVotes = round.votes.map(v => `Agent ${v.agentId.slice(0, 8)}: "${v.answer}" (confidence: ${v.confidence})\nReasoning: ${v.reasoning}`).join("\n\n");
+          const bestByWeight = this.getWeightedWinner(currentVotes);
+          round.result = {
+            winner: bestByWeight,
+            confidence: 0.7,
+            reasoning: `Reconciliation needed. All votes:\n${allVotes}`
+          };
           round.status = "resolved";
           round.resolvedAt = Date.now();
         } else {
-          round.status = "debating";
+          round.status = "reconciling";
         }
         break;
       }
     }
 
     if (round.status === "resolved" || round.status === "deadlocked") {
-      this.emit(swarmId, {
-        type: "consensus_resolved",
-        swarmId,
-        timestamp: Date.now(),
-        data: {
-          roundId,
-          result: round.result,
-          confidence: round.confidence,
-          status: round.status,
-          totalRounds: round.rounds,
-          totalVotes: round.votes.length,
-        },
+      // Write result to blackboard
+      if (round.result) {
+        this.writeBlackboard(swarmId, "consensus_system", {
+          topic: "consensus.decisions",
+          key: roundId,
+          content: JSON.stringify(round.result),
+          entryType: "decision",
+          confidence: round.result.confidence,
+          priority: 80,
+        });
+      }
+      this.emitEvent(swarmId, "consensus_resolved", {
+        roundId, result: round.result, status: round.status, totalRounds: round.currentRound,
       });
     }
+
+    this.persistConsensus(swarmId, round);
   }
 
-  getConsensusRound(swarmId: string, roundId: string): ConsensusRound | undefined {
+  private getWeightedWinner(votes: ConsensusVote[]): string {
+    const w = new Map<string, number>();
+    for (const v of votes) w.set(v.answer, (w.get(v.answer) || 0) + v.confidence);
+    let best = ""; let bestW = 0;
+    for (const [a, weight] of w) { if (weight > bestW) { best = a; bestW = weight; } }
+    return best;
+  }
+
+  getConsensusRound(swarmId: string, roundId: string): ConsensusRoundMem | undefined {
     return this.swarms.get(swarmId)?.consensusRounds.get(roundId);
   }
 
-  listConsensusRounds(swarmId: string): ConsensusRound[] {
-    const swarm = this.swarms.get(swarmId);
-    return swarm ? Array.from(swarm.consensusRounds.values()) : [];
+  listConsensusRounds(swarmId: string): ConsensusRoundMem[] {
+    const session = this.swarms.get(swarmId);
+    return session ? Array.from(session.consensusRounds.values()) : [];
+  }
+
+  // ── Deadlock Detection ────────────────────────────────────────────────
+
+  private detectDeadlocks(swarmId: string): void {
+    const session = this.swarms.get(swarmId);
+    if (!session || session.status !== "running") return;
+
+    const now = Date.now();
+    const staleDuration = session.config.agentIdleTimeout;
+
+    // 1. Stale agent detection: working but no output for too long
+    for (const agent of session.agents.values()) {
+      if (agent.status === "working" && (now - agent.lastActiveAt) > staleDuration) {
+        // Warning at 50%, terminate at 100%
+        if ((now - agent.lastActiveAt) > staleDuration * 2) {
+          agent.status = "terminated";
+          if (agent.currentTaskId) {
+            const task = session.tasks.get(agent.currentTaskId);
+            if (task) { task.status = "pending"; task.claimedBy = null; task.claimedAt = null; }
+          }
+          agent.currentTaskId = null;
+          this.emitEvent(swarmId, "deadlock_detected", { type: "stale_agent_terminated", agentId: agent.id, name: agent.name });
+        } else {
+          this.emitEvent(swarmId, "safety_alert", { type: "stale_agent_warning", agentId: agent.id, idleMs: now - agent.lastActiveAt });
+        }
+      }
+    }
+
+    // 2. Mutual wait detection: A waiting for B, B waiting for A
+    const waitingAgents = Array.from(session.agents.values()).filter(a => a.status === "waiting");
+    for (let i = 0; i < waitingAgents.length; i++) {
+      for (let j = i + 1; j < waitingAgents.length; j++) {
+        const a = waitingAgents[i];
+        const b = waitingAgents[j];
+        // Check if they're in each other's handoff chains
+        if (a.canHandoffTo.includes(b.id) && b.canHandoffTo.includes(a.id)) {
+          // Potential mutual wait — force-resolve
+          a.status = "idle";
+          b.status = "idle";
+          this.emitEvent(swarmId, "deadlock_detected", { type: "mutual_wait", agents: [a.id, b.id] });
+        }
+      }
+    }
+
+    // 3. Cycle detection in task dependencies (topological sort)
+    const tasks = Array.from(session.tasks.values()).filter(t => t.status === "pending" || t.status === "claimed");
+    const visited = new Set<string>();
+    const inStack = new Set<string>();
+
+    const hasCycle = (taskId: string): boolean => {
+      if (inStack.has(taskId)) return true;
+      if (visited.has(taskId)) return false;
+      visited.add(taskId);
+      inStack.add(taskId);
+      const task = session.tasks.get(taskId);
+      if (task) {
+        for (const depId of task.dependencies) {
+          if (hasCycle(depId)) return true;
+        }
+      }
+      inStack.delete(taskId);
+      return false;
+    };
+
+    for (const task of tasks) {
+      visited.clear();
+      inStack.clear();
+      if (hasCycle(task.id)) {
+        // Break the cycle by removing the last dependency
+        const lastDep = task.dependencies.pop();
+        this.emitEvent(swarmId, "deadlock_detected", { type: "dependency_cycle", taskId: task.id, brokenDep: lastDep });
+      }
+    }
   }
 
   // ── Safety Caps ────────────────────────────────────────────────────────
 
-  private checkSafetyCaps(swarm: Swarm): { safe: boolean; reason?: string } {
-    const safety = swarm.config.safety;
+  private checkSafetyCaps(session: SwarmSession): { safe: boolean; reason?: string } {
+    const safety = session.config.safety;
 
-    // Token budget
-    if (swarm.totalTokensUsed >= safety.maxTotalTokens) {
-      return { safe: false, reason: `Token budget exhausted: ${swarm.totalTokensUsed}/${safety.maxTotalTokens}` };
+    if (session.totalTokensUsed >= safety.maxTotalTokens) {
+      return { safe: false, reason: `Token budget exhausted: ${session.totalTokensUsed}/${safety.maxTotalTokens}` };
+    }
+    if (session.startedAt && (Date.now() - session.startedAt) >= safety.maxWallClockMs) {
+      return { safe: false, reason: `Wall-clock timeout: ${Math.round((Date.now() - session.startedAt) / 1000)}s` };
+    }
+    if (session.circuitBroken) {
+      return { safe: false, reason: `Circuit broken: ${session.consecutiveFailures} consecutive failures` };
     }
 
-    // Wall-clock timeout
-    if (swarm.startedAt && (Date.now() - swarm.startedAt) >= safety.maxWallClockMs) {
-      return { safe: false, reason: `Wall-clock timeout: ${Math.round((Date.now() - swarm.startedAt) / 1000)}s / ${Math.round(safety.maxWallClockMs / 1000)}s` };
-    }
-
-    // Circuit breaker
-    if (swarm.circuitBroken) {
-      return { safe: false, reason: `Circuit broken: ${swarm.consecutiveFailures} consecutive failures` };
+    // Budget warning
+    if (session.totalTokensUsed >= safety.maxTotalTokens * safety.budgetWarningPct) {
+      this.emitEvent(session.config.id, "budget_warning", {
+        used: session.totalTokensUsed,
+        budget: safety.maxTotalTokens,
+        pct: Math.round((session.totalTokensUsed / safety.maxTotalTokens) * 100),
+      });
     }
 
     return { safe: true };
   }
 
-  private addTokenUsage(swarm: Swarm, agent: SwarmAgent, prompt: number, completion: number): void {
+  private addTokenUsage(session: SwarmSession, agent: SwarmAgentMem, prompt: number, completion: number): void {
     agent.tokenUsage.prompt += prompt;
     agent.tokenUsage.completion += completion;
     agent.tokenUsage.total += prompt + completion;
-    swarm.totalTokensUsed += prompt + completion;
+    session.totalTokensUsed += prompt + completion;
   }
 
   // ── Agent Execution (LLM + Tools) ──────────────────────────────────────
 
-  /**
-   * Execute a swarm agent's task using real LLM + tool calls.
-   * This is the heart of Layer 2 — each agent gets its own LLM session
-   * with tool access, knowledge base context, and blackboard awareness.
-   */
   async executeAgentTask(swarmId: string, agentId: string, taskId: string): Promise<string> {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) throw new Error(`Swarm ${swarmId} not found`);
+    const session = this.swarms.get(swarmId);
+    if (!session) throw new Error(`Swarm ${swarmId} not found`);
 
-    // Safety check
-    const safetyCheck = this.checkSafetyCaps(swarm);
+    const safetyCheck = this.checkSafetyCaps(session);
     if (!safetyCheck.safe) {
-      this.emit(swarmId, {
-        type: "safety_warning",
-        swarmId,
-        timestamp: Date.now(),
-        data: { reason: safetyCheck.reason, agentId, taskId },
-      });
-      throw new Error(`Safety cap reached: ${safetyCheck.reason}`);
+      this.emitEvent(swarmId, "safety_alert", { reason: safetyCheck.reason, agentId, taskId });
+      throw new Error(`Safety cap: ${safetyCheck.reason}`);
     }
 
-    const agent = swarm.agents.get(agentId);
-    const task = swarm.tasks.get(taskId);
+    const agent = session.agents.get(agentId);
+    const task = session.tasks.get(taskId);
     if (!agent || !task) throw new Error("Agent or task not found");
 
-    // Mark task as running
     task.status = "running";
     agent.status = "working";
     agent.lastActiveAt = Date.now();
 
-    this.emit(swarmId, {
-      type: "agent_executing",
-      swarmId,
-      timestamp: Date.now(),
-      data: { agentId, taskId, agentName: agent.name, taskDescription: task.description.slice(0, 200) },
-    });
+    this.emitEvent(swarmId, "agent_status", { agentId, status: "working", taskId, taskDesc: task.description.slice(0, 200) });
 
     const startTime = Date.now();
 
     // Resolve model
-    const modelId = agent.modelId || swarm.config.defaultModelId;
+    const modelId = agent.modelId || session.config.defaultModelId;
     const model = modelId ? storage.getModel(modelId) : selectModelForTask("general");
-    if (!model) throw new Error("No model available for agent");
+    if (!model) throw new Error("No model available");
 
-    // Build knowledge context
+    // Build context
     const speedTier = (model.speedTier || "medium") as "fast" | "medium" | "powerful";
     const contextWindow = model.contextWindow || 8192;
     const kbResult = knowledgeEngine.buildContext(speedTier, contextWindow, task.description);
+    const bbSnapshot = this.blackboardSnapshot(swarmId, 20);
 
-    // Build blackboard context — read relevant entries for the agent
-    const bbEntries = this.readBlackboard(swarmId);
-    const bbContext = bbEntries.length > 0
-      ? `\n## Shared Blackboard State\n${bbEntries.slice(0, 20).map(e => `[${e.topic}/${e.key}] (priority:${e.priority}) → ${e.value.slice(0, 500)}`).join("\n")}\n`
-      : "";
-
-    // Build available tools (filtered by agent's tool list)
+    // Build tools
     const agentTools = agent.tools.length > 0
       ? TOOL_SCHEMAS.filter(t => agent.tools.includes(t.name))
       : TOOL_SCHEMAS;
 
-    const toolList = agentTools.map(t => `- **${t.name}**: ${t.description}`).join("\n");
     const toolSchemaBlock = agentTools.map(t =>
-      `${t.name}: parameters = ${JSON.stringify(t.parameters.properties)}, required = [${t.parameters.required.join(", ")}]`
+      `${t.name}: ${t.description} | params: ${JSON.stringify(t.parameters.properties)}`
     ).join("\n");
 
-    const systemPrompt = `You are a swarm agent named "${agent.name}" with role: ${agent.role}
-Your specific instructions: ${agent.instructions}
+    const systemPrompt = `You are "${agent.name}", a swarm agent with role: ${agent.role}
+Instructions: ${agent.instructions}
 
 ## Swarm Context
-You are part of a multi-agent swarm. Other agents may be working on related tasks.
-You can communicate findings by writing to the blackboard (include <blackboard_write> tags in your response).
-${bbContext}
-## Available Tools
-${toolList}
+You are part of swarm "${session.config.name}" (mode: ${session.config.mode}).
+${bbSnapshot}
 
-## How to Call Tools
-<tool_call>
-{"name": "tool_name", "args": {"param1": "value1"}}
-</tool_call>
+## Tool Usage
+Call tools with: <tool_call>{"name": "tool_name", "args": {"param": "value"}}</tool_call>
+Write to blackboard: <blackboard_write>{"topic": "x", "key": "y", "value": "z", "entryType": "fact", "confidence": 0.8, "priority": 70}</blackboard_write>
 
-## How to Write to Blackboard
-<blackboard_write>
-{"topic": "findings", "key": "my_result", "value": "what I discovered", "priority": 70}
-</blackboard_write>
-
-## Tool Schemas
+Available tools:
 ${toolSchemaBlock}
 
 ## Rules
-- Complete your assigned task fully and thoroughly
-- Write important findings to the blackboard so other agents can see them
-- When finished, provide your final answer WITHOUT any <tool_call> blocks
+- Complete your task thoroughly
+- Write findings to blackboard so other agents can access them
+- When finished, provide your final answer without any <tool_call> blocks
 ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
 
     const messages: ChatMessage[] = [
       { role: "system", content: systemPrompt },
-      { role: "user", content: `## Your Task\n${task.description}\n\nComplete this task. Use tools when they would produce a better result. Write key findings to the blackboard.` },
+      { role: "user", content: `## Task\n${task.description}\n\nComplete this task. Use tools when needed. Write key findings to the blackboard.` },
     ];
 
     let finalOutput = "";
     let iteration = 0;
-    const maxIter = swarm.config.safety.maxAgentIterations;
+    const maxIter = session.config.safety.maxAgentIterations;
     let totalPrompt = 0;
     let totalCompletion = 0;
 
     while (iteration < maxIter) {
       iteration++;
 
-      // Safety re-check each iteration
-      const iterSafety = this.checkSafetyCaps(swarm);
-      if (!iterSafety.safe) {
-        finalOutput = `[Safety cap reached: ${iterSafety.reason}]`;
-        break;
-      }
+      const iterSafety = this.checkSafetyCaps(session);
+      if (!iterSafety.safe) { finalOutput = `[Safety: ${iterSafety.reason}]`; break; }
 
       let llmResponse = "";
       try {
         const streamResult = await withRetryAndFallback(
           async (mid) => {
             let resp = "";
-            for await (const token of chatStream(messages, {
-              modelId: mid,
-              taskType: "general" as TaskType,
-              maxTokens: 4096,
-            })) {
+            for await (const token of chatStream(messages, { modelId: mid, taskType: "general" as TaskType, maxTokens: 4096 })) {
               resp += token;
             }
             return resp;
@@ -1209,30 +1418,27 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
         );
         llmResponse = streamResult.result;
 
-        // Track tokens
         const promptChars = messages.reduce((s, m) => s + m.content.length, 0);
         const promptTokens = Math.ceil(promptChars / 4);
         const completionTokens = Math.ceil(llmResponse.length / 4);
         totalPrompt += promptTokens;
         totalCompletion += completionTokens;
-        this.addTokenUsage(swarm, agent, promptTokens, completionTokens);
+        this.addTokenUsage(session, agent, promptTokens, completionTokens);
       } catch (err: any) {
-        finalOutput = `[LLM call failed: ${err.message}]`;
+        finalOutput = `[LLM error: ${err.message}]`;
         break;
       }
 
       // Parse blackboard writes
       const bbWrites = this.parseBlackboardWrites(llmResponse);
       for (const bw of bbWrites) {
-        this.writeBlackboard(swarmId, agentId, bw.topic, bw.key, bw.value, bw.priority ?? 50);
+        this.writeBlackboard(swarmId, agentId, bw);
       }
 
       // Parse tool calls
       const toolCalls = this.parseToolCalls(llmResponse);
 
       if (toolCalls.length === 0) {
-        // No tool calls — this is the final answer
-        // Strip blackboard write tags from output
         finalOutput = llmResponse.replace(/<blackboard_write>[\s\S]*?<\/blackboard_write>/g, "").trim();
         break;
       }
@@ -1241,37 +1447,31 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
       const toolResults: string[] = [];
       for (const call of toolCalls) {
         const result = await executeTool(call.name, call.args, `swarm_${agentId}`);
-        const statusIcon = result.success ? "✓" : "✗";
         toolResults.push(
-          `[Tool: ${call.name}] ${statusIcon} (${result.durationMs}ms)\n` +
+          `[Tool: ${call.name}] ${result.success ? "✓" : "✗"} (${result.durationMs}ms)\n` +
           (result.error ? `Error: ${result.error}\n` : "") +
           result.output.slice(0, 15_000)
         );
       }
 
       messages.push({ role: "assistant", content: llmResponse });
-      messages.push({
-        role: "user",
-        content: `Tool results:\n\n${toolResults.join("\n\n---\n\n")}\n\nContinue working. If done, provide your final answer.`,
-      });
-
+      messages.push({ role: "user", content: `Tool results:\n\n${toolResults.join("\n\n---\n\n")}\n\nContinue. If done, provide final answer.` });
       agent.messagesProcessed += 2;
     }
 
     if (!finalOutput) {
-      finalOutput = messages.filter(m => m.role === "assistant").pop()?.content || "[Agent reached max iterations]";
+      finalOutput = messages.filter(m => m.role === "assistant").pop()?.content || "[Max iterations reached]";
     }
 
     agent.lastActiveAt = Date.now();
+    this.persistAgent(swarmId, agent);
 
-    // Log to self-learning
-    const outcome = (finalOutput.includes("[FAILED:") || finalOutput.includes("[LLM call failed") || finalOutput.includes("[Safety cap"))
-      ? "failure" : "success";
-
+    // Self-learning
+    const outcome = (finalOutput.includes("[LLM error") || finalOutput.includes("[Safety")) ? "failure" : "success";
     logExecution({
       conversationId: swarmId,
       taskType: "general",
-      taskDescription: `[swarm:${swarm.config.name}] ${task.description}`,
+      taskDescription: `[swarm:${session.config.name}] ${task.description}`,
       skillsUsed: [],
       modelUsed: model.id,
       outcome,
@@ -1285,81 +1485,112 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
     return finalOutput;
   }
 
-  /**
-   * Run the entire swarm — auto-assign tasks to agents and execute them.
-   * This is the main entry point called from the orchestrator's swarm mode.
-   */
-  async runSwarm(swarmId: string): Promise<Map<string, string>> {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) throw new Error(`Swarm ${swarmId} not found`);
+  // ── Main Execution Loop ───────────────────────────────────────────────
 
-    if (swarm.status !== "running") {
-      this.startSwarm(swarmId);
-    }
+  async runSwarm(swarmId: string): Promise<Map<string, string>> {
+    const session = this.swarms.get(swarmId);
+    if (!session) throw new Error(`Swarm ${swarmId} not found`);
+
+    if (session.status !== "running") this.startSwarm(swarmId);
 
     const results = new Map<string, string>();
-    const maxWallClock = swarm.config.safety.maxWallClockMs;
-    const startTime = swarm.startedAt || Date.now();
-
-    // Main execution loop — keep going until all tasks done or safety cap hit
+    const maxWallClock = session.config.safety.maxWallClockMs;
+    const startTime = session.startedAt || Date.now();
+    const maxConcurrent = session.config.safety.maxConcurrentAgents;
     let loopCount = 0;
-    const maxLoops = 100; // prevent infinite loops
 
-    while (loopCount < maxLoops) {
+    while (loopCount < 100) {
       loopCount++;
 
-      // Wall-clock check
       if ((Date.now() - startTime) >= maxWallClock) {
-        swarm.error = "Wall-clock timeout exceeded";
-        this.emit(swarmId, { type: "safety_warning", swarmId, timestamp: Date.now(), data: { reason: "wall_clock_timeout" } });
+        session.error = "Wall-clock timeout";
+        this.emitEvent(swarmId, "safety_alert", { reason: "wall_clock_timeout" });
         break;
       }
 
-      // Circuit breaker check
-      if (swarm.circuitBroken) {
-        swarm.error = "Circuit breaker tripped";
+      if (session.circuitBroken) { session.error = "Circuit breaker tripped"; break; }
+
+      // Budget enforcement: at 90%, block new task claims and send wrap-up
+      const budgetUsed = session.totalTokensUsed / session.config.safety.maxTotalTokens;
+      const budgetExhausted = budgetUsed >= 1.0;
+      const budgetWarning = budgetUsed >= session.config.safety.budgetWarningPct;
+
+      if (budgetExhausted) {
+        session.error = "Token budget exhausted";
+        // Force-complete remaining agents
+        for (const agent of session.agents.values()) {
+          if (agent.status === "working") {
+            agent.status = "completed";
+            this.persistAgent(swarmId, agent);
+          }
+        }
         break;
       }
 
-      // Get available tasks
       const available = this.getAvailableTasks(swarmId);
       if (available.length === 0) {
-        // Check if any tasks are still running
-        const running = Array.from(swarm.tasks.values()).filter(t => t.status === "running" || t.status === "claimed");
-        if (running.length === 0) break; // all done
-        await new Promise(r => setTimeout(r, 500)); // wait for running tasks
+        const running = Array.from(session.tasks.values()).filter(t => t.status === "running" || t.status === "claimed");
+        if (running.length === 0) break;
+        await new Promise(r => setTimeout(r, 500));
         continue;
       }
 
-      // Get idle agents
-      const idleAgents = Array.from(swarm.agents.values()).filter(a => a.status === "idle");
+      if (budgetWarning) {
+        // Only allow 1 agent at a time when in warning zone
+        const working = Array.from(session.agents.values()).filter(a => a.status === "working");
+        if (working.length > 0) {
+          await new Promise(r => setTimeout(r, 500));
+          continue;
+        }
+      }
+
+      // Get idle agents (respect concurrent limit)
+      const workingCount = Array.from(session.agents.values()).filter(a => a.status === "working").length;
+      const slotsAvailable = maxConcurrent - workingCount;
+      if (slotsAvailable <= 0) {
+        await new Promise(r => setTimeout(r, 500));
+        continue;
+      }
+
+      const idleAgents = Array.from(session.agents.values()).filter(a => a.status === "idle");
       if (idleAgents.length === 0) {
         await new Promise(r => setTimeout(r, 500));
         continue;
       }
 
-      // Assign tasks to agents in parallel
+      // Role negotiation or direct assignment
       const assignments: Promise<void>[] = [];
-      for (let i = 0; i < Math.min(available.length, idleAgents.length); i++) {
-        const task = available[i];
-        const agent = idleAgents[i];
+      const tasksToAssign = available.slice(0, Math.min(slotsAvailable, idleAgents.length));
 
-        if (!this.claimTask(swarmId, agent.id, task.id)) continue;
+      for (const task of tasksToAssign) {
+        let assignedAgent: SwarmAgentMem | undefined;
+
+        if (session.config.enableRoleNegotiation) {
+          const bid = this.negotiateTaskAssignment(swarmId, task.id);
+          if (bid) assignedAgent = session.agents.get(bid.agentId);
+        }
+
+        if (!assignedAgent) {
+          // Fallback: direct assignment to first idle agent
+          assignedAgent = idleAgents.shift();
+        }
+
+        if (!assignedAgent) continue;
+        if (!this.claimTask(swarmId, assignedAgent.id, task.id)) continue;
 
         assignments.push(
-          this.executeAgentTask(swarmId, agent.id, task.id)
+          this.executeAgentTask(swarmId, assignedAgent.id, task.id)
             .then(result => {
               results.set(task.id, result);
-              this.completeTask(swarmId, agent.id, task.id, result);
+              this.completeTask(swarmId, assignedAgent!.id, task.id, result);
             })
             .catch(err => {
               results.set(task.id, `[FAILED: ${err.message}]`);
-              this.failTask(swarmId, agent.id, task.id, err.message);
+              this.failTask(swarmId, assignedAgent!.id, task.id, err.message);
             })
         );
       }
 
-      // Wait for at least one assignment to finish
       if (assignments.length > 0) {
         await Promise.all(assignments);
       } else {
@@ -1368,136 +1599,157 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
     }
 
     // Collect all results
-    for (const [taskId, task] of swarm.tasks) {
-      if (task.result && !results.has(taskId)) {
-        results.set(taskId, task.result);
-      }
+    for (const [taskId, task] of session.tasks) {
+      if (task.result && !results.has(taskId)) results.set(taskId, task.result);
     }
 
-    // Stop the swarm if it's still running
-    if (swarm.status === "running") {
-      this.stopSwarm(swarmId);
-    }
-
+    if (session.status === "running") this.stopSwarm(swarmId);
     return results;
   }
 
-  // ── Tool call / blackboard write parsing ───────────────────────────────
+  // ── Parsing ───────────────────────────────────────────────────────────
 
   private parseToolCalls(text: string): Array<{ name: string; args: Record<string, string> }> {
     const calls: Array<{ name: string; args: Record<string, string> }> = [];
-    const xmlPattern = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
-    let match;
-    while ((match = xmlPattern.exec(text)) !== null) {
-      try {
-        const parsed = JSON.parse(match[1].trim());
-        if (parsed.name && parsed.args) {
-          calls.push({ name: parsed.name, args: parsed.args });
-        }
-      } catch { /* skip malformed */ }
+    const pat = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
+    let m;
+    while ((m = pat.exec(text)) !== null) {
+      try { const p = JSON.parse(m[1].trim()); if (p.name && p.args) calls.push(p); } catch { /* skip */ }
     }
     return calls;
   }
 
-  private parseBlackboardWrites(text: string): Array<{ topic: string; key: string; value: string; priority?: number }> {
-    const writes: Array<{ topic: string; key: string; value: string; priority?: number }> = [];
-    const pattern = /<blackboard_write>\s*([\s\S]*?)\s*<\/blackboard_write>/g;
-    let match;
-    while ((match = pattern.exec(text)) !== null) {
+  private parseBlackboardWrites(text: string): Array<{ topic: string; key: string; content: string; entryType?: BlackboardEntryType; confidence?: number; priority?: number }> {
+    const writes: Array<any> = [];
+    const pat = /<blackboard_write>\s*([\s\S]*?)\s*<\/blackboard_write>/g;
+    let m;
+    while ((m = pat.exec(text)) !== null) {
       try {
-        const parsed = JSON.parse(match[1].trim());
-        if (parsed.topic && parsed.key && parsed.value) {
-          writes.push(parsed);
+        const p = JSON.parse(m[1].trim());
+        if (p.topic && p.key) {
+          writes.push({
+            topic: p.topic,
+            key: p.key,
+            content: p.value || p.content || "",
+            entryType: p.entryType || "fact",
+            confidence: p.confidence,
+            priority: p.priority,
+          });
         }
-      } catch { /* skip malformed */ }
+      } catch { /* skip */ }
     }
     return writes;
   }
 
-  // ── Swarm completion check ─────────────────────────────────────────────
+  // ── Completion Check ─────────────────────────────────────────────────
 
   private checkSwarmCompletion(swarmId: string): void {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm || swarm.status !== "running") return;
-
-    const allDone = Array.from(swarm.tasks.values()).every(
-      t => t.status === "completed" || t.status === "failed"
-    );
+    const session = this.swarms.get(swarmId);
+    if (!session || session.status !== "running") return;
+    const allDone = Array.from(session.tasks.values()).every(t => t.status === "completed" || t.status === "failed");
     if (allDone) {
-      swarm.status = "completed";
-      swarm.completedAt = Date.now();
-      if (swarm.gcTimer) { clearInterval(swarm.gcTimer); swarm.gcTimer = null; }
-      this.logSwarmOutcome(swarm);
-      this.emit(swarmId, { type: "swarm_completed", swarmId, timestamp: Date.now(), data: {} });
-      this.persistSwarm(swarm);
+      session.status = "completed";
+      session.completedAt = Date.now();
+      this.cleanupTimers(session);
+      this.logSwarmOutcome(session);
+      this.emitEvent(swarmId, "swarm_completed", {});
+      this.persistSession(session);
     }
   }
 
-  // ── Self-Learning Integration ──────────────────────────────────────────
+  // ── Self-Learning ─────────────────────────────────────────────────────
 
-  private logSwarmOutcome(swarm: Swarm): void {
-    const tasks = Array.from(swarm.tasks.values());
+  private logSwarmOutcome(session: SwarmSession): void {
+    const tasks = Array.from(session.tasks.values());
     const completed = tasks.filter(t => t.status === "completed").length;
     const failed = tasks.filter(t => t.status === "failed").length;
-    const total = tasks.length;
-
-    const outcome = failed === 0 && completed > 0 ? "success"
-      : failed > 0 && completed > 0 ? "partial"
-      : "failure";
+    const outcome = failed === 0 && completed > 0 ? "success" : failed > 0 && completed > 0 ? "partial" : "failure";
 
     logExecution({
-      conversationId: swarm.config.id,
+      conversationId: session.config.id,
       taskType: "general",
-      taskDescription: `[swarm:${swarm.config.name}] ${total} tasks, ${completed} completed, ${failed} failed, mode=${swarm.config.mode}`,
+      taskDescription: `[swarm:${session.config.name}] ${tasks.length} tasks, ${completed}✓ ${failed}✗, agents:${session.agents.size}, mode:${session.config.mode}, consensus:${session.consensusRounds.size}`,
       skillsUsed: [],
-      modelUsed: swarm.config.defaultModelId || "swarm",
+      modelUsed: session.config.defaultModelId || "swarm",
       outcome,
-      durationMs: (swarm.completedAt || Date.now()) - (swarm.startedAt || Date.now()),
+      durationMs: (session.completedAt || Date.now()) - (session.startedAt || Date.now()),
       retryCount: 0,
-      inputTokenEstimate: swarm.totalTokensUsed,
+      inputTokenEstimate: session.totalTokensUsed,
       outputTokenEstimate: 0,
-      toolCallCount: swarm.handoffs.length,
+      toolCallCount: session.handoffs.length,
     });
   }
 
-  // ── Stats & Monitoring ──────────────────────────────────────────────────
+  // ── Stats ─────────────────────────────────────────────────────────────
 
   getStats(swarmId: string): SwarmStats | null {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) return null;
+    const session = this.swarms.get(swarmId);
+    if (!session) return null;
 
-    const agents = Array.from(swarm.agents.values());
-    const tasks = Array.from(swarm.tasks.values());
+    const agents = Array.from(session.agents.values());
+    const tasks = Array.from(session.tasks.values());
     const completedTasks = tasks.filter(t => t.status === "completed");
-    const uptime = swarm.startedAt ? (Date.now() - swarm.startedAt) / 1000 : 0;
+    const uptime = session.startedAt ? (Date.now() - session.startedAt) / 1000 : 0;
 
     return {
       swarmId,
-      status: swarm.status,
+      status: session.status,
       agentCount: agents.length,
       activeAgents: agents.filter(a => a.status === "working").length,
       taskCount: tasks.length,
       completedTasks: completedTasks.length,
       failedTasks: tasks.filter(t => t.status === "failed").length,
       pendingTasks: tasks.filter(t => t.status === "pending").length,
-      blackboardEntries: swarm.blackboard.size,
-      handoffCount: swarm.handoffs.length,
-      consensusRounds: swarm.consensusRounds.size,
-      totalTokens: swarm.totalTokensUsed,
+      runningTasks: tasks.filter(t => t.status === "running").length,
+      blackboardEntries: session.blackboard.size,
+      handoffCount: session.handoffs.length,
+      consensusRounds: session.consensusRounds.size,
+      totalTokens: session.totalTokensUsed,
+      totalAgentsSpawned: session.totalAgentsSpawned,
       uptime,
       throughput: uptime > 0 ? (completedTasks.length / uptime) * 60 : 0,
-      circuitBroken: swarm.circuitBroken,
-      consecutiveFailures: swarm.consecutiveFailures,
+      circuitBroken: session.circuitBroken,
+      consecutiveFailures: session.consecutiveFailures,
+      budgetUsedPct: Math.round((session.totalTokensUsed / session.config.safety.maxTotalTokens) * 100),
     };
   }
 
-  getEventLog(swarmId: string, limit = 50): SwarmEvent[] {
-    return this.eventLog
-      .filter(e => e.swarmId === swarmId)
-      .slice(-limit);
+  // Topology: graph of agents, tasks, and message edges
+  getTopology(swarmId: string): { nodes: any[]; edges: any[] } | null {
+    const session = this.swarms.get(swarmId);
+    if (!session) return null;
+
+    const nodes: any[] = [];
+    const edges: any[] = [];
+
+    for (const agent of session.agents.values()) {
+      nodes.push({ id: agent.id, type: "agent", name: agent.name, role: agent.role, status: agent.status, depth: agent.spawnDepth, tokens: agent.tokenUsage.total });
+    }
+
+    for (const task of session.tasks.values()) {
+      nodes.push({ id: task.id, type: "task", description: task.description.slice(0, 100), status: task.status, priority: task.priority });
+      if (task.claimedBy) edges.push({ from: task.claimedBy, to: task.id, type: "claimed" });
+      for (const dep of task.dependencies) edges.push({ from: dep, to: task.id, type: "dependency" });
+    }
+
+    // Parent-child edges
+    for (const agent of session.agents.values()) {
+      if (agent.parentAgentId) edges.push({ from: agent.parentAgentId, to: agent.id, type: "spawned" });
+    }
+
+    // Handoff edges
+    for (const h of session.handoffs) {
+      edges.push({ from: h.fromAgentId, to: h.toAgentId, type: "handoff" });
+    }
+
+    return { nodes, edges };
   }
 
-  // ── SSE Streaming ──────────────────────────────────────────────────────
+  getEventLog(swarmId: string, limit = 50): SwarmEvent[] {
+    return this.eventLog.filter(e => e.swarmId === swarmId).slice(-limit);
+  }
+
+  // ── SSE ────────────────────────────────────────────────────────────────
 
   addSSEClient(swarmId: string, client: SSEClient): void {
     const list = this.sseClients.get(swarmId) || [];
@@ -1510,7 +1762,7 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
     this.sseClients.set(swarmId, list.filter(c => c !== client));
   }
 
-  // ── Events ──────────────────────────────────────────────────────────────
+  // ── Events ────────────────────────────────────────────────────────────
 
   on(swarmId: string, listener: SwarmEventListener): void {
     const list = this.listeners.get(swarmId) || [];
@@ -1523,137 +1775,269 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
     this.listeners.set(swarmId, list.filter(l => l !== listener));
   }
 
-  private emit(swarmId: string, event: SwarmEvent): void {
-    // Log
+  private emitEvent(swarmId: string, type: SwarmEventType, data: Record<string, unknown>): void {
+    const event: SwarmEvent = { type, swarmId, timestamp: Date.now(), data };
     this.eventLog.push(event);
-    if (this.eventLog.length > this.maxEventLog) {
-      this.eventLog = this.eventLog.slice(-this.maxEventLog);
-    }
+    if (this.eventLog.length > this.maxEventLog) this.eventLog = this.eventLog.slice(-this.maxEventLog);
 
-    // Notify regular listeners
-    const list = this.listeners.get(swarmId) || [];
-    for (const listener of list) {
-      try { listener(event); } catch { /* swallow listener errors */ }
+    for (const listener of this.listeners.get(swarmId) || []) {
+      try { listener(event); } catch { /* swallow */ }
     }
-
-    // Push to SSE clients
-    const sseList = this.sseClients.get(swarmId) || [];
-    for (const client of sseList) {
+    for (const client of this.sseClients.get(swarmId) || []) {
       try { client(event); } catch { /* swallow */ }
     }
   }
 
-  // ── SQLite Persistence ─────────────────────────────────────────────────
+  // ── Persistence ───────────────────────────────────────────────────────
 
-  private persistSwarm(swarm: Swarm): void {
+  private persistSession(session: SwarmSession): void {
     try {
-      storage.upsertSwarm({
-        id: swarm.config.id,
-        name: swarm.config.name,
-        description: swarm.config.description,
-        config: JSON.stringify(swarm.config),
-        status: swarm.status,
-        totalTokensUsed: swarm.totalTokensUsed,
-        consecutiveFailures: swarm.consecutiveFailures,
-        circuitBroken: swarm.circuitBroken ? 1 : 0,
-        agentsJson: JSON.stringify(Array.from(swarm.agents.values())),
-        tasksJson: JSON.stringify(Array.from(swarm.tasks.values())),
-        blackboardJson: JSON.stringify(Array.from(swarm.blackboard.values())),
-        handoffsJson: JSON.stringify(swarm.handoffs),
-        consensusJson: JSON.stringify(Array.from(swarm.consensusRounds.values())),
-        startedAt: swarm.startedAt,
-        completedAt: swarm.completedAt,
-        error: swarm.error,
-        createdAt: swarm.config.createdAt,
+      storage.upsertSwarmSession({
+        id: session.config.id,
+        conversationId: session.config.conversationId || null,
+        name: session.config.name,
+        description: session.config.description,
+        config: JSON.stringify(session.config),
+        status: session.status,
+        mode: session.config.mode,
+        totalAgentsSpawned: session.totalAgentsSpawned,
+        totalTokensUsed: session.totalTokensUsed,
+        consecutiveFailures: session.consecutiveFailures,
+        circuitBroken: session.circuitBroken ? 1 : 0,
+        startedAt: session.startedAt,
+        completedAt: session.completedAt,
+        error: session.error,
+        createdAt: session.config.createdAt,
       });
-    } catch (err) {
-      console.error("[swarm] Persistence error:", err);
-    }
+    } catch (e) { console.error("[swarm] Session persist error:", e); }
   }
 
-  private deletePersistedSwarm(id: string): void {
+  private persistAgent(swarmId: string, agent: SwarmAgentMem): void {
     try {
-      storage.deleteSwarmRecord(id);
-    } catch (err) {
-      console.error("[swarm] Delete persistence error:", err);
-    }
+      storage.upsertSwarmAgent({
+        id: agent.id,
+        swarmSessionId: swarmId,
+        parentAgentId: agent.parentAgentId,
+        name: agent.name,
+        role: agent.role,
+        instructions: agent.instructions,
+        modelId: agent.modelId,
+        tools: JSON.stringify(agent.tools),
+        canHandoffTo: JSON.stringify(agent.canHandoffTo),
+        canSpawn: agent.canSpawn,
+        spawnDepth: agent.spawnDepth,
+        status: agent.status,
+        currentTaskId: agent.currentTaskId,
+        tokensUsed: agent.tokenUsage.total,
+        messagesProcessed: agent.messagesProcessed,
+        handoffsMade: agent.handoffsMade,
+        capabilityProfile: JSON.stringify(agent.capabilityProfile),
+        lastActiveAt: agent.lastActiveAt,
+      });
+    } catch (e) { console.error("[swarm] Agent persist error:", e); }
   }
 
-  /**
-   * Restore all swarms from SQLite on startup.
-   */
+  private persistTask(swarmId: string, task: SwarmTaskMem): void {
+    try {
+      storage.upsertSwarmTask({
+        id: task.id,
+        swarmSessionId: swarmId,
+        description: task.description,
+        taskType: task.taskType,
+        priority: task.priority,
+        claimedBy: task.claimedBy,
+        status: task.status,
+        result: task.result,
+        dependencies: JSON.stringify(task.dependencies),
+        metadata: JSON.stringify(task.metadata),
+        claimedAt: task.claimedAt,
+        completedAt: task.completedAt,
+      });
+    } catch (e) { console.error("[swarm] Task persist error:", e); }
+  }
+
+  private persistConsensus(swarmId: string, round: ConsensusRoundMem): void {
+    try {
+      storage.upsertConsensusRound({
+        id: round.id,
+        swarmSessionId: swarmId,
+        subject: round.subject,
+        strategy: round.strategy,
+        status: round.status,
+        votes: JSON.stringify(round.votes),
+        result: round.result ? JSON.stringify(round.result) : null,
+        participantAgentIds: JSON.stringify(round.participantAgentIds),
+        maxRounds: round.maxRounds,
+        currentRound: round.currentRound,
+        resolvedAt: round.resolvedAt,
+      });
+    } catch (e) { console.error("[swarm] Consensus persist error:", e); }
+  }
+
+  // ── Restore from DB ───────────────────────────────────────────────────
+
   restoreFromDB(): void {
     try {
-      const rows = storage.getAllSwarms();
+      const rows = storage.getAllSwarmSessions();
       for (const row of rows) {
         try {
           const config = JSON.parse(row.config) as SwarmConfig;
-          const agents = new Map<string, SwarmAgent>();
-          const tasks = new Map<string, SwarmTask>();
-          const blackboard = new Map<string, BlackboardEntry>();
-          const consensusRounds = new Map<string, ConsensusRound>();
+          const agents = new Map<string, SwarmAgentMem>();
+          const tasks = new Map<string, SwarmTaskMem>();
+          const blackboard = new Map<string, BlackboardEntryMem>();
+          const consensusRounds = new Map<string, ConsensusRoundMem>();
 
-          for (const a of JSON.parse(row.agentsJson || "[]") as SwarmAgent[]) {
-            agents.set(a.id, a);
-          }
-          for (const t of JSON.parse(row.tasksJson || "[]") as SwarmTask[]) {
-            tasks.set(t.id, t);
-          }
-          for (const b of JSON.parse(row.blackboardJson || "[]") as BlackboardEntry[]) {
-            blackboard.set(`${b.topic}:${b.key}`, b);
-          }
-          for (const c of JSON.parse(row.consensusJson || "[]") as ConsensusRound[]) {
-            consensusRounds.set(c.id, c);
+          // Restore agents from their own table
+          for (const a of storage.getSwarmAgents(row.id)) {
+            agents.set(a.id, {
+              id: a.id,
+              swarmSessionId: a.swarmSessionId,
+              parentAgentId: a.parentAgentId,
+              name: a.name,
+              role: a.role,
+              instructions: a.instructions,
+              modelId: a.modelId,
+              tools: JSON.parse(a.tools || "[]"),
+              canHandoffTo: JSON.parse(a.canHandoffTo || "[]"),
+              canSpawn: !!a.canSpawn,
+              spawnDepth: a.spawnDepth || 0,
+              status: a.status as AgentStatus,
+              currentTaskId: a.currentTaskId,
+              tokenUsage: { prompt: 0, completion: 0, total: a.tokensUsed || 0 },
+              messagesProcessed: a.messagesProcessed || 0,
+              handoffsMade: a.handoffsMade || 0,
+              capabilityProfile: JSON.parse(a.capabilityProfile || "{}"),
+              lastActiveAt: a.lastActiveAt || a.createdAt,
+              createdAt: a.createdAt,
+            });
           }
 
-          const swarm: Swarm = {
+          // Restore tasks
+          for (const t of storage.getSwarmTasks(row.id)) {
+            tasks.set(t.id, {
+              id: t.id,
+              swarmSessionId: t.swarmSessionId,
+              description: t.description,
+              taskType: t.taskType || "general",
+              priority: t.priority || 50,
+              claimedBy: t.claimedBy,
+              status: t.status as any,
+              result: t.result,
+              dependencies: JSON.parse(t.dependencies || "[]"),
+              metadata: JSON.parse(t.metadata || "{}"),
+              claimedAt: t.claimedAt,
+              completedAt: t.completedAt,
+              createdAt: t.createdAt,
+            });
+          }
+
+          // Restore blackboard
+          for (const b of storage.getBlackboardEntries(row.id)) {
+            blackboard.set(`${b.topic}:${b.key}`, {
+              id: b.id,
+              swarmSessionId: b.swarmSessionId,
+              authorAgentId: b.authorAgentId,
+              entryType: b.entryType as BlackboardEntryType,
+              topic: b.topic,
+              key: b.key,
+              content: b.content,
+              confidence: b.confidence || 0.5,
+              priority: b.priority || 50,
+              version: b.version || 1,
+              supersedesEntryId: b.supersedesEntryId,
+              readByAgentIds: JSON.parse(b.readByAgentIds || "[]"),
+              ttlMs: b.ttlMs,
+              expiresAt: b.expiresAt,
+              createdAt: b.createdAt,
+              updatedAt: b.updatedAt,
+            });
+          }
+
+          // Restore consensus
+          for (const c of storage.getConsensusRounds(row.id)) {
+            consensusRounds.set(c.id, {
+              id: c.id,
+              swarmSessionId: c.swarmSessionId,
+              subject: c.subject,
+              strategy: c.strategy as ConsensusStrategy,
+              status: c.status as any,
+              votes: JSON.parse(c.votes || "[]"),
+              result: c.result ? JSON.parse(c.result) : null,
+              participantAgentIds: JSON.parse(c.participantAgentIds || "[]"),
+              maxRounds: c.maxRounds || 3,
+              currentRound: c.currentRound || 0,
+              createdAt: c.createdAt,
+              resolvedAt: c.resolvedAt,
+            });
+          }
+
+          const session: SwarmSession = {
             config,
             status: row.status as SwarmStatus,
             agents,
             tasks,
             blackboard,
-            handoffs: JSON.parse(row.handoffsJson || "[]"),
+            handoffs: [], // handoffs are in swarm_messages
             consensusRounds,
             startedAt: row.startedAt,
             completedAt: row.completedAt,
             error: row.error,
             totalTokensUsed: row.totalTokensUsed || 0,
+            totalAgentsSpawned: row.totalAgentsSpawned || 0,
             consecutiveFailures: row.consecutiveFailures || 0,
             circuitBroken: !!row.circuitBroken,
             gcTimer: null,
+            deadlockTimer: null,
           };
 
-          this.swarms.set(config.id, swarm);
-          console.log(`[swarm] Restored swarm: ${config.name} (${config.id})`);
-        } catch (err) {
-          console.error("[swarm] Failed to restore swarm:", err);
-        }
+          this.swarms.set(config.id, session);
+          console.log(`[swarm] Restored: ${config.name} (${config.id}) — ${agents.size} agents, ${tasks.size} tasks, ${blackboard.size} bb entries`);
+        } catch (e) { console.error("[swarm] Restore error:", e); }
       }
-    } catch (err) {
-      console.error("[swarm] DB restore error:", err);
-    }
+    } catch (e) { console.error("[swarm] DB restore error:", e); }
   }
 
-  // ── Serialization ─────────────────────────────────────────────────────
+  // ── Serialization ────────────────────────────────────────────────────
 
   serializeSwarm(swarmId: string): Record<string, unknown> | null {
-    const swarm = this.swarms.get(swarmId);
-    if (!swarm) return null;
-
+    const session = this.swarms.get(swarmId);
+    if (!session) return null;
     return {
-      config: swarm.config,
-      status: swarm.status,
-      agents: Array.from(swarm.agents.values()),
-      tasks: Array.from(swarm.tasks.values()),
-      blackboard: Array.from(swarm.blackboard.values()),
-      handoffs: swarm.handoffs,
-      consensusRounds: Array.from(swarm.consensusRounds.values()),
-      startedAt: swarm.startedAt,
-      completedAt: swarm.completedAt,
-      error: swarm.error,
-      totalTokensUsed: swarm.totalTokensUsed,
-      consecutiveFailures: swarm.consecutiveFailures,
-      circuitBroken: swarm.circuitBroken,
+      config: session.config,
+      status: session.status,
+      agents: Array.from(session.agents.values()),
+      tasks: Array.from(session.tasks.values()),
+      blackboard: Array.from(session.blackboard.values()),
+      handoffs: session.handoffs,
+      consensusRounds: Array.from(session.consensusRounds.values()),
+      startedAt: session.startedAt,
+      completedAt: session.completedAt,
+      error: session.error,
+      totalTokensUsed: session.totalTokensUsed,
+      totalAgentsSpawned: session.totalAgentsSpawned,
+      consecutiveFailures: session.consecutiveFailures,
+      circuitBroken: session.circuitBroken,
+    };
+  }
+
+  // ── Swarm Config (defaults) ───────────────────────────────────────────
+
+  getDefaultConfig(): { safety: SafetyCaps; [k: string]: any } {
+    return {
+      mode: "collaborative",
+      maxTasksPerAgent: 5,
+      consensusStrategy: "majority_vote",
+      consensusThreshold: 0.6,
+      maxConsensusRounds: 3,
+      enableDynamicSpawning: true,
+      enableStigmergy: true,
+      enableHandoffs: true,
+      enableRoleNegotiation: true,
+      enableDeadlockDetection: true,
+      taskClaimTimeout: 30000,
+      agentIdleTimeout: 120000,
+      blackboardTTLMs: null,
+      safety: { ...DEFAULT_SAFETY },
     };
   }
 }

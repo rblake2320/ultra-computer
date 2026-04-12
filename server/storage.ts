@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
 import {
   models, conversations, messages, tasks, agentRuns, skills, connectors, memory, settings,
   skillScripts, skillScriptVersions,
@@ -20,7 +20,12 @@ import {
   type MarketplaceRating, type InsertMarketplaceRating,
   type MarketplaceInstall, type InsertMarketplaceInstall,
   knowledgeBase, type KnowledgeEntry, type InsertKnowledgeEntry,
-  swarms, type SwarmRecord, type InsertSwarmRecord,
+  swarmSessions, type SwarmSession, type InsertSwarmSession,
+  swarmAgents, type SwarmAgent as SwarmAgentRow, type InsertSwarmAgent,
+  blackboardEntries, type BlackboardEntry as BlackboardEntryRow, type InsertBlackboardEntry,
+  consensusRounds, type ConsensusRound as ConsensusRoundRow, type InsertConsensusRound,
+  swarmMessages, type SwarmMessage, type InsertSwarmMessage,
+  swarmTasks, type SwarmTask as SwarmTaskRow, type InsertSwarmTask,
 } from "@shared/schema";
 
 const sqlite = new Database("ultra_computer.db");
@@ -256,25 +261,121 @@ sqlite.exec(`
     updated_at INTEGER NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS swarms (
+  DROP TABLE IF EXISTS swarms;
+
+  CREATE TABLE IF NOT EXISTS swarm_sessions (
     id TEXT PRIMARY KEY,
+    conversation_id TEXT,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     config TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'idle',
+    mode TEXT NOT NULL DEFAULT 'collaborative',
+    total_agents_spawned INTEGER NOT NULL DEFAULT 0,
     total_tokens_used INTEGER NOT NULL DEFAULT 0,
     consecutive_failures INTEGER NOT NULL DEFAULT 0,
     circuit_broken INTEGER NOT NULL DEFAULT 0,
-    agents_json TEXT NOT NULL DEFAULT '[]',
-    tasks_json TEXT NOT NULL DEFAULT '[]',
-    blackboard_json TEXT NOT NULL DEFAULT '[]',
-    handoffs_json TEXT NOT NULL DEFAULT '[]',
-    consensus_json TEXT NOT NULL DEFAULT '[]',
     started_at INTEGER,
     completed_at INTEGER,
     error TEXT,
     created_at INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS swarm_agents (
+    id TEXT PRIMARY KEY,
+    swarm_session_id TEXT NOT NULL,
+    parent_agent_id TEXT,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    instructions TEXT NOT NULL,
+    model_id TEXT,
+    tools TEXT NOT NULL DEFAULT '[]',
+    can_handoff_to TEXT NOT NULL DEFAULT '[]',
+    can_spawn INTEGER NOT NULL DEFAULT 0,
+    spawn_depth INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'idle',
+    current_task_id TEXT,
+    tokens_used INTEGER NOT NULL DEFAULT 0,
+    messages_processed INTEGER NOT NULL DEFAULT 0,
+    handoffs_made INTEGER NOT NULL DEFAULT 0,
+    capability_profile TEXT NOT NULL DEFAULT '{}',
+    last_active_at INTEGER,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (swarm_session_id) REFERENCES swarm_sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS blackboard_entries (
+    id TEXT PRIMARY KEY,
+    swarm_session_id TEXT NOT NULL,
+    author_agent_id TEXT NOT NULL,
+    entry_type TEXT NOT NULL DEFAULT 'fact',
+    topic TEXT NOT NULL,
+    key TEXT NOT NULL,
+    content TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0.5,
+    priority INTEGER NOT NULL DEFAULT 50,
+    version INTEGER NOT NULL DEFAULT 1,
+    supersedes_entry_id TEXT,
+    read_by_agent_ids TEXT NOT NULL DEFAULT '[]',
+    ttl_ms INTEGER,
+    expires_at INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    FOREIGN KEY (swarm_session_id) REFERENCES swarm_sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS consensus_rounds (
+    id TEXT PRIMARY KEY,
+    swarm_session_id TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    strategy TEXT NOT NULL DEFAULT 'majority_vote',
+    status TEXT NOT NULL DEFAULT 'open',
+    votes TEXT NOT NULL DEFAULT '[]',
+    result TEXT,
+    participant_agent_ids TEXT NOT NULL DEFAULT '[]',
+    max_rounds INTEGER NOT NULL DEFAULT 3,
+    current_round INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    resolved_at INTEGER,
+    FOREIGN KEY (swarm_session_id) REFERENCES swarm_sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS swarm_messages (
+    id TEXT PRIMARY KEY,
+    swarm_session_id TEXT NOT NULL,
+    from_agent_id TEXT NOT NULL,
+    to_agent_id TEXT,
+    message_type TEXT NOT NULL DEFAULT 'info',
+    content TEXT NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    acknowledged INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (swarm_session_id) REFERENCES swarm_sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS swarm_tasks (
+    id TEXT PRIMARY KEY,
+    swarm_session_id TEXT NOT NULL,
+    description TEXT NOT NULL,
+    task_type TEXT NOT NULL DEFAULT 'general',
+    priority INTEGER NOT NULL DEFAULT 50,
+    claimed_by TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    result TEXT,
+    dependencies TEXT NOT NULL DEFAULT '[]',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    claimed_at INTEGER,
+    completed_at INTEGER,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (swarm_session_id) REFERENCES swarm_sessions(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_swarm_agents_session ON swarm_agents(swarm_session_id);
+  CREATE INDEX IF NOT EXISTS idx_blackboard_session ON blackboard_entries(swarm_session_id);
+  CREATE INDEX IF NOT EXISTS idx_blackboard_topic ON blackboard_entries(swarm_session_id, topic);
+  CREATE INDEX IF NOT EXISTS idx_consensus_session ON consensus_rounds(swarm_session_id);
+  CREATE INDEX IF NOT EXISTS idx_swarm_messages_session ON swarm_messages(swarm_session_id);
+  CREATE INDEX IF NOT EXISTS idx_swarm_tasks_session ON swarm_tasks(swarm_session_id);
 `);
 
 export interface IStorage {
@@ -386,11 +487,36 @@ export interface IStorage {
   updateKnowledgeEntry(id: string, data: Partial<InsertKnowledgeEntry>): KnowledgeEntry | undefined;
   deleteKnowledgeEntry(id: string): void;
 
-  // Swarm Persistence
-  getAllSwarms(): SwarmRecord[];
-  getSwarmRecord(id: string): SwarmRecord | undefined;
-  upsertSwarm(data: InsertSwarmRecord): SwarmRecord;
-  deleteSwarmRecord(id: string): void;
+  // Swarm Sessions
+  getAllSwarmSessions(): SwarmSession[];
+  getSwarmSession(id: string): SwarmSession | undefined;
+  upsertSwarmSession(data: InsertSwarmSession): SwarmSession;
+  deleteSwarmSession(id: string): void;
+  // Swarm Agents
+  getSwarmAgents(sessionId: string): SwarmAgentRow[];
+  getSwarmAgent(id: string): SwarmAgentRow | undefined;
+  upsertSwarmAgent(data: InsertSwarmAgent): SwarmAgentRow;
+  deleteSwarmAgent(id: string): void;
+  // Blackboard Entries
+  getBlackboardEntries(sessionId: string, topic?: string): BlackboardEntryRow[];
+  getBlackboardEntry(id: string): BlackboardEntryRow | undefined;
+  createBlackboardEntry(data: InsertBlackboardEntry): BlackboardEntryRow;
+  updateBlackboardEntry(id: string, data: Partial<InsertBlackboardEntry>): BlackboardEntryRow | undefined;
+  deleteBlackboardEntry(id: string): void;
+  deleteExpiredBlackboardEntries(sessionId: string, now: number): number;
+  // Consensus Rounds
+  getConsensusRounds(sessionId: string): ConsensusRoundRow[];
+  getConsensusRound(id: string): ConsensusRoundRow | undefined;
+  upsertConsensusRound(data: InsertConsensusRound): ConsensusRoundRow;
+  deleteConsensusRound(id: string): void;
+  // Swarm Messages
+  getSwarmMessages(sessionId: string, limit?: number): SwarmMessage[];
+  createSwarmMessage(data: InsertSwarmMessage): SwarmMessage;
+  // Swarm Tasks
+  getSwarmTasks(sessionId: string): SwarmTaskRow[];
+  getSwarmTask(id: string): SwarmTaskRow | undefined;
+  upsertSwarmTask(data: InsertSwarmTask): SwarmTaskRow;
+  deleteSwarmTask(id: string): void;
 }
 
 export class SQLiteStorage implements IStorage {
@@ -694,22 +820,119 @@ export class SQLiteStorage implements IStorage {
     db.delete(knowledgeBase).where(eq(knowledgeBase.id, id)).run();
   }
 
-  // ── Swarm Persistence ─────────────────────────────────────────────────────
-  getAllSwarms(): SwarmRecord[] {
-    return db.select().from(swarms).orderBy(desc(swarms.createdAt)).all();
+  // ── Swarm Sessions ────────────────────────────────────────────────────────
+  getAllSwarmSessions(): SwarmSession[] {
+    return db.select().from(swarmSessions).orderBy(desc(swarmSessions.createdAt)).all();
   }
-  getSwarmRecord(id: string): SwarmRecord | undefined {
-    return db.select().from(swarms).where(eq(swarms.id, id)).get();
+  getSwarmSession(id: string): SwarmSession | undefined {
+    return db.select().from(swarmSessions).where(eq(swarmSessions.id, id)).get();
   }
-  upsertSwarm(data: InsertSwarmRecord): SwarmRecord {
-    const existing = this.getSwarmRecord(data.id!);
+  upsertSwarmSession(data: InsertSwarmSession): SwarmSession {
+    const existing = this.getSwarmSession(data.id!);
     if (existing) {
-      return db.update(swarms).set(data).where(eq(swarms.id, data.id!)).returning().get();
+      return db.update(swarmSessions).set(data).where(eq(swarmSessions.id, data.id!)).returning().get();
     }
-    return db.insert(swarms).values({ ...data, createdAt: Date.now() }).returning().get();
+    return db.insert(swarmSessions).values({ ...data, createdAt: Date.now() }).returning().get();
   }
-  deleteSwarmRecord(id: string): void {
-    db.delete(swarms).where(eq(swarms.id, id)).run();
+  deleteSwarmSession(id: string): void {
+    // Cascade: delete agents, tasks, blackboard, consensus, messages
+    db.delete(swarmAgents).where(eq(swarmAgents.swarmSessionId, id)).run();
+    db.delete(swarmTasks).where(eq(swarmTasks.swarmSessionId, id)).run();
+    db.delete(blackboardEntries).where(eq(blackboardEntries.swarmSessionId, id)).run();
+    db.delete(consensusRounds).where(eq(consensusRounds.swarmSessionId, id)).run();
+    db.delete(swarmMessages).where(eq(swarmMessages.swarmSessionId, id)).run();
+    db.delete(swarmSessions).where(eq(swarmSessions.id, id)).run();
+  }
+  // ── Swarm Agents ──────────────────────────────────────────────────────────
+  getSwarmAgents(sessionId: string): SwarmAgentRow[] {
+    return db.select().from(swarmAgents).where(eq(swarmAgents.swarmSessionId, sessionId)).all();
+  }
+  getSwarmAgent(id: string): SwarmAgentRow | undefined {
+    return db.select().from(swarmAgents).where(eq(swarmAgents.id, id)).get();
+  }
+  upsertSwarmAgent(data: InsertSwarmAgent): SwarmAgentRow {
+    const existing = this.getSwarmAgent(data.id!);
+    if (existing) {
+      return db.update(swarmAgents).set(data).where(eq(swarmAgents.id, data.id!)).returning().get();
+    }
+    return db.insert(swarmAgents).values({ ...data, createdAt: Date.now() }).returning().get();
+  }
+  deleteSwarmAgent(id: string): void {
+    db.delete(swarmAgents).where(eq(swarmAgents.id, id)).run();
+  }
+  // ── Blackboard Entries ────────────────────────────────────────────────────
+  getBlackboardEntries(sessionId: string, topic?: string): BlackboardEntryRow[] {
+    if (topic) {
+      return db.select().from(blackboardEntries)
+        .where(sql`${blackboardEntries.swarmSessionId} = ${sessionId} AND ${blackboardEntries.topic} = ${topic}`)
+        .orderBy(desc(blackboardEntries.priority)).all();
+    }
+    return db.select().from(blackboardEntries)
+      .where(eq(blackboardEntries.swarmSessionId, sessionId))
+      .orderBy(desc(blackboardEntries.priority)).all();
+  }
+  getBlackboardEntry(id: string): BlackboardEntryRow | undefined {
+    return db.select().from(blackboardEntries).where(eq(blackboardEntries.id, id)).get();
+  }
+  createBlackboardEntry(data: InsertBlackboardEntry): BlackboardEntryRow {
+    const now = Date.now();
+    return db.insert(blackboardEntries).values({ ...data, createdAt: now, updatedAt: now }).returning().get();
+  }
+  updateBlackboardEntry(id: string, data: Partial<InsertBlackboardEntry>): BlackboardEntryRow | undefined {
+    return db.update(blackboardEntries).set({ ...data, updatedAt: Date.now() }).where(eq(blackboardEntries.id, id)).returning().get();
+  }
+  deleteBlackboardEntry(id: string): void {
+    db.delete(blackboardEntries).where(eq(blackboardEntries.id, id)).run();
+  }
+  deleteExpiredBlackboardEntries(sessionId: string, now: number): number {
+    const result = db.delete(blackboardEntries)
+      .where(sql`${blackboardEntries.swarmSessionId} = ${sessionId} AND ${blackboardEntries.expiresAt} IS NOT NULL AND ${blackboardEntries.expiresAt} <= ${now}`)
+      .run();
+    return result.changes;
+  }
+  // ── Consensus Rounds ─────────────────────────────────────────────────────
+  getConsensusRounds(sessionId: string): ConsensusRoundRow[] {
+    return db.select().from(consensusRounds).where(eq(consensusRounds.swarmSessionId, sessionId)).all();
+  }
+  getConsensusRound(id: string): ConsensusRoundRow | undefined {
+    return db.select().from(consensusRounds).where(eq(consensusRounds.id, id)).get();
+  }
+  upsertConsensusRound(data: InsertConsensusRound): ConsensusRoundRow {
+    const existing = this.getConsensusRound(data.id!);
+    if (existing) {
+      return db.update(consensusRounds).set(data).where(eq(consensusRounds.id, data.id!)).returning().get();
+    }
+    return db.insert(consensusRounds).values({ ...data, createdAt: Date.now() }).returning().get();
+  }
+  deleteConsensusRound(id: string): void {
+    db.delete(consensusRounds).where(eq(consensusRounds.id, id)).run();
+  }
+  // ── Swarm Messages ───────────────────────────────────────────────────────
+  getSwarmMessages(sessionId: string, limit = 200): SwarmMessage[] {
+    return db.select().from(swarmMessages)
+      .where(eq(swarmMessages.swarmSessionId, sessionId))
+      .orderBy(desc(swarmMessages.createdAt))
+      .limit(limit).all();
+  }
+  createSwarmMessage(data: InsertSwarmMessage): SwarmMessage {
+    return db.insert(swarmMessages).values({ ...data, createdAt: Date.now() }).returning().get();
+  }
+  // ── Swarm Tasks ──────────────────────────────────────────────────────────
+  getSwarmTasks(sessionId: string): SwarmTaskRow[] {
+    return db.select().from(swarmTasks).where(eq(swarmTasks.swarmSessionId, sessionId)).all();
+  }
+  getSwarmTask(id: string): SwarmTaskRow | undefined {
+    return db.select().from(swarmTasks).where(eq(swarmTasks.id, id)).get();
+  }
+  upsertSwarmTask(data: InsertSwarmTask): SwarmTaskRow {
+    const existing = this.getSwarmTask(data.id!);
+    if (existing) {
+      return db.update(swarmTasks).set(data).where(eq(swarmTasks.id, data.id!)).returning().get();
+    }
+    return db.insert(swarmTasks).values({ ...data, createdAt: Date.now() }).returning().get();
+  }
+  deleteSwarmTask(id: string): void {
+    db.delete(swarmTasks).where(eq(swarmTasks.id, id)).run();
   }
 }
 
