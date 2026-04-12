@@ -2,11 +2,15 @@ import { sqliteTable, text, integer, real, index } from "drizzle-orm/sqlite-core
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// ─── Model Role Types ────────────────────────────────────────────────────────
+// Agent Zero-style role-based model assignment
+export type ModelRole = "chat" | "utility" | "embedding" | "browser" | "code" | "vision";
+
 // ─── Models Registry ─────────────────────────────────────────────────────────
 export const models = sqliteTable("models", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  provider: text("provider").notNull(), // openai | anthropic | google | ollama | openai_compat | custom | mistral | groq | together | replicate | cohere | deepseek | xai
+  provider: text("provider").notNull(), // openai | anthropic | google | ollama | openai_compat | custom | mistral | groq | together | replicate | cohere | deepseek | xai | vllm
   modelId: text("model_id").notNull(),  // e.g. gpt-4o, claude-opus-4-5, llama3.3:70b
   baseUrl: text("base_url"),            // for custom/ollama endpoints
   apiKey: text("api_key"),              // encrypted at rest — for api_key auth method
@@ -17,6 +21,9 @@ export const models = sqliteTable("models", {
   isOrchestrator: integer("is_orchestrator", { mode: "boolean" }).notNull().default(false),
   speedTier: text("speed_tier").notNull().default("medium"), // fast | medium | powerful
   notes: text("notes"),
+  // ─── Role-Based Assignment (Agent Zero-style) ──────────────────────────────
+  modelRole: text("model_role"),          // chat | utility | embedding | browser | code | vision — NULL = unassigned (available for any role)
+  isRoleDefault: integer("is_role_default", { mode: "boolean" }).notNull().default(false), // default model for its assigned role
   // ─── Multi-Auth Connection Fields ──────────────────────────────────────────
   authMethod: text("auth_method").notNull().default("api_key"),  // api_key | oauth | env_var | browser_login | none
   oauthTokens: text("oauth_tokens"),     // JSON: { access_token, refresh_token, expires_at, token_type, scope }
@@ -31,6 +38,20 @@ export const models = sqliteTable("models", {
 export const insertModelSchema = createInsertSchema(models).omit({ createdAt: true });
 export type InsertModel = z.infer<typeof insertModelSchema>;
 export type Model = typeof models.$inferSelect;
+
+// ─── Model Role Defaults ─────────────────────────────────────────────────────
+// Stores the default model ID for each role + hybrid strategy config
+export const modelRoleDefaults = sqliteTable("model_role_defaults", {
+  role: text("role").primaryKey(),       // chat | utility | embedding | browser | code | vision
+  modelId: text("model_id"),            // FK to models.id — the default model for this role
+  fallbackModelId: text("fallback_model_id"), // secondary fallback model for this role
+  strategy: text("strategy").notNull().default("single"), // single | fallback | round_robin | cost_optimized
+  maxCostPerRequest: real("max_cost_per_request"), // budget cap per request in USD (null = unlimited)
+  preferLocal: integer("prefer_local", { mode: "boolean" }).notNull().default(false), // prefer local models (ollama/lmstudio/vllm) when available
+  updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
+});
+export type ModelRoleDefault = typeof modelRoleDefaults.$inferSelect;
+export type InsertModelRoleDefault = typeof modelRoleDefaults.$inferInsert;
 
 // ─── Skills ───────────────────────────────────────────────────────────────────
 export const skills = sqliteTable("skills", {

@@ -5,7 +5,9 @@ import {
   models, conversations, messages, tasks, agentRuns, skills, connectors, memory, settings,
   skillScripts, skillScriptVersions,
   marketplaceSkills, marketplaceVersions, marketplaceRatings, marketplaceInstalls,
+  modelRoleDefaults,
   type Model, type InsertModel,
+  type ModelRoleDefault, type InsertModelRoleDefault, type ModelRole,
   type Conversation, type InsertConversation,
   type Message, type InsertMessage,
   type Task, type InsertTask,
@@ -58,7 +60,18 @@ sqlite.exec(`
     connection_error TEXT,
     last_tested_at INTEGER,
     last_test_latency INTEGER,
+    model_role TEXT,
+    is_role_default INTEGER NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS model_role_defaults (
+    role TEXT PRIMARY KEY,
+    model_id TEXT,
+    fallback_model_id TEXT,
+    strategy TEXT NOT NULL DEFAULT 'single',
+    max_cost_per_request REAL,
+    prefer_local INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS skills (
     id TEXT PRIMARY KEY,
@@ -427,6 +440,16 @@ export interface IStorage {
   deleteModel(id: string): void;
   getDefaultModel(): Model | undefined;
   getOrchestratorModel(): Model | undefined;
+  getModelsByRole(role: ModelRole): Model[];
+  getRoleDefaultModel(role: ModelRole): Model | undefined;
+  setRoleDefault(role: ModelRole, modelId: string): void;
+  clearRoleDefault(role: ModelRole): void;
+
+  // Model Role Defaults
+  getModelRoleDefaults(): ModelRoleDefault[];
+  getModelRoleDefault(role: ModelRole): ModelRoleDefault | undefined;
+  upsertModelRoleDefault(data: InsertModelRoleDefault): ModelRoleDefault;
+  deleteModelRoleDefault(role: ModelRole): void;
 
   // Conversations
   getConversations(): Conversation[];
@@ -569,6 +592,31 @@ export class SQLiteStorage implements IStorage {
   deleteModel(id: string): void { db.delete(models).where(eq(models.id, id)).run(); }
   getDefaultModel(): Model | undefined { return db.select().from(models).where(and(eq(models.isDefault, true), eq(models.enabled, true))).get(); }
   getOrchestratorModel(): Model | undefined { return db.select().from(models).where(and(eq(models.isOrchestrator, true), eq(models.enabled, true))).get(); }
+  getModelsByRole(role: ModelRole): Model[] { return db.select().from(models).where(and(eq(models.modelRole, role), eq(models.enabled, true))).all(); }
+  getRoleDefaultModel(role: ModelRole): Model | undefined {
+    return db.select().from(models).where(and(eq(models.modelRole, role), eq(models.isRoleDefault, true), eq(models.enabled, true))).get();
+  }
+  setRoleDefault(role: ModelRole, modelId: string): void {
+    // Clear existing role default for this role
+    db.update(models).set({ isRoleDefault: false }).where(eq(models.modelRole, role)).run();
+    // Set new default
+    db.update(models).set({ isRoleDefault: true, modelRole: role }).where(eq(models.id, modelId)).run();
+  }
+  clearRoleDefault(role: ModelRole): void {
+    db.update(models).set({ isRoleDefault: false }).where(eq(models.modelRole, role)).run();
+  }
+
+  // Model Role Defaults
+  getModelRoleDefaults(): ModelRoleDefault[] { return db.select().from(modelRoleDefaults).all(); }
+  getModelRoleDefault(role: ModelRole): ModelRoleDefault | undefined { return db.select().from(modelRoleDefaults).where(eq(modelRoleDefaults.role, role)).get(); }
+  upsertModelRoleDefault(data: InsertModelRoleDefault): ModelRoleDefault {
+    const existing = db.select().from(modelRoleDefaults).where(eq(modelRoleDefaults.role, data.role)).get();
+    if (existing) {
+      return db.update(modelRoleDefaults).set({ ...data, updatedAt: Date.now() }).where(eq(modelRoleDefaults.role, data.role)).returning().get();
+    }
+    return db.insert(modelRoleDefaults).values({ ...data, updatedAt: Date.now() }).returning().get();
+  }
+  deleteModelRoleDefault(role: ModelRole): void { db.delete(modelRoleDefaults).where(eq(modelRoleDefaults.role, role)).run(); }
 
   getConversations(): Conversation[] { return db.select().from(conversations).orderBy(desc(conversations.updatedAt)).all(); }
   getConversation(id: string): Conversation | undefined { return db.select().from(conversations).where(eq(conversations.id, id)).get(); }

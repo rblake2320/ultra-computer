@@ -16,7 +16,7 @@ import { storage } from "./storage.js";
 import { resolveCredentials } from "./modelConnections.js";
 import { cacheEngine } from "./cacheEngine.js";
 import type { CacheRequest, CacheResponse, Message as CacheMessage } from "./cacheEngine.js";
-import type { Model } from "@shared/schema";
+import type { Model, ModelRole } from "@shared/schema";
 
 export type TaskType = "research" | "code" | "write" | "browse" | "analyze" | "image" | "general" | "speed";
 
@@ -28,6 +28,7 @@ export interface ChatMessage {
 export interface RouterOptions {
   taskType?: TaskType;
   modelId?: string;       // override: use specific model
+  modelRole?: ModelRole;  // Agent Zero-style: select model by role
   stream?: boolean;
   maxTokens?: number;
   temperature?: number;
@@ -52,18 +53,67 @@ const TASK_TIER_MAP: Record<TaskType, string> = {
   speed: "fast",
 };
 
+// ─── Task → Model Role Mapping (Agent Zero-style) ───────────────────────────
+const TASK_ROLE_MAP: Record<TaskType, ModelRole> = {
+  research: "chat",
+  code: "code",
+  write: "chat",
+  browse: "browser",
+  analyze: "utility",
+  image: "vision",
+  general: "chat",
+  speed: "utility",
+};
+
+const LOCAL_PROVIDERS = new Set(["ollama", "lmstudio", "vllm"]);
+
+// ─── Select best model by role (Agent Zero-style) ────────────────────────────
+export function selectModelByRole(role: ModelRole): Model | null {
+  // 1. Check if there's a role default model
+  const roleDefault = storage.getRoleDefaultModel(role);
+  if (roleDefault) {
+    // Check hybrid strategy: prefer local if configured
+    const roleConfig = storage.getModelRoleDefault(role);
+    if (roleConfig?.preferLocal) {
+      const localModels = storage.getModelsByRole(role).filter(m => LOCAL_PROVIDERS.has(m.provider));
+      if (localModels.length > 0) return localModels[0];
+    }
+    return roleDefault;
+  }
+
+  // 2. Any enabled model assigned to this role
+  const roleModels = storage.getModelsByRole(role);
+  if (roleModels.length > 0) return roleModels[0];
+
+  // 3. Fall through to null (caller will use legacy selection)
+  return null;
+}
+
 // ─── Select best model for a task ────────────────────────────────────────────
-export function selectModelForTask(taskType: TaskType, preferredModelId?: string): Model | null {
+export function selectModelForTask(taskType: TaskType, preferredModelId?: string, requestedRole?: ModelRole): Model | null {
   const allModels = storage.getModels().filter(m => m.enabled);
 
+  // 0. Explicit model override always wins
   if (preferredModelId) {
     const found = allModels.find(m => m.id === preferredModelId);
     if (found) return found;
   }
 
-  const tier = TASK_TIER_MAP[taskType] || "medium";
+  // 1. Agent Zero-style: explicit role requested
+  if (requestedRole) {
+    const byRole = selectModelByRole(requestedRole);
+    if (byRole) return byRole;
+  }
 
-  // 1. Try to match tier + capability
+  // 2. Agent Zero-style: infer role from task type
+  const inferredRole = TASK_ROLE_MAP[taskType];
+  if (inferredRole) {
+    const byRole = selectModelByRole(inferredRole);
+    if (byRole) return byRole;
+  }
+
+  // 3. Legacy: tier + capability matching (fallback for non-role-assigned models)
+  const tier = TASK_TIER_MAP[taskType] || "medium";
   const cap = taskType === "code" ? "code" : taskType === "image" ? "image" : "chat";
   const withCap = allModels.filter(m => {
     try {
@@ -75,15 +125,15 @@ export function selectModelForTask(taskType: TaskType, preferredModelId?: string
   });
   if (withCap.length > 0) return withCap[0];
 
-  // 2. Match tier only
+  // 4. Match tier only
   const withTier = allModels.filter(m => m.speedTier === tier);
   if (withTier.length > 0) return withTier[0];
 
-  // 3. Default model
+  // 5. Default model
   const def = storage.getDefaultModel();
   if (def) return def;
 
-  // 4. Any model
+  // 6. Any model
   return allModels[0] || null;
 }
 
@@ -93,7 +143,7 @@ export async function chat(
   options: RouterOptions = {}
 ): Promise<LLMResponse> {
   const taskType = options.taskType || "general";
-  const model = selectModelForTask(taskType, options.modelId);
+  const model = selectModelForTask(taskType, options.modelId, options.modelRole);
 
   if (!model) {
     throw new Error("No models configured. Add a model in the Models page.");
@@ -145,7 +195,8 @@ export async function chat(
     case "fireworks":
     case "cerebras":
     case "perplexity":
-    case "lmstudio": {
+    case "lmstudio":
+    case "vllm": {
       const result = await chatOpenAICompat(model, optimizedMsgs, maxTokens, temperature);
       cacheEngine.set(cacheReq, { content: result.content, tokensIn: result.usage?.prompt || 0, tokensOut: result.usage?.completion || 0, modelId: model.id });
       return result;
@@ -174,7 +225,7 @@ export async function* chatStream(
   options: RouterOptions = {}
 ): AsyncGenerator<string> {
   const taskType = options.taskType || "general";
-  const model = selectModelForTask(taskType, options.modelId);
+  const model = selectModelForTask(taskType, options.modelId, options.modelRole);
 
   if (!model) {
     throw new Error("No models configured. Add a model in the Models page.");
@@ -200,6 +251,7 @@ export async function* chatStream(
     case "cerebras":
     case "perplexity":
     case "lmstudio":
+    case "vllm":
       yield* streamOpenAICompat(model, messages, maxTokens, temperature);
       break;
     case "anthropic":
