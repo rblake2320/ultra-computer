@@ -18,7 +18,7 @@ import { storage } from "./storage.js";
 import { chat, chatStream, selectModelForTask, type ChatMessage, type TaskType } from "./modelRouter.js";
 import { skillMatcher } from "./skillSystem.js";
 import { memoryManager } from "./memoryManager.js";
-import { TOOL_SCHEMAS, executeTool, dockerSandbox, type ToolResult } from "./tools.js";
+import { TOOL_SCHEMAS, executeTool, dockerSandbox, getToolsForTask, getSessionSandboxDir, shouldUseSandbox, type ToolResult, type ToolSchema } from "./tools.js";
 import { compactContext } from "./contextCompactor.js";
 import { detectChain, buildChainPlan } from "./skillChaining.js";
 import { withRetryAndFallback } from "./errorRecovery.js";
@@ -564,6 +564,13 @@ async function runWorkerAgent(
     console.log(`[orchestrator] KB injected ${kbResult.includedEntries.length} entries (~${kbResult.tokenEstimate} tokens) for ${model.name} [${speedTier}]`);
   }
 
+  // Sandbox policy: check sandbox_auto_enable setting to decide execution mode
+  const sandboxAutoEnable = storage.getSetting("sandbox_auto_enable") || "smart";
+  const useSandbox = shouldUseSandbox(task.taskType || "general", sandboxAutoEnable);
+
+  // Per-session workspace isolation: each agent gets its own subdirectory
+  const sessionSandboxDir = getSessionSandboxDir(agentRunId);
+
   const systemPrompt = buildWorkerSystemPrompt(task, skillContext, kbResult.contextBlock);
   const inputContext = buildWorkerInputContext(task, memories, depContext);
 
@@ -578,6 +585,8 @@ async function runWorkerAgent(
     ipcPath,
     status: "running",
   });
+
+  console.log(`[orchestrator] Agent ${agentRunId.slice(0,8)} | task=${task.taskType} | sandbox=${useSandbox ? "docker" : "host"} | tools=${getToolsForTask(task.taskType || "general").length} | workspace=${sessionSandboxDir}`);
 
   const agentRunStart = Date.now();
 
@@ -675,7 +684,7 @@ async function runWorkerAgent(
         callId,
       });
 
-      // Execute the tool — pass sessionId explicitly for container isolation
+      // Execute the tool — pass sessionId for container isolation + session workspace
       const result = await executeTool(call.name, call.args, agentRunId);
 
       // Emit tool result event to UI
@@ -837,8 +846,10 @@ function parseToolCalls(text: string): ParsedToolCall[] {
 }
 
 function buildWorkerSystemPrompt(task: Task, skillContext: string, knowledgeContext?: string): string {
-  const toolList = TOOL_SCHEMAS.map(t => `- **${t.name}**: ${t.description}`).join("\n");
-  const toolSchemaBlock = TOOL_SCHEMAS.map(t =>
+  // Per-task tool filtering: workers only see tools relevant to their task type
+  const taskTools = getToolsForTask(task.taskType || "general");
+  const toolList = taskTools.map(t => `- **${t.name}**: ${t.description}`).join("\n");
+  const toolSchemaBlock = taskTools.map(t =>
     `${t.name}: parameters = ${JSON.stringify(t.parameters.properties)}, required = [${t.parameters.required.join(", ")}]`
   ).join("\n");
 
@@ -887,6 +898,18 @@ ${skillContext ? `Active skills to follow:\n${skillContext}` : ""}${scriptLibrar
 }
 
 function buildWorkerInputContext(task: Task, memories: string, depContext: string): string {
+  // Build tool hints that match the filtered tools for this task type
+  const taskTools = getToolsForTask(task.taskType || "general");
+  const toolNames = new Set(taskTools.map(t => t.name));
+  const toolHints: string[] = [];
+  if (toolNames.has("bash")) toolHints.push("- **bash**: run scripts, install packages, execute code");
+  if (toolNames.has("write_file") || toolNames.has("read_file")) toolHints.push("- **write_file** / **read_file** / **list_files** / **search_files**: sandbox file I/O");
+  if (toolNames.has("fetch_url")) toolHints.push("- **fetch_url**: read a specific URL (HTML, JSON, etc.)");
+  if (toolNames.has("search_web")) toolHints.push("- **search_web**: search the web for current information via DuckDuckGo");
+  if (toolNames.has("browse_url")) toolHints.push("- **browse_url** / **browser_action**: headless browser for JS-rendered pages and interactions");
+  if (toolNames.has("generate_image")) toolHints.push("- **generate_image**: create images from text prompts (requires image model)");
+  if (toolNames.has("calculator")) toolHints.push("- **calculator**: evaluate math expressions safely");
+
   return `## Task
 ${task.description}
 
@@ -894,13 +917,7 @@ ${memories ? `## Relevant user context (from memory)\n${memories}\n` : ""}
 ${depContext ? `${depContext}\n` : ""}
 ## Instructions
 Complete this task fully. Use the available tools whenever they would produce a better result than pure reasoning:
-- **bash**: run scripts, install packages, execute code
-- **write_file** / **read_file** / **list_files** / **search_files**: sandbox file I/O
-- **fetch_url**: read a specific URL (HTML, JSON, etc.)
-- **search_web**: search the web for current information via DuckDuckGo
-- **browse_url** / **browser_action**: headless browser for JS-rendered pages and interactions
-- **generate_image**: create images from text prompts (requires image model)
-- **calculator**: evaluate math expressions safely
+${toolHints.join("\n")}
 
 Write code and run it. Fetch real data. Produce a complete, standalone result.`;
 }

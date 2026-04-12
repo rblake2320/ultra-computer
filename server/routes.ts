@@ -9,7 +9,10 @@ import { connectModel, disconnectModel, testConnection, quickAdd, discoverEnvVar
 import { seedConnectors, connectWithApiKey, callMCPTool } from "./connectorRegistry.js";
 import { seedBuiltInSkills } from "./skillSystem.js";
 import { memoryManager } from "./memoryManager.js";
-import { dockerSandbox } from "./tools.js";
+import { dockerSandbox, getToolsForTask, shouldUseSandbox } from "./tools.js";
+import { IMAGE_PRESETS } from "./dockerSandbox.js";
+import fsNode from "fs";
+import { execSync as execSyncNode } from "child_process";
 import { registerFileRoutes } from "./fileRoutes.js";
 import { registerOAuthRoutes } from "./oauthFlow.js";
 import { registerExportRoutes } from "./exportSession.js";
@@ -803,6 +806,41 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   app.get("/api/sandbox/config", (req, res) => {
     const config = dockerSandbox.getConfig();
     res.json(config);
+  });
+
+  // Image presets for pre-warmed Docker images
+  app.get("/api/sandbox/image-presets", (_req, res) => {
+    res.json(IMAGE_PRESETS);
+  });
+
+  // Build a pre-warmed image from a preset Dockerfile
+  app.post("/api/sandbox/build-image", async (req, res) => {
+    const { presetId, customDockerfile } = (req.body || {}) as { presetId?: string; customDockerfile?: string };
+    const preset = IMAGE_PRESETS.find(p => p.id === presetId);
+    const dockerfile = customDockerfile || preset?.dockerfile;
+    const imageName = preset?.image || `ultra-computer-sandbox:custom-${Date.now()}`;
+    if (!dockerfile) return res.status(400).json({ error: "No preset or custom Dockerfile provided" });
+    try {
+      const tmpDir = `/tmp/uc-docker-build-${Date.now()}`;
+      fsNode.mkdirSync(tmpDir, { recursive: true });
+      fsNode.writeFileSync(`${tmpDir}/Dockerfile`, dockerfile);
+      execSyncNode(`docker build -t ${imageName} ${tmpDir}`, { timeout: 300_000 });
+      fsNode.rmSync(tmpDir, { recursive: true, force: true });
+      res.json({ ok: true, image: imageName, message: `Built and tagged ${imageName}` });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Sandbox introspection: what tools does a task type get?
+  app.get("/api/sandbox/tools-for-task/:taskType", (req, res) => {
+    const tools = getToolsForTask(req.params.taskType);
+    res.json({
+      taskType: req.params.taskType,
+      toolCount: tools.length,
+      tools: tools.map(t => ({ name: t.name, description: t.description })),
+      sandboxRequired: shouldUseSandbox(req.params.taskType),
+    });
   });
 
   app.post("/api/sandbox/config", (req, res) => {

@@ -25,6 +25,71 @@ if (!fs.existsSync(SANDBOX_DIR)) fs.mkdirSync(SANDBOX_DIR, { recursive: true });
 // Re-export sandbox management for routes
 export { dockerSandbox } from "./dockerSandbox.js";
 
+// ─── Per-Task Tool Filtering ─────────────────────────────────────────────────
+// Maps task types to the tool subsets that are actually relevant.
+// Workers only see tools for their role — reduces token waste, prevents misuse,
+// and ensures agents can't accidentally reach for tools outside their domain.
+
+const TASK_TOOL_MAP: Record<string, string[]> = {
+  code:     ["bash", "write_file", "read_file", "list_files", "search_files", "calculator", "fetch_url"],
+  research: ["search_web", "fetch_url", "read_file", "write_file", "browse_url", "browser_action"],
+  browse:   ["browse_url", "browser_action", "browser_evaluate", "browser_pdf", "browser_wait", "browser_resize", "browser_close", "fetch_url", "write_file", "read_file"],
+  write:    ["write_file", "read_file", "list_files", "search_web", "fetch_url"],
+  analyze:  ["calculator", "bash", "read_file", "write_file", "list_files", "search_files", "fetch_url"],
+  image:    ["generate_image", "write_file", "read_file"],
+  speed:    ["calculator", "fetch_url", "search_web"],
+  general:  null as any, // null = all tools (general tasks get full access)
+};
+
+/**
+ * Returns the filtered tool schemas for a given task type.
+ * Task-specific agents only see relevant tools. "general" gets everything.
+ */
+export function getToolsForTask(taskType: string): ToolSchema[] {
+  const allowed = TASK_TOOL_MAP[taskType];
+  if (!allowed) return TOOL_SCHEMAS; // general or unknown → all tools
+  return TOOL_SCHEMAS.filter(t => allowed.includes(t.name));
+}
+
+/**
+ * Per-Session Workspace Isolation
+ * Each agent session gets its own subdirectory inside the sandbox.
+ * Agents can only read/write within their own workspace, not other sessions'.
+ * The orchestrator can still access the root sandbox for cross-session artifacts.
+ */
+export function getSessionSandboxDir(sessionId: string): string {
+  const sessionDir = path.join(SANDBOX_DIR, "sessions", sessionId.replace(/[^a-zA-Z0-9_-]/g, "_"));
+  if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir, { recursive: true });
+  return sessionDir;
+}
+
+/** Resolve a path within a session's isolated workspace */
+export function resolveSessionPath(sessionId: string, filename: string): string {
+  const sessionDir = getSessionSandboxDir(sessionId);
+  const resolved = path.resolve(sessionDir, filename);
+  if (!resolved.startsWith(sessionDir)) {
+    throw new Error("Path traversal blocked — must stay within session workspace");
+  }
+  return resolved;
+}
+
+/**
+ * Determines whether sandbox execution (Docker) should be used for a task.
+ * Checks the sandbox_auto_enable setting and task type to decide.
+ * - If sandbox_auto_enable is "off", always use host fallback
+ * - If sandbox_auto_enable is "always", always try Docker
+ * - If sandbox_auto_enable is "smart" (default), use Docker for code/analyze/general tasks
+ *   that involve bash execution, and host for research/write/speed tasks that don't need isolation
+ */
+const SANDBOX_REQUIRED_TASKS = new Set(["code", "analyze", "general", "browse"]);
+
+export function shouldUseSandbox(taskType: string, sandboxAutoEnable: string = "smart"): boolean {
+  if (sandboxAutoEnable === "off") return false;
+  if (sandboxAutoEnable === "always") return true;
+  // "smart" mode: only sandbox tasks that execute user-generated code or need isolation
+  return SANDBOX_REQUIRED_TASKS.has(taskType);
+}
+
 // ─── Tool Schema (OpenAI function-calling format) ────────────────────────────
 
 export interface ToolSchema {

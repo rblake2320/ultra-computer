@@ -57,6 +57,78 @@ const DEFAULT_CONFIG: DockerSandboxConfig = {
   enabled: true,
 };
 
+// ─── Pre-warmed Image Presets ────────────────────────────────────────────────
+// Production deployments should build a custom image with common runtimes
+// pre-installed so agents don't waste time installing packages on every session.
+
+export interface ImagePreset {
+  id: string;
+  name: string;
+  image: string;
+  description: string;
+  preInstalledTools: string[];
+  /** Dockerfile content to build this preset locally */
+  dockerfile: string;
+  recommended: boolean;
+}
+
+export const IMAGE_PRESETS: ImagePreset[] = [
+  {
+    id: "minimal",
+    name: "Minimal (Ubuntu 22.04)",
+    image: "ubuntu:22.04",
+    description: "Bare Ubuntu — agents install tools as needed. Smallest image, slowest first-run.",
+    preInstalledTools: ["sh", "apt-get"],
+    dockerfile: "FROM ubuntu:22.04\nRUN apt-get update -qq && apt-get install -y -qq curl ca-certificates\nWORKDIR /workspace",
+    recommended: false,
+  },
+  {
+    id: "standard",
+    name: "Standard (Python + Node + Tools)",
+    image: "ultra-computer-sandbox:standard",
+    description: "Pre-installed Python 3, Node.js 20, curl, jq, git, pip. Recommended for most tasks.",
+    preInstalledTools: ["python3", "pip3", "node", "npm", "npx", "curl", "jq", "git", "bc", "wget", "unzip"],
+    dockerfile: `FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -qq && apt-get install -y -qq \\
+  python3 python3-pip python3-venv \\
+  curl wget jq bc git unzip ca-certificates gnupg \\
+  && mkdir -p /etc/apt/keyrings \\
+  && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \\
+  && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \\
+  && apt-get update -qq && apt-get install -y -qq nodejs \\
+  && pip3 install --no-cache-dir requests beautifulsoup4 pandas numpy \\
+  && npm install -g typescript tsx \\
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
+WORKDIR /workspace`,
+    recommended: true,
+  },
+  {
+    id: "full",
+    name: "Full Stack (All Runtimes)",
+    image: "ultra-computer-sandbox:full",
+    description: "Everything in Standard plus Go, Rust, Java, ffmpeg, imagemagick. For heavy compute tasks.",
+    preInstalledTools: ["python3", "pip3", "node", "npm", "go", "rustc", "cargo", "javac", "java", "ffmpeg", "convert", "curl", "jq", "git"],
+    dockerfile: `FROM ubuntu:22.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update -qq && apt-get install -y -qq \\
+  python3 python3-pip python3-venv \\
+  curl wget jq bc git unzip ca-certificates gnupg \\
+  golang-go default-jdk ffmpeg imagemagick \\
+  && mkdir -p /etc/apt/keyrings \\
+  && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \\
+  && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \\
+  && apt-get update -qq && apt-get install -y -qq nodejs \\
+  && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \\
+  && pip3 install --no-cache-dir requests beautifulsoup4 pandas numpy scipy matplotlib \\
+  && npm install -g typescript tsx \\
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
+ENV PATH="/root/.cargo/bin:\$PATH"
+WORKDIR /workspace`,
+    recommended: false,
+  },
+];
+
 // ─── Container State ─────────────────────────────────────────────────────────
 
 interface ContainerState {
