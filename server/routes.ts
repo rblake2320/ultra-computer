@@ -3,7 +3,8 @@ import { Server } from "http";
 import { v4 as uuidv4 } from "uuid";
 import { storage } from "./storage.js";
 import { runOrchestrator, subscribeToConversation, unsubscribeFromConversation } from "./orchestrator.js";
-import { testModelConnection } from "./modelRouter.js";
+import { testModelConnection, selectModelByRole } from "./modelRouter.js";
+import type { ModelRole } from "@shared/schema";
 import { connectModel, disconnectModel, testConnection, quickAdd, discoverEnvVars, getProviderCatalog, PROVIDER_REGISTRY } from "./modelConnections.js";
 import { seedConnectors, connectWithApiKey, callMCPTool } from "./connectorRegistry.js";
 import { seedBuiltInSkills } from "./skillSystem.js";
@@ -107,6 +108,62 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.json(discoverEnvVars());
   });
 
+  // ─── Model Roles (Agent Zero-style) — MUST be before :id route ──────────
+  const VALID_ROLES: ModelRole[] = ["chat", "utility", "embedding", "browser", "code", "vision"];
+
+  // Get all role defaults configuration
+  app.get("/api/models/roles", (_req, res) => {
+    const defaults = storage.getModelRoleDefaults();
+    const allModels = storage.getModels();
+    const roleMap = VALID_ROLES.map(role => {
+      const config = defaults.find(d => d.role === role);
+      const assignedModels = allModels.filter(m => m.modelRole === role && m.enabled);
+      const defaultModel = assignedModels.find(m => m.isRoleDefault);
+      return {
+        role,
+        defaultModelId: defaultModel?.id || config?.modelId || null,
+        fallbackModelId: config?.fallbackModelId || null,
+        strategy: config?.strategy || "single",
+        preferLocal: config?.preferLocal || false,
+        maxCostPerRequest: config?.maxCostPerRequest || null,
+        assignedModels: assignedModels.map(m => ({
+          id: m.id, name: m.name, provider: m.provider, modelId: m.modelId, isRoleDefault: m.isRoleDefault,
+          speedTier: m.speedTier, connectionStatus: m.connectionStatus,
+        })),
+        resolvedModel: (() => { const m = selectModelByRole(role); return m ? { id: m.id, name: m.name, provider: m.provider } : null; })(),
+      };
+    });
+    res.json(roleMap);
+  });
+
+  // Local model discovery: probe Ollama/LM Studio/vLLM endpoints for available models
+  app.post("/api/models/discover-local", async (req, res) => {
+    const { provider, baseUrl } = req.body || {};
+    const defaults: Record<string, string> = {
+      ollama: "http://localhost:11434/v1",
+      lmstudio: "http://localhost:1234/v1",
+      vllm: "http://localhost:8000/v1",
+    };
+    const url = baseUrl || defaults[provider] || baseUrl;
+    if (!url) return res.status(400).json({ error: "baseUrl required for this provider" });
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const response = await fetch(`${url}/models`, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json() as any;
+      const discoveredModels = (data.data || []).map((m: any) => ({
+        modelId: m.id,
+        name: m.id,
+        ownedBy: m.owned_by || provider,
+      }));
+      res.json({ ok: true, provider, baseUrl: url, models: discoveredModels });
+    } catch (err: any) {
+      res.json({ ok: false, provider, baseUrl: url, error: err.message, models: [] });
+    }
+  });
+
   app.get("/api/models/:id", (req, res) => {
     const model = storage.getModel(req.params.id);
     if (!model) return res.status(404).json({ error: "Model not found" });
@@ -115,7 +172,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   app.post("/api/models", (req, res) => {
     const { id, name, provider, modelId, baseUrl, apiKey, capabilities, contextWindow,
-            isDefault, isOrchestrator, speedTier, notes, authMethod, envVarName } = req.body;
+            isDefault, isOrchestrator, speedTier, notes, authMethod, envVarName, modelRole, isRoleDefault } = req.body;
     if (!name || !provider || !modelId) return res.status(400).json({ error: "name, provider, modelId required" });
     if (typeof name !== "string" || name.length > 200) return res.status(400).json({ error: "name must be a string (max 200 chars)" });
     if (typeof modelId !== "string" || modelId.length > 500) return res.status(400).json({ error: "modelId must be a string (max 500 chars)" });
@@ -151,6 +208,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
         authMethod: authMethod || "api_key",
         envVarName: envVarName || null,
         connectionStatus: "unconfigured",
+        modelRole: modelRole || null,
+        isRoleDefault: isRoleDefault || false,
       } as any);
     } catch (err: any) {
       if (err.message?.includes("UNIQUE") || err.message?.includes("unique")) {
@@ -186,7 +245,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (isDefault) storage.getModels().forEach(m => storage.updateModel(m.id, { isDefault: false }));
     if (isOrchestrator) storage.getModels().forEach(m => storage.updateModel(m.id, { isOrchestrator: false }));
     // Whitelist allowed fields to prevent mass assignment
-    const { name, enabled, speedTier, notes, isDefault: _isDefault, isOrchestrator: _isOrch, contextWindow, capabilities } = req.body;
+    const { name, enabled, speedTier, notes, isDefault: _isDefault, isOrchestrator: _isOrch, contextWindow, capabilities, modelRole, isRoleDefault } = req.body;
     const allowedUpdate: Record<string, any> = {};
     if (name !== undefined) allowedUpdate.name = name;
     if (enabled !== undefined) allowedUpdate.enabled = enabled;
@@ -196,6 +255,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (_isOrch !== undefined) allowedUpdate.isOrchestrator = _isOrch;
     if (contextWindow !== undefined) allowedUpdate.contextWindow = contextWindow;
     if (capabilities !== undefined) allowedUpdate.capabilities = capabilities;
+    if (modelRole !== undefined) allowedUpdate.modelRole = modelRole;
+    if (isRoleDefault !== undefined) allowedUpdate.isRoleDefault = isRoleDefault;
     const updated = storage.updateModel(req.params.id, allowedUpdate);
     if (!updated) return res.status(404).json({ error: "Model not found" });
     res.json(updated);
@@ -236,6 +297,47 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message });
     }
+  });
+
+  // Assign a model to a role
+  app.post("/api/models/:id/assign-role", (req, res) => {
+    const { role, isDefault } = req.body;
+    if (!role || !VALID_ROLES.includes(role)) return res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(", ")}` });
+    const model = storage.getModel(req.params.id);
+    if (!model) return res.status(404).json({ error: "Model not found" });
+    storage.updateModel(req.params.id, { modelRole: role, isRoleDefault: !!isDefault });
+    if (isDefault) {
+      // Clear other models' default flag for this role
+      const allModels = storage.getModels();
+      allModels.filter(m => m.modelRole === role && m.id !== req.params.id && m.isRoleDefault).forEach(m => {
+        storage.updateModel(m.id, { isRoleDefault: false });
+      });
+    }
+    res.json({ ok: true, model: storage.getModel(req.params.id) });
+  });
+
+  // Unassign a model from its role
+  app.post("/api/models/:id/unassign-role", (req, res) => {
+    const model = storage.getModel(req.params.id);
+    if (!model) return res.status(404).json({ error: "Model not found" });
+    storage.updateModel(req.params.id, { modelRole: null, isRoleDefault: false });
+    res.json({ ok: true });
+  });
+
+  // Update role strategy config (fallback, prefer-local, cost cap)
+  app.put("/api/models/roles/:role", (req, res) => {
+    const role = req.params.role as ModelRole;
+    if (!VALID_ROLES.includes(role)) return res.status(400).json({ error: `Invalid role: ${role}` });
+    const { modelId, fallbackModelId, strategy, maxCostPerRequest, preferLocal } = req.body;
+    const updated = storage.upsertModelRoleDefault({
+      role,
+      modelId: modelId || null,
+      fallbackModelId: fallbackModelId || null,
+      strategy: strategy || "single",
+      maxCostPerRequest: maxCostPerRequest ?? null,
+      preferLocal: preferLocal ?? false,
+    });
+    res.json(updated);
   });
 
   // ─── Conversations ────────────────────────────────────────────────────────

@@ -331,6 +331,23 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     models: [],
   },
 
+  vllm: {
+    id: "vllm",
+    name: "vLLM (Local)",
+    icon: "Server",
+    supportedAuth: ["none", "api_key"],
+    defaultAuth: "none",
+    defaultBaseUrl: "http://localhost:8000/v1",
+    envVarNames: ["VLLM_API_KEY"],
+    models: [
+      { name: "vLLM Model", modelId: "default", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 32768, description: "Whatever model is loaded in vLLM server", recommended: true },
+      { name: "Llama 3.3 70B (vLLM)", modelId: "meta-llama/Llama-3.3-70B-Instruct", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 128000, description: "Meta Llama 3.3 via vLLM" },
+      { name: "Qwen 3 32B (vLLM)", modelId: "Qwen/Qwen3-32B", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "Dense 32B reasoning via vLLM" },
+      { name: "Mistral 7B (vLLM)", modelId: "mistralai/Mistral-7B-Instruct-v0.3", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 32768, description: "Fast local inference" },
+      { name: "DeepSeek V3 (vLLM)", modelId: "deepseek-ai/DeepSeek-V3", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "685B MoE via vLLM" },
+    ],
+  },
+
   custom: {
     id: "custom",
     name: "Custom Endpoint",

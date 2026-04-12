@@ -5,6 +5,8 @@ import { createServer } from "http";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import compression from "compression";
+import { requestTimeout, llmTimeout } from "./requestTimeout";
+import { AppError } from "./errorCodes";
 
 // ─── Process-level error handlers (must be first) ────────────────────────────
 process.on("uncaughtException", (err) => {
@@ -104,6 +106,13 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+// ─── Request timeout (global: 30s for API, 2min for LLM) ─────────────────
+app.use("/api", requestTimeout({ timeoutMs: 30_000 }));
+// LLM streaming endpoints get a longer timeout
+app.use("/api/conversations/:id/messages", llmTimeout());
+app.use("/api/chat", llmTimeout());
+app.use("/api/swarm", llmTimeout());
+
 // Strip __PORT_5000__ prefix only in non-production (dev/test only)
 // In production, the build process handles this substitution at bundle time.
 if (process.env.NODE_ENV !== "production") {
@@ -146,8 +155,6 @@ app.use((req, res, next) => {
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-
     // Log the real error server-side for debugging
     console.error("[server] Error:", err);
 
@@ -155,9 +162,21 @@ app.use((req, res, next) => {
       return next(err);
     }
 
+    // Handle structured AppError instances
+    if (err instanceof AppError) {
+      return res.status(err.status).json(err.toJSON());
+    }
+
+    // Handle Express/generic errors
+    const status = err.status || err.statusCode || 500;
     // Return generic messages to client for 5xx errors to avoid leaking internals
     const clientMessage = status >= 500 ? "Internal Server Error" : (err.message || "Request failed");
-    return res.status(status).json({ message: clientMessage });
+    return res.status(status).json({
+      error: {
+        code: status >= 500 ? "INTERNAL_ERROR" : "REQUEST_ERROR",
+        message: clientMessage,
+      },
+    });
   });
 
   // Catch-all for unmatched /api/* routes — return 404 JSON instead of falling

@@ -12,7 +12,8 @@ import {
   Plus, Trash2, TestTube2, Check, X, Star, Brain, Zap, Shield,
   Server, Globe, Cpu, Key, Variable, Unplug, Link2, ExternalLink,
   ChevronRight, Loader2, CircleDot, AlertTriangle, Search, Sparkles,
-  Wind, Users, Layers, Bot, Settings,
+  Wind, Users, Layers, Bot, Settings, MonitorSmartphone, Wifi, WifiOff,
+  MessageSquare, Code2, Eye, Compass, Wrench, LayoutGrid, ArrowRight, RefreshCw,
 } from "lucide-react";
 import type { Model } from "../../../shared/schema";
 import { safeJsonParse } from "../lib/safeJson";
@@ -50,10 +51,45 @@ interface EnvVarInfo {
   masked: string;
 }
 
+interface RoleConfig {
+  role: string;
+  defaultModelId: string | null;
+  fallbackModelId: string | null;
+  strategy: string;
+  preferLocal: boolean;
+  maxCostPerRequest: number | null;
+  assignedModels: {
+    id: string; name: string; provider: string; modelId: string;
+    isRoleDefault: boolean; speedTier: string; connectionStatus: string;
+  }[];
+  resolvedModel: { id: string; name: string; provider: string } | null;
+}
+
+interface DiscoveredModel {
+  modelId: string;
+  name: string;
+  ownedBy: string;
+}
+
 const SPEED_TIERS = [
   { value: "fast", label: "Fast", desc: "Speed tasks, quick lookups" },
   { value: "medium", label: "Medium", desc: "General tasks" },
   { value: "powerful", label: "Powerful", desc: "Research, code, analysis" },
+];
+
+const ROLE_INFO: Record<string, { label: string; icon: any; desc: string; color: string }> = {
+  chat: { label: "Chat", icon: MessageSquare, desc: "Primary conversational model — handles general dialogue, writing, and research", color: "text-blue-400 border-blue-400/30" },
+  code: { label: "Code", icon: Code2, desc: "Code generation, debugging, refactoring, and technical tasks", color: "text-green-400 border-green-400/30" },
+  utility: { label: "Utility", icon: Wrench, desc: "Fast lightweight tasks — summarization, classification, extraction", color: "text-amber-400 border-amber-400/30" },
+  embedding: { label: "Embedding", icon: LayoutGrid, desc: "Text embeddings for semantic search and memory", color: "text-purple-400 border-purple-400/30" },
+  browser: { label: "Browser", icon: Compass, desc: "Web browsing automation and page interaction", color: "text-cyan-400 border-cyan-400/30" },
+  vision: { label: "Vision", icon: Eye, desc: "Image analysis, screenshots, and visual understanding", color: "text-pink-400 border-pink-400/30" },
+};
+
+const LOCAL_PROVIDERS = [
+  { id: "ollama", name: "Ollama", defaultUrl: "http://localhost:11434/v1", desc: "Run open-source models locally", port: "11434" },
+  { id: "lmstudio", name: "LM Studio", defaultUrl: "http://localhost:1234/v1", desc: "Desktop app for local LLMs", port: "1234" },
+  { id: "vllm", name: "vLLM", defaultUrl: "http://localhost:8000/v1", desc: "High-performance GPU inference server", port: "8000" },
 ];
 
 // Map provider icon names to Lucide components
@@ -94,10 +130,18 @@ export function ModelsPage() {
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; latencyMs?: number; error?: string }>>({});
   const [connectingId, setConnectingId] = useState<string | null>(null);
 
+  // Local model discovery state
+  const [discoveryProvider, setDiscoveryProvider] = useState<string | null>(null);
+  const [discoveryUrl, setDiscoveryUrl] = useState("");
+  const [discoveredModels, setDiscoveredModels] = useState<DiscoveredModel[]>([]);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+
   // Queries
   const { data: models = [], isLoading: modelsLoading, isError: modelsError } = useQuery<Model[]>({ queryKey: ["/api/models"] });
   const { data: providers = [], isLoading: providersLoading, isError: providersError } = useQuery<ProviderInfo[]>({ queryKey: ["/api/models/providers"] });
   const { data: envVars = [], isLoading: envVarsLoading, isError: envVarsError } = useQuery<EnvVarInfo[]>({ queryKey: ["/api/models/env-vars"] });
+  const { data: roles = [], isLoading: rolesLoading } = useQuery<RoleConfig[]>({ queryKey: ["/api/models/roles"] });
 
   // Quick-add form state
   const [qaProvider, setQaProvider] = useState("");
@@ -120,6 +164,7 @@ export function ModelsPage() {
     mutationFn: (data: any) => apiRequest("POST", "/api/models", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/models"] });
+      qc.invalidateQueries({ queryKey: ["/api/models/roles"] });
       setActiveTab("connected");
       resetForm();
       toast({ title: "Model added" });
@@ -131,6 +176,7 @@ export function ModelsPage() {
     mutationFn: (data: any) => apiRequest("POST", "/api/models/quick-add", data),
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["/api/models"] });
+      qc.invalidateQueries({ queryKey: ["/api/models/roles"] });
       setActiveTab("connected");
       setSelectedProvider(null);
       resetQuickAdd();
@@ -145,7 +191,7 @@ export function ModelsPage() {
 
   const deleteModel = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/models/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/models"] }); toast({ title: "Model removed" }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/models"] }); qc.invalidateQueries({ queryKey: ["/api/models/roles"] }); toast({ title: "Model removed" }); },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
@@ -178,6 +224,36 @@ export function ModelsPage() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const assignRole = useMutation({
+    mutationFn: ({ id, role, isDefault }: { id: string; role: string; isDefault: boolean }) =>
+      apiRequest("POST", `/api/models/${id}/assign-role`, { role, isDefault }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/models"] });
+      qc.invalidateQueries({ queryKey: ["/api/models/roles"] });
+      toast({ title: "Role assigned" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const unassignRole = useMutation({
+    mutationFn: (id: string) => apiRequest("POST", `/api/models/${id}/unassign-role`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/models"] });
+      qc.invalidateQueries({ queryKey: ["/api/models/roles"] });
+      toast({ title: "Role removed" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const updateRoleStrategy = useMutation({
+    mutationFn: ({ role, ...data }: any) => apiRequest("PUT", `/api/models/roles/${role}`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/models/roles"] });
+      toast({ title: "Strategy updated" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const testModel = async (id: string) => {
     setTestResults(r => ({ ...r, [id]: { ok: false } }));
     try {
@@ -186,6 +262,45 @@ export function ModelsPage() {
       qc.invalidateQueries({ queryKey: ["/api/models"] });
     } catch (e: any) {
       setTestResults(r => ({ ...r, [id]: { ok: false, error: e.message } }));
+    }
+  };
+
+  const discoverLocalModels = async (provider: string, baseUrl: string) => {
+    setDiscovering(true);
+    setDiscoveryError(null);
+    setDiscoveredModels([]);
+    try {
+      const res = await apiRequest("POST", "/api/models/discover-local", { provider, baseUrl }) as any;
+      if (res.ok) {
+        setDiscoveredModels(res.models);
+        if (res.models.length === 0) setDiscoveryError("Server is running but no models found. Load a model first.");
+      } else {
+        setDiscoveryError(res.error || "Could not connect to local server");
+      }
+    } catch (e: any) {
+      setDiscoveryError(e.message);
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const addDiscoveredModel = async (provider: string, baseUrl: string, discovered: DiscoveredModel) => {
+    try {
+      await apiRequest("POST", "/api/models", {
+        name: discovered.name,
+        provider,
+        modelId: discovered.modelId,
+        baseUrl,
+        authMethod: "none",
+        capabilities: ["chat", "code"],
+        contextWindow: 32768,
+        speedTier: "medium",
+      });
+      qc.invalidateQueries({ queryKey: ["/api/models"] });
+      qc.invalidateQueries({ queryKey: ["/api/models/roles"] });
+      toast({ title: "Model added", description: `${discovered.name} from ${provider}` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
     }
   };
 
@@ -241,7 +356,7 @@ export function ModelsPage() {
         <Cpu className="w-4 h-4 text-primary" />
         <h1 className="font-semibold text-sm">Models</h1>
         <p className="text-xs text-muted-foreground flex-1">
-          Connect any LLM — API key, environment variable, or 1-click setup
+          Multi-provider model management with role-based assignment
         </p>
         <Badge variant="outline" className="text-[10px]">
           {models.length} model{models.length !== 1 ? "s" : ""}
@@ -249,7 +364,7 @@ export function ModelsPage() {
       </div>
 
       {/* Env var detection banner */}
-      {detectedEnvVars.length > 0 && activeTab !== "connected" && (
+      {detectedEnvVars.length > 0 && activeTab !== "connected" && activeTab !== "roles" && (
         <div className="mx-4 mt-3 p-2.5 rounded-lg bg-green-500/10 border border-green-500/20 flex items-center gap-2">
           <Variable className="w-3.5 h-3.5 text-green-400 shrink-0" />
           <span className="text-xs text-green-300">
@@ -266,15 +381,21 @@ export function ModelsPage() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
         <div className="px-4 pt-3">
-          <TabsList className="grid w-full grid-cols-3 h-8">
+          <TabsList className="grid w-full grid-cols-5 h-8">
             <TabsTrigger value="connected" className="text-xs" data-testid="tab-connected">
-              Connected ({models.length})
+              Models ({models.length})
+            </TabsTrigger>
+            <TabsTrigger value="roles" className="text-xs" data-testid="tab-roles">
+              Roles
+            </TabsTrigger>
+            <TabsTrigger value="local" className="text-xs" data-testid="tab-local">
+              Local
             </TabsTrigger>
             <TabsTrigger value="add" className="text-xs" data-testid="tab-add">
-              Add Model
+              Add
             </TabsTrigger>
             <TabsTrigger value="manual" className="text-xs" data-testid="tab-manual">
-              Manual Setup
+              Manual
             </TabsTrigger>
           </TabsList>
         </div>
@@ -288,9 +409,14 @@ export function ModelsPage() {
               <p className="text-xs mt-1 mb-4 max-w-xs mx-auto">
                 Add a model to get started — pick a provider, enter your API key or use an environment variable.
               </p>
-              <Button size="sm" onClick={() => setActiveTab("add")} className="gap-1.5">
-                <Plus className="w-3 h-3" /> Add Your First Model
-              </Button>
+              <div className="flex gap-2 justify-center">
+                <Button size="sm" onClick={() => setActiveTab("add")} className="gap-1.5">
+                  <Plus className="w-3 h-3" /> Cloud Provider
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setActiveTab("local")} className="gap-1.5">
+                  <Server className="w-3 h-3" /> Local Model
+                </Button>
+              </div>
             </div>
           ) : (
             <div className="space-y-2">
@@ -299,6 +425,8 @@ export function ModelsPage() {
                 const status = (model as any).connectionStatus || "unconfigured";
                 const authMethod = (model as any).authMethod || "api_key";
                 const testResult = testResults[model.id];
+                const modelRole = (model as any).modelRole;
+                const isRoleDefault = (model as any).isRoleDefault;
 
                 return (
                   <Card key={model.id} className={`p-3 ${!model.enabled ? "opacity-50" : ""}`}
@@ -323,6 +451,12 @@ export function ModelsPage() {
                           )}
                           {model.isOrchestrator && (
                             <Badge variant="secondary" className="text-[10px] gap-1"><Brain className="w-2.5 h-2.5" />Orchestrator</Badge>
+                          )}
+                          {modelRole && (
+                            <Badge variant="outline" className={`text-[10px] gap-1 ${ROLE_INFO[modelRole]?.color || ""}`}>
+                              {ROLE_INFO[modelRole]?.label || modelRole}
+                              {isRoleDefault && <Star className="w-2 h-2" />}
+                            </Badge>
                           )}
                           {model.speedTier === "fast" && (
                             <Badge variant="outline" className="text-[10px] gap-1 text-green-400 border-green-400/30">
@@ -440,6 +574,287 @@ export function ModelsPage() {
                   </Card>
                 );
               })}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ═══ Tab: Role Assignment (Agent Zero-style) ═══ */}
+        <TabsContent value="roles" className="flex-1 overflow-auto p-4 mt-0">
+          <div className="mb-4">
+            <p className="text-xs text-muted-foreground">
+              Assign the right model to each role. The router automatically picks the best model per task type.
+              Unassigned models remain available as fallbacks.
+            </p>
+          </div>
+
+          {rolesLoading ? (
+            <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
+              <Loader2 className="w-4 h-4 animate-spin mr-2" />Loading roles...
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {roles.map(roleConfig => {
+                const info = ROLE_INFO[roleConfig.role];
+                const RoleIcon = info?.icon || Cpu;
+                const unassignedModels = models.filter(m => !(m as any).modelRole && m.enabled);
+                return (
+                  <Card key={roleConfig.role} className="p-3" data-testid={`role-card-${roleConfig.role}`}>
+                    <div className="flex items-start gap-3">
+                      <div className={`w-9 h-9 rounded-lg bg-muted flex items-center justify-center shrink-0`}>
+                        <RoleIcon className={`w-4.5 h-4.5 ${info?.color?.split(" ")[0] || "text-primary"}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold text-sm">{info?.label || roleConfig.role}</span>
+                          {roleConfig.resolvedModel ? (
+                            <Badge variant="outline" className="text-[10px] text-green-400 border-green-400/30 gap-1">
+                              <Check className="w-2 h-2" /> {roleConfig.resolvedModel.name}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] text-zinc-500 border-zinc-500/30">
+                              No model assigned
+                            </Badge>
+                          )}
+                          {roleConfig.preferLocal && (
+                            <Badge variant="outline" className="text-[10px] text-amber-400 border-amber-400/30 gap-1">
+                              <Server className="w-2 h-2" /> Prefer local
+                            </Badge>
+                          )}
+                          <Badge variant="outline" className="text-[10px]">
+                            {roleConfig.strategy}
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mb-2">{info?.desc}</p>
+
+                        {/* Assigned models */}
+                        {roleConfig.assignedModels.length > 0 && (
+                          <div className="flex gap-1.5 flex-wrap mb-2">
+                            {roleConfig.assignedModels.map(m => (
+                              <div key={m.id} className="flex items-center gap-1.5 bg-muted rounded-md px-2 py-1 text-[11px]">
+                                <StatusDot status={m.connectionStatus} />
+                                <span className="font-medium">{m.name}</span>
+                                {m.isRoleDefault && <Star className="w-2.5 h-2.5 text-amber-400" />}
+                                <button onClick={() => unassignRole.mutate(m.id)}
+                                  className="ml-1 text-muted-foreground hover:text-red-400 transition-colors"
+                                  title="Remove from role" data-testid={`unassign-${m.id}`}>
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Assign model dropdown */}
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value=""
+                            onValueChange={(modelId) => {
+                              if (modelId) {
+                                assignRole.mutate({
+                                  id: modelId,
+                                  role: roleConfig.role,
+                                  isDefault: roleConfig.assignedModels.length === 0,
+                                });
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-7 text-xs w-[220px]" data-testid={`assign-select-${roleConfig.role}`}>
+                              <SelectValue placeholder="Assign a model..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {unassignedModels.map(m => (
+                                <SelectItem key={m.id} value={m.id}>
+                                  {m.name} ({(providers.find(p => p.id === m.provider)?.name || m.provider)})
+                                </SelectItem>
+                              ))}
+                              {unassignedModels.length === 0 && (
+                                <SelectItem value="_none" disabled>No unassigned models</SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+
+                          {/* Prefer local toggle */}
+                          <Button
+                            size="sm"
+                            variant={roleConfig.preferLocal ? "default" : "outline"}
+                            className="h-7 text-xs gap-1"
+                            onClick={() => updateRoleStrategy.mutate({
+                              role: roleConfig.role,
+                              strategy: roleConfig.strategy,
+                              preferLocal: !roleConfig.preferLocal,
+                            })}
+                            title="Prefer local models for zero-cost 24/7 operation"
+                            data-testid={`prefer-local-${roleConfig.role}`}
+                          >
+                            <Server className="w-3 h-3" />
+                            {roleConfig.preferLocal ? "Local preferred" : "Prefer local"}
+                          </Button>
+
+                          {/* Strategy selector */}
+                          <Select
+                            value={roleConfig.strategy}
+                            onValueChange={(strategy) => updateRoleStrategy.mutate({
+                              role: roleConfig.role,
+                              strategy,
+                              preferLocal: roleConfig.preferLocal,
+                            })}
+                          >
+                            <SelectTrigger className="h-7 text-xs w-[130px]" data-testid={`strategy-${roleConfig.role}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="single">Single model</SelectItem>
+                              <SelectItem value="fallback">With fallback</SelectItem>
+                              <SelectItem value="round_robin">Round robin</SelectItem>
+                              <SelectItem value="cost_optimized">Cost optimized</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* ═══ Tab: Local Models ═══ */}
+        <TabsContent value="local" className="flex-1 overflow-auto p-4 mt-0">
+          <div className="mb-4">
+            <p className="text-xs text-muted-foreground mb-1">
+              Connect to local model servers for zero-cost 24/7 operation. Run any open-source model on your own hardware.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+            {LOCAL_PROVIDERS.map(lp => {
+              const isSelected = discoveryProvider === lp.id;
+              const existingCount = models.filter(m => m.provider === lp.id).length;
+              return (
+                <button
+                  key={lp.id}
+                  onClick={() => {
+                    setDiscoveryProvider(lp.id);
+                    setDiscoveryUrl(lp.defaultUrl);
+                    setDiscoveredModels([]);
+                    setDiscoveryError(null);
+                  }}
+                  className={`flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
+                    isSelected
+                      ? "bg-primary/10 border-primary"
+                      : "bg-card border-border hover:border-primary/40"
+                  }`}
+                  data-testid={`local-provider-${lp.id}`}
+                >
+                  <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                    <Server className={`w-4.5 h-4.5 ${isSelected ? "text-primary" : "text-muted-foreground"}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium text-sm">{lp.name}</span>
+                      {existingCount > 0 && (
+                        <Badge variant="outline" className="text-[9px] text-green-400 border-green-400/30 px-1 py-0">
+                          {existingCount} added
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">{lp.desc}</p>
+                    <p className="text-[10px] text-muted-foreground">Port {lp.port}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {discoveryProvider && (
+            <Card className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Server className="w-4 h-4 text-primary" />
+                <span className="font-semibold text-sm">
+                  {LOCAL_PROVIDERS.find(lp => lp.id === discoveryProvider)?.name} Connection
+                </span>
+              </div>
+
+              <div className="flex gap-2 mb-4">
+                <Input
+                  value={discoveryUrl}
+                  onChange={e => setDiscoveryUrl(e.target.value)}
+                  placeholder="http://localhost:11434/v1"
+                  className="h-8 text-sm flex-1"
+                  data-testid="input-discovery-url"
+                />
+                <Button
+                  size="sm"
+                  className="h-8 gap-1.5"
+                  onClick={() => discoverLocalModels(discoveryProvider, discoveryUrl)}
+                  disabled={discovering || !discoveryUrl}
+                  data-testid="button-discover"
+                >
+                  {discovering ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+                  Discover Models
+                </Button>
+              </div>
+
+              {discoveryError && (
+                <div className="p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-2 mb-3">
+                  <WifiOff className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                  <span className="text-xs text-red-300">{discoveryError}</span>
+                </div>
+              )}
+
+              {discoveredModels.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground mb-2">
+                    <Wifi className="w-3 h-3 inline mr-1 text-green-400" />
+                    Found {discoveredModels.length} model{discoveredModels.length !== 1 ? "s" : ""}:
+                  </p>
+                  {discoveredModels.map(dm => {
+                    const alreadyAdded = models.some(m => m.provider === discoveryProvider && m.modelId === dm.modelId);
+                    return (
+                      <div key={dm.modelId}
+                        className="flex items-center gap-3 p-2.5 rounded-lg border border-border bg-card"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium">{dm.name}</span>
+                          <p className="text-[10px] text-muted-foreground">
+                            {dm.ownedBy} · {dm.modelId}
+                          </p>
+                        </div>
+                        {alreadyAdded ? (
+                          <Badge variant="outline" className="text-[10px] text-green-400 border-green-400/30">Added</Badge>
+                        ) : (
+                          <Button size="sm" className="h-7 text-xs gap-1"
+                            onClick={() => addDiscoveredModel(discoveryProvider!, discoveryUrl, dm)}
+                            data-testid={`add-discovered-${dm.modelId}`}>
+                            <Plus className="w-3 h-3" /> Add
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {!discovering && !discoveryError && discoveredModels.length === 0 && (
+                <div className="text-center py-6 text-muted-foreground">
+                  <MonitorSmartphone className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                  <p className="text-xs">
+                    Make sure {LOCAL_PROVIDERS.find(lp => lp.id === discoveryProvider)?.name} is running, then click Discover Models
+                  </p>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {!discoveryProvider && (
+            <div className="text-center py-8 text-muted-foreground">
+              <Server className="w-10 h-10 mx-auto mb-3 opacity-20" />
+              <p className="text-sm font-medium">Select a local provider above</p>
+              <p className="text-xs mt-1 max-w-sm mx-auto">
+                Ultra Computer will probe the server to discover available models and let you add them with one click.
+                Local models run at zero cost — 24/7.
+              </p>
             </div>
           )}
         </TabsContent>
@@ -732,8 +1147,9 @@ export function ModelsPage() {
                 </div>
               )}
 
-              {/* Base URL (always shown for compat/custom/ollama, optional for others) */}
+              {/* Base URL (always shown for compat/custom/ollama/vllm, optional for others) */}
               {(form.provider === "openai_compat" || form.provider === "custom" || form.provider === "ollama" ||
+                form.provider === "vllm" || form.provider === "lmstudio" ||
                 form.provider === "mistral" || form.provider === "groq" || form.provider === "together" ||
                 form.provider === "deepseek" || form.provider === "xai" || form.provider === "cohere") && (
                 <div className="col-span-2">

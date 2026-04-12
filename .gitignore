@@ -41,3 +41,4 @@ tmp/
 .tmp/
 ipc/
 sandbox/
+ultra_computer.db*
