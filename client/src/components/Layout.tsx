@@ -11,6 +11,7 @@ import {
   ChevronLeft, ChevronRight, Trash2, BookOpen,
   Container, Library, Settings, FolderOpen, BarChart3, Globe, Store, Activity,
   MessageSquare, Zap, Shield, Database, FileText, Bug, Eye, Podcast,
+  FlaskConical, ShieldCheck, CircleDollarSign, Hexagon, SearchCode, ScanEye,
 } from "lucide-react";
 import { MobileSidebar, MobileMenuButton } from "./MobileSidebar";
 import { NotificationCenter } from "./NotificationCenter";
@@ -34,9 +35,14 @@ const NAV = [
   { href: "/identity", icon: Shield, label: "Identity" },
   { href: "/cache", icon: Database, label: "Cache" },
   { href: "/knowledge", icon: FileText, label: "Knowledge" },
-  { href: "/swarm", icon: Bug, label: "Swarm" },
+  { href: "/swarm", icon: Hexagon, label: "Swarm" },
   { href: "/tokens", icon: BarChart3, label: "Tokens" },
   { href: "/voice", icon: Podcast, label: "Voice" },
+  { href: "/crucible", icon: FlaskConical, label: "Crucible" },
+  { href: "/sentinel", icon: ShieldCheck, label: "Sentinel" },
+  { href: "/debugger", icon: SearchCode, label: "Debugger" },
+  { href: "/observability", icon: ScanEye, label: "Observability" },
+  { href: "/costs", icon: CircleDollarSign, label: "Costs" },
   { href: "/privacy", icon: Eye, label: "Privacy" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ];

@@ -36,6 +36,11 @@ const KnowledgePage = lazy(() => import("./pages/KnowledgePage").then(m => ({ de
 const SwarmPage = lazy(() => import("./pages/SwarmPage").then(m => ({ default: m.SwarmPage })));
 const TelemetryPage = lazy(() => import("./pages/TelemetryPage"));
 const VoicePage = lazy(() => import("./pages/VoicePage"));
+const CruciblePage = lazy(() => import("./pages/CruciblePage").then(m => ({ default: m.CruciblePage })));
+const SentinelPage = lazy(() => import("./pages/SentinelPage").then(m => ({ default: m.SentinelPage })));
+const DebuggerPage = lazy(() => import("./pages/DebuggerPage").then(m => ({ default: m.DebuggerPage })));
+const ObservabilityPage = lazy(() => import("./pages/ObservabilityPage").then(m => ({ default: m.ObservabilityPage })));
+const CostControllerPage = lazy(() => import("./pages/CostControllerPage").then(m => ({ default: m.CostControllerPage })));
 
 // ─── Loading fallback ────────────────────────────────────────────────────────
 function PageLoader() {
@@ -107,6 +112,11 @@ export default function App() {
             <Route path="/swarm"><LazyPage><SwarmPage /></LazyPage></Route>
             <Route path="/privacy"><LazyPage><TelemetryPage /></LazyPage></Route>
             <Route path="/voice"><LazyPage><VoicePage /></LazyPage></Route>
+            <Route path="/crucible"><LazyPage><CruciblePage /></LazyPage></Route>
+            <Route path="/sentinel"><LazyPage><SentinelPage /></LazyPage></Route>
+            <Route path="/debugger"><LazyPage><DebuggerPage /></LazyPage></Route>
+            <Route path="/observability"><LazyPage><ObservabilityPage /></LazyPage></Route>
+            <Route path="/costs"><LazyPage><CostControllerPage /></LazyPage></Route>
             <Route component={NotFound} />
           </Switch>
         </Router>
