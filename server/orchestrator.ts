@@ -26,6 +26,10 @@ import { analyzeTaskComplexity, routeToOptimalModel } from "./modelSpeedRouter.j
 import { logExecutionWithPrivacy } from "./telemetryEngine.js";
 import { knowledgeEngine } from "./knowledgeEngine.js";
 import { swarmEngine } from "./swarmEngine.js";
+import { checkWithSentinel } from "./sentinelEngine.js";
+import { startSpan, endSpan, addSpanEvent } from "./observabilityEngine.js";
+import { recordTokenUsage, checkBudgetBeforeStep } from "./costController.js";
+import { diagnose } from "./debuggerEngine.js";
 import type { Task } from "@shared/schema";
 
 // IPC directory for filesystem-based inter-agent communication
@@ -90,10 +94,25 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
   const conv = storage.getConversation(conversationId);
   if (!conv) throw new Error("Conversation not found");
 
+  // Start observability trace
+  const rootSpan = startSpan({
+    operationName: "orchestrator.run",
+    serviceName: "orchestrator",
+    attributes: { conversationId, messageLength: userMessage.length },
+  });
+  const traceId = rootSpan.traceId;
+
   storage.updateConversation(conversationId, { status: "planning" });
   emit(conversationId, { type: "status", status: "planning", message: "Analyzing your request..." });
 
   try {
+    // SENTINEL: Check user input for injection/safety
+    const inputCheck = checkWithSentinel("input-check", "user", userMessage, { isUserInput: true });
+    if (!inputCheck.safe) {
+      endSpan(rootSpan.spanId, { status: "error", error: { message: `Input blocked: ${inputCheck.blockedReason}` } });
+      throw new Error(`Input blocked by safety filter: ${inputCheck.blockedReason}`);
+    }
+    addSpanEvent(rootSpan.spanId, "input_safety_passed");
     // 1. Recall relevant memory
     const memories = memoryManager.recallForPrompt(userMessage);
     emit(conversationId, { type: "status", status: "planning", message: "Loading memory context..." });
@@ -276,6 +295,7 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
     const results = await executeDAG(allDbTasks, conversationId, memories, skillContext);
 
     // 7. Synthesize final response
+    const synthSpan = startSpan({ traceId, parentSpanId: rootSpan.spanId, operationName: "orchestrator.synthesize", serviceName: "orchestrator" });
     emit(conversationId, { type: "status", status: "synthesizing", message: "Synthesizing results..." });
     const finalResponse = await synthesizeResults(
       userMessage,
@@ -285,9 +305,25 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
       orchModel.id,
       conversationId
     );
+    endSpan(synthSpan.spanId, { attributes: { responseLength: finalResponse.length } });
 
     // 7b. Mark synthesis agent as complete
     emit(conversationId, { type: "agent_complete", agentRunId: "synthesis", tokenCount: finalResponse.length });
+
+    // SENTINEL: Check output for PII/credential leaks before sending to user
+    const outputCheck = checkWithSentinel("output-check", "orchestrator", finalResponse, { isUserInput: false });
+    const safeResponse = outputCheck.sanitizedOutput || finalResponse;
+
+    // Cost tracking
+    recordTokenUsage({
+      conversationId,
+      modelId: orchModel.id,
+      operation: "synthesis",
+      inputTokens: Math.round(finalResponse.length / 4),
+      outputTokens: Math.round(finalResponse.length / 4),
+      totalTokens: Math.round(finalResponse.length / 2),
+      timestamp: Date.now(),
+    });
 
     // 8. Save assistant message
     const msgId = uuidv4();
@@ -295,20 +331,28 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
       id: msgId,
       conversationId,
       role: "assistant",
-      content: finalResponse,
+      content: safeResponse,
       modelId: orchModel.id,
-      metadata: JSON.stringify({ skillIds: matchedSkills.map(s => s.id) }),
+      metadata: JSON.stringify({ skillIds: matchedSkills.map(s => s.id), traceId }),
     });
-    emit(conversationId, { type: "message", role: "assistant", content: finalResponse, messageId: msgId });
+    emit(conversationId, { type: "message", role: "assistant", content: safeResponse, messageId: msgId });
 
     // 9. Update memory with this exchange
-    await memoryManager.extractAndStore(userMessage, finalResponse, conversationId);
+    await memoryManager.extractAndStore(userMessage, safeResponse, conversationId);
     emit(conversationId, { type: "memory_update", summary: "Memory updated with session context." });
 
     storage.updateConversation(conversationId, { status: "idle" });
+    endSpan(rootSpan.spanId, { attributes: { taskCount: plan.tasks.length, traceId } });
     emit(conversationId, { type: "done", summary: `Completed ${plan.tasks.length} task(s).` });
 
   } catch (err: any) {
+    // DEBUGGER: Auto-diagnose the failure
+    try {
+      const diag = diagnose({ taskId: conversationId, error: err.message || "Unknown", context: { conversationId } });
+      console.log(`[debugger] Diagnosis: ${diag.errorCategory} — ${diag.rootCause}`);
+    } catch {}
+
+    endSpan(rootSpan.spanId, { error: { message: err.message || "Unknown error" } });
     storage.updateConversation(conversationId, { status: "error" });
     emit(conversationId, { type: "error", error: err.message || "Unknown error" });
     throw err;
