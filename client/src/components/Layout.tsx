@@ -10,7 +10,7 @@ import {
   Plus, Cpu, Brain, Plug, Sun, Moon,
   ChevronLeft, ChevronRight, Trash2, BookOpen,
   Container, Library, Settings, FolderOpen, BarChart3, Globe, Store, Activity,
-  MessageSquare, Zap, Shield, Database, FileText, Bug,
+  MessageSquare, Zap, Shield, Database, FileText, Bug, Eye,
 } from "lucide-react";
 import { MobileSidebar, MobileMenuButton } from "./MobileSidebar";
 import { NotificationCenter } from "./NotificationCenter";
@@ -36,6 +36,7 @@ const NAV = [
   { href: "/knowledge", icon: FileText, label: "Knowledge" },
   { href: "/swarm", icon: Bug, label: "Swarm" },
   { href: "/tokens", icon: BarChart3, label: "Tokens" },
+  { href: "/privacy", icon: Eye, label: "Privacy" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ];
 

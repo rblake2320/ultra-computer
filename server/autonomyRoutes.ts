@@ -29,6 +29,12 @@ import {
   getTaskTypeInsights, getRecommendation,
 } from "./selfLearning.js";
 import {
+  getTelemetrySettings, updateTelemetrySettings, logExecutionWithPrivacy,
+  getAggregateAnalytics, rollUpAggregates, exportUserData, purgeUserData,
+  enforceRetention, getPlatformLearningSummary,
+  type ConsentLevel, type UserTier,
+} from "./telemetryEngine.js";
+import {
   recordSkillExecution, analyzeAllSkills as analyzeAllSkillPerf,
   generateImprovements, getImprovementSuggestions,
   applyImprovement, rejectImprovement, getSkillHealth,
@@ -251,8 +257,8 @@ export function registerAutonomyRoutes(app: Express) {
       if (!body.taskType || typeof body.taskType !== "string") {
         return res.status(400).json({ error: "taskType (string) is required" });
       }
-      const entry = logExecution(body);
-      res.json(entry);
+      const entry = logExecutionWithPrivacy(body);
+      res.json(entry ?? { skipped: true, reason: "User opted out of telemetry" });
     } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to log execution" }); }
   });
 
@@ -366,5 +372,74 @@ export function registerAutonomyRoutes(app: Express) {
         skillHealth,
       });
     } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to fetch autonomy dashboard" }); }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TELEMETRY & PRIVACY
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Get current telemetry/privacy settings
+  app.get("/api/telemetry/settings", (_req, res) => {
+    try {
+      const settings = getTelemetrySettings();
+      res.json(settings);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Update telemetry/privacy settings
+  app.patch("/api/telemetry/settings", (req, res) => {
+    try {
+      const updated = updateTelemetrySettings("default", req.body);
+      res.json(updated);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
+  // Get aggregate analytics
+  app.get("/api/telemetry/aggregates", (req, res) => {
+    try {
+      const period = (req.query.period as "hourly" | "daily" | "weekly") || "daily";
+      const limit = parseInt(req.query.limit as string) || 30;
+      res.json(getAggregateAnalytics(period, limit));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Roll up aggregates (hourly → daily → weekly)
+  app.post("/api/telemetry/aggregates/rollup", (_req, res) => {
+    try {
+      const result = rollUpAggregates();
+      res.json({ ok: true, ...result });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Platform learning summary (cross-user, fully anonymized)
+  app.get("/api/telemetry/platform-summary", (_req, res) => {
+    try {
+      res.json(getPlatformLearningSummary());
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Export all user data (GDPR-style data portability)
+  app.get("/api/telemetry/export", (_req, res) => {
+    try {
+      const data = exportUserData();
+      res.setHeader("Content-Disposition", "attachment; filename=ultra-computer-data-export.json");
+      res.json(data);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Purge all individual data (GDPR-style right to erasure)
+  app.post("/api/telemetry/purge", (_req, res) => {
+    try {
+      const result = purgeUserData();
+      res.json({ ok: true, ...result, note: "Individual data purged. Anonymized aggregate data retained for platform learning." });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Enforce retention policy (auto-cleanup old data)
+  app.post("/api/telemetry/enforce-retention", (_req, res) => {
+    try {
+      const result = enforceRetention();
+      res.json({ ok: true, ...result });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
 }

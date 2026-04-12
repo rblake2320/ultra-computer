@@ -439,3 +439,70 @@ export const swarmTasks = sqliteTable("swarm_tasks", {
 });
 export type SwarmTask = typeof swarmTasks.$inferSelect;
 export type InsertSwarmTask = typeof swarmTasks.$inferInsert;
+
+// ─── Telemetry & Privacy ────────────────────────────────────────────────────
+// Per-user privacy preferences controlling what data is collected and retained.
+// Free tier: full telemetry (anonymized and aggregated for platform learning).
+// Paid tier: can opt out entirely, or choose granular controls.
+export const telemetrySettings = sqliteTable("telemetry_settings", {
+  userId: text("user_id").primaryKey(), // "default" for single-tenant, or real user IDs
+  // ── Consent Level ──
+  // "full"       = everything logged (default / free tier)
+  // "anonymized" = logged but PII stripped (task descriptions hashed, no conversation content)
+  // "aggregate"  = only numeric stats (counts, durations, success rates) — no text at all
+  // "none"       = fully opted out, zero data collection
+  consentLevel: text("consent_level").notNull().default("full"),
+  // ── Granular Controls ──
+  logTaskDescriptions: integer("log_task_descriptions", { mode: "boolean" }).notNull().default(true),
+  logModelUsage: integer("log_model_usage", { mode: "boolean" }).notNull().default(true),
+  logToolCalls: integer("log_tool_calls", { mode: "boolean" }).notNull().default(true),
+  logTokenCounts: integer("log_token_counts", { mode: "boolean" }).notNull().default(true),
+  logErrorDetails: integer("log_error_details", { mode: "boolean" }).notNull().default(true),
+  logUserFeedback: integer("log_user_feedback", { mode: "boolean" }).notNull().default(true),
+  // ── Data Retention ──
+  retentionDays: integer("retention_days").notNull().default(90), // auto-purge after N days (0 = forever)
+  // ── Sharing ──
+  shareAnonymizedForPlatformLearning: integer("share_anonymized", { mode: "boolean" }).notNull().default(true),
+  // ── Metadata ──
+  tier: text("tier").notNull().default("free"), // "free" | "pro" | "enterprise"
+  updatedAt: integer("updated_at").notNull().$defaultFn(() => Date.now()),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+export type TelemetrySetting = typeof telemetrySettings.$inferSelect;
+export type InsertTelemetrySetting = typeof telemetrySettings.$inferInsert;
+
+// ─── Aggregate Analytics ────────────────────────────────────────────────────
+// Pre-computed aggregate stats for platform-level learning.
+// Contains NO individual user data — only counts, rates, and distributions.
+export const aggregateAnalytics = sqliteTable("aggregate_analytics", {
+  id: text("id").primaryKey(),
+  period: text("period").notNull(), // "hourly" | "daily" | "weekly"
+  periodStart: integer("period_start").notNull(), // epoch ms
+  periodEnd: integer("period_end").notNull(),
+  // Execution metrics (anonymized aggregates)
+  totalExecutions: integer("total_executions").notNull().default(0),
+  successCount: integer("success_count").notNull().default(0),
+  failureCount: integer("failure_count").notNull().default(0),
+  partialCount: integer("partial_count").notNull().default(0),
+  avgDurationMs: integer("avg_duration_ms"),
+  p50DurationMs: integer("p50_duration_ms"),
+  p95DurationMs: integer("p95_duration_ms"),
+  // Model usage distribution (JSON: { modelId: count })
+  modelUsageDistribution: text("model_usage_distribution").notNull().default("{}"),
+  // Task type distribution (JSON: { taskType: count })
+  taskTypeDistribution: text("task_type_distribution").notNull().default("{}"),
+  // Error patterns (JSON: { errorType: count })
+  errorDistribution: text("error_distribution").notNull().default("{}"),
+  // Token economy
+  totalInputTokens: integer("total_input_tokens").notNull().default(0),
+  totalOutputTokens: integer("total_output_tokens").notNull().default(0),
+  // Fallback/retry stats
+  totalRetries: integer("total_retries").notNull().default(0),
+  totalFallbacks: integer("total_fallbacks").notNull().default(0),
+  // User satisfaction (from feedback, anonymized)
+  positiveRatings: integer("positive_ratings").notNull().default(0),
+  negativeRatings: integer("negative_ratings").notNull().default(0),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+export type AggregateAnalytic = typeof aggregateAnalytics.$inferSelect;
+export type InsertAggregateAnalytic = typeof aggregateAnalytics.$inferInsert;

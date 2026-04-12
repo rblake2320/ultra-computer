@@ -23,7 +23,7 @@ import { compactContext } from "./contextCompactor.js";
 import { detectChain, buildChainPlan } from "./skillChaining.js";
 import { withRetryAndFallback } from "./errorRecovery.js";
 import { analyzeTaskComplexity, routeToOptimalModel } from "./modelSpeedRouter.js";
-import { logExecution } from "./selfLearning.js";
+import { logExecutionWithPrivacy } from "./telemetryEngine.js";
 import { knowledgeEngine } from "./knowledgeEngine.js";
 import { swarmEngine } from "./swarmEngine.js";
 import type { Task } from "@shared/schema";
@@ -712,7 +712,7 @@ async function runWorkerAgent(
   const outcome = (finalOutput.includes("[FAILED:") || finalOutput.includes("[LLM call failed"))
     ? "failure"
     : "success";
-  logExecution({
+  logExecutionWithPrivacy({
     conversationId,
     taskType: task.taskType ?? "general",
     taskDescription: task.description,

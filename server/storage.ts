@@ -376,6 +376,46 @@ sqlite.exec(`
   CREATE INDEX IF NOT EXISTS idx_consensus_session ON consensus_rounds(swarm_session_id);
   CREATE INDEX IF NOT EXISTS idx_swarm_messages_session ON swarm_messages(swarm_session_id);
   CREATE INDEX IF NOT EXISTS idx_swarm_tasks_session ON swarm_tasks(swarm_session_id);
+
+  CREATE TABLE IF NOT EXISTS telemetry_settings (
+    user_id TEXT PRIMARY KEY,
+    consent_level TEXT NOT NULL DEFAULT 'full',
+    log_task_descriptions INTEGER NOT NULL DEFAULT 1,
+    log_model_usage INTEGER NOT NULL DEFAULT 1,
+    log_tool_calls INTEGER NOT NULL DEFAULT 1,
+    log_token_counts INTEGER NOT NULL DEFAULT 1,
+    log_error_details INTEGER NOT NULL DEFAULT 1,
+    log_user_feedback INTEGER NOT NULL DEFAULT 1,
+    retention_days INTEGER NOT NULL DEFAULT 90,
+    share_anonymized INTEGER NOT NULL DEFAULT 1,
+    tier TEXT NOT NULL DEFAULT 'free',
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  );
+
+  CREATE TABLE IF NOT EXISTS aggregate_analytics (
+    id TEXT PRIMARY KEY,
+    period TEXT NOT NULL,
+    period_start INTEGER NOT NULL,
+    period_end INTEGER NOT NULL,
+    total_executions INTEGER NOT NULL DEFAULT 0,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    partial_count INTEGER NOT NULL DEFAULT 0,
+    avg_duration_ms INTEGER,
+    p50_duration_ms INTEGER,
+    p95_duration_ms INTEGER,
+    model_usage_distribution TEXT NOT NULL DEFAULT '{}',
+    task_type_distribution TEXT NOT NULL DEFAULT '{}',
+    error_distribution TEXT NOT NULL DEFAULT '{}',
+    total_input_tokens INTEGER NOT NULL DEFAULT 0,
+    total_output_tokens INTEGER NOT NULL DEFAULT 0,
+    total_retries INTEGER NOT NULL DEFAULT 0,
+    total_fallbacks INTEGER NOT NULL DEFAULT 0,
+    positive_ratings INTEGER NOT NULL DEFAULT 0,
+    negative_ratings INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  );
 `);
 
 export interface IStorage {

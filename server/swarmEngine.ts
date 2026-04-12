@@ -23,7 +23,7 @@
 
 import { randomUUID } from "crypto";
 import { EventEmitter } from "events";
-import { logExecution } from "./selfLearning.js";
+import { logExecutionWithPrivacy } from "./telemetryEngine.js";
 import { chat, chatStream, selectModelForTask, type ChatMessage, type TaskType } from "./modelRouter.js";
 import { TOOL_SCHEMAS, executeTool, type ToolResult } from "./tools.js";
 import { withRetryAndFallback } from "./errorRecovery.js";
@@ -1562,7 +1562,7 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
 
     // Self-learning
     const outcome = (finalOutput.includes("[LLM error") || finalOutput.includes("[Safety")) ? "failure" : "success";
-    logExecution({
+    logExecutionWithPrivacy({
       conversationId: swarmId,
       taskType: "general",
       taskDescription: `[swarm:${session.config.name}] ${task.description}`,
@@ -1759,7 +1759,7 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
     const failed = tasks.filter(t => t.status === "failed").length;
     const outcome = failed === 0 && completed > 0 ? "success" : failed > 0 && completed > 0 ? "partial" : "failure";
 
-    logExecution({
+    logExecutionWithPrivacy({
       conversationId: session.config.id,
       taskType: "general",
       taskDescription: `[swarm:${session.config.name}] ${tasks.length} tasks, ${completed}✓ ${failed}✗, agents:${session.agents.size}, mode:${session.config.mode}, consensus:${session.consensusRounds.size}`,
