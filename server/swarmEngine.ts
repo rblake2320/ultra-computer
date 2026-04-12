@@ -1045,7 +1045,8 @@ class SwarmEngine {
 
     const round = session.consensusRounds.get(roundId);
     if (!round || round.status === "resolved" || round.status === "deadlocked") return false;
-    if (!round.participantAgentIds.includes(agentId)) return false;
+    // Allow human_override to bypass participant check (HITL injection)
+    if (agentId !== "human_override" && !round.participantAgentIds.includes(agentId)) return false;
 
     const vote: ConsensusVote = {
       agentId,

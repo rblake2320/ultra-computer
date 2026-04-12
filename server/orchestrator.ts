@@ -120,54 +120,69 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
       // Strip the swarm: prefix if present
       const swarmPrompt = userMessage.replace(/^swarm:\s*/i, "");
 
-      // Create a swarm, add default agents, decompose tasks, and run
+      // Create a swarm session, add default agents, decompose tasks, and run
       const swarm = swarmEngine.createSwarm({
         name: `Session ${conversationId.slice(0, 8)}`,
         description: swarmPrompt.slice(0, 200),
+        conversationId,
         defaultModelId: orchModel.id,
         mode: "collaborative",
+        enableRoleNegotiation: true,
+        enableDeadlockDetection: true,
+        enableDynamicSpawning: true,
+        enableStigmergy: true,
+        enableHandoffs: true,
+        consensusStrategy: "weighted_majority",
       });
 
-      // Add a research agent and a synthesis agent by default
-      swarmEngine.addAgent(swarm.config.id, {
+      const swarmId = swarm.config.id;
+
+      // Add a research agent, analyst, and writer by default
+      swarmEngine.addAgent(swarmId, {
         name: "Researcher",
         role: "research",
         instructions: "You are a thorough research agent. Find information, verify facts, and compile data.",
         modelId: orchModel.id,
         tools: ["search_web", "fetch_url", "read_file", "write_file"],
         canSpawn: true,
+        capabilityProfile: { speed: 0.6, accuracy: 0.8, cost: 0.5, specialties: ["research", "data-gathering", "fact-checking"] },
       });
-      swarmEngine.addAgent(swarm.config.id, {
+      swarmEngine.addAgent(swarmId, {
         name: "Analyst",
         role: "analysis",
         instructions: "You are an analytical agent. Examine data, identify patterns, and draw conclusions.",
         modelId: orchModel.id,
         tools: ["calculator", "bash", "read_file", "write_file"],
         canSpawn: true,
+        capabilityProfile: { speed: 0.5, accuracy: 0.9, cost: 0.6, specialties: ["analysis", "patterns", "data-science"] },
       });
-      swarmEngine.addAgent(swarm.config.id, {
+      swarmEngine.addAgent(swarmId, {
         name: "Writer",
         role: "writing",
         instructions: "You are a skilled writer. Produce clear, well-structured, comprehensive output.",
         modelId: orchModel.id,
         tools: ["write_file", "read_file"],
         canSpawn: false,
+        capabilityProfile: { speed: 0.7, accuracy: 0.7, cost: 0.4, specialties: ["writing", "synthesis", "formatting"] },
       });
 
-      // Add the main task
-      swarmEngine.addTask(swarm.config.id, {
+      // Add the main task with high priority for stigmergy
+      swarmEngine.addTask(swarmId, {
         description: swarmPrompt,
         priority: 80,
+        taskType: "general",
       });
 
-      // Run the swarm
-      const swarmResults = await swarmEngine.runSwarm(swarm.config.id);
+      // Run the swarm (auto-assigns tasks via Contract Net Protocol, runs deadlock detection)
+      const swarmResults = await swarmEngine.runSwarm(swarmId);
 
-      // Synthesize results
-      const allResults = Array.from(swarmResults.values());
+      // Synthesize results from all completed tasks
+      const allResults = Array.from(swarmResults.values()).filter(Boolean);
       const finalResponse = allResults.length === 1
         ? allResults[0]
-        : allResults.join("\n\n---\n\n");
+        : allResults.length === 0
+          ? "The swarm completed but produced no results."
+          : allResults.join("\n\n---\n\n");
 
       // Save assistant message
       const msgId = uuidv4();
@@ -177,7 +192,7 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
         role: "assistant",
         content: finalResponse,
         modelId: orchModel.id,
-        metadata: JSON.stringify({ swarmId: swarm.config.id, mode: "swarm" }),
+        metadata: JSON.stringify({ swarmId, mode: "swarm", stats: swarmEngine.getStats(swarmId) }),
       });
       emit(conversationId, { type: "message", role: "assistant", content: finalResponse, messageId: msgId });
 

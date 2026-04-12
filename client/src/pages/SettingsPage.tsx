@@ -11,7 +11,7 @@ import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { Sun, Moon, Settings, Sliders, Monitor } from "lucide-react";
+import { Sun, Moon, Settings, Sliders, Monitor, Network } from "lucide-react";
 import type { Model } from "../../../shared/schema";
 
 export function SettingsPage() {
@@ -31,6 +31,12 @@ export function SettingsPage() {
   const [defaultModelId, setDefaultModelId] = useState("");
   const [sandboxAutoEnable, setSandboxAutoEnable] = useState(false);
   const [maxToolIterations, setMaxToolIterations] = useState(10);
+  // Swarm defaults
+  const [swarmMaxTokens, setSwarmMaxTokens] = useState(1000000);
+  const [swarmMaxAgents, setSwarmMaxAgents] = useState(15);
+  const [swarmMaxSpawnDepth, setSwarmMaxSpawnDepth] = useState(3);
+  const [swarmDeadlockMs, setSwarmDeadlockMs] = useState(30000);
+  const [swarmConsensus, setSwarmConsensus] = useState("weighted_majority");
 
   // Sync local state from loaded settings
   useEffect(() => {
@@ -40,6 +46,16 @@ export function SettingsPage() {
       setSandboxAutoEnable(settings.sandbox_auto_enable === "true");
     if (settings.max_tool_iterations !== undefined)
       setMaxToolIterations(Number(settings.max_tool_iterations) || 10);
+    if (settings.swarm_max_tokens !== undefined)
+      setSwarmMaxTokens(Number(settings.swarm_max_tokens) || 1000000);
+    if (settings.swarm_max_agents !== undefined)
+      setSwarmMaxAgents(Number(settings.swarm_max_agents) || 15);
+    if (settings.swarm_max_spawn_depth !== undefined)
+      setSwarmMaxSpawnDepth(Number(settings.swarm_max_spawn_depth) || 3);
+    if (settings.swarm_deadlock_ms !== undefined)
+      setSwarmDeadlockMs(Number(settings.swarm_deadlock_ms) || 30000);
+    if (settings.swarm_consensus !== undefined)
+      setSwarmConsensus(settings.swarm_consensus);
   }, [settings]);
 
   const saveMutation = useMutation({
@@ -69,6 +85,16 @@ export function SettingsPage() {
     saveMutation.mutate({
       sandbox_auto_enable: sandboxAutoEnable ? "true" : "false",
       max_tool_iterations: String(maxToolIterations),
+    });
+  };
+
+  const handleSaveSwarm = () => {
+    saveMutation.mutate({
+      swarm_max_tokens: String(swarmMaxTokens),
+      swarm_max_agents: String(swarmMaxAgents),
+      swarm_max_spawn_depth: String(swarmMaxSpawnDepth),
+      swarm_deadlock_ms: String(swarmDeadlockMs),
+      swarm_consensus: swarmConsensus,
     });
   };
 
@@ -262,6 +288,119 @@ export function SettingsPage() {
               data-testid="button-save-system"
             >
               Save system settings
+            </Button>
+          </CardContent>
+        </Card>
+        {/* Swarm Configuration */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <Network className="w-4 h-4 text-muted-foreground" />
+              <CardTitle className="text-base">Swarm Intelligence</CardTitle>
+            </div>
+            <CardDescription>Default configuration for new swarm sessions</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label>Token budget per session</Label>
+                <span className="text-sm font-medium tabular-nums text-foreground" data-testid="text-swarm-max-tokens">
+                  {(swarmMaxTokens / 1000).toFixed(0)}K
+                </span>
+              </div>
+              <Slider
+                min={100000}
+                max={10000000}
+                step={100000}
+                value={[swarmMaxTokens]}
+                onValueChange={([v]) => setSwarmMaxTokens(v)}
+                data-testid="slider-swarm-max-tokens"
+                aria-label="Swarm token budget"
+              />
+              <p className="text-xs text-muted-foreground">
+                Maximum total tokens all swarm agents can consume. Budget enforcement kicks in at 90%.
+              </p>
+            </div>
+
+            <Separator />
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="swarm-max-agents">Max agents</Label>
+                <Input
+                  id="swarm-max-agents"
+                  type="number"
+                  min={2}
+                  max={50}
+                  value={swarmMaxAgents}
+                  onChange={(e) => setSwarmMaxAgents(Number(e.target.value) || 15)}
+                  data-testid="input-swarm-max-agents"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="swarm-spawn-depth">Max spawn depth</Label>
+                <Input
+                  id="swarm-spawn-depth"
+                  type="number"
+                  min={0}
+                  max={10}
+                  value={swarmMaxSpawnDepth}
+                  onChange={(e) => setSwarmMaxSpawnDepth(Number(e.target.value) || 3)}
+                  data-testid="input-swarm-spawn-depth"
+                />
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label>Deadlock detection interval</Label>
+                <span className="text-sm font-medium tabular-nums text-foreground" data-testid="text-swarm-deadlock-ms">
+                  {(swarmDeadlockMs / 1000).toFixed(0)}s
+                </span>
+              </div>
+              <Slider
+                min={5000}
+                max={120000}
+                step={5000}
+                value={[swarmDeadlockMs]}
+                onValueChange={([v]) => setSwarmDeadlockMs(v)}
+                data-testid="slider-swarm-deadlock-ms"
+                aria-label="Deadlock detection interval"
+              />
+              <p className="text-xs text-muted-foreground">
+                How often the engine checks for cycle, stale-agent, and mutual-wait deadlocks.
+              </p>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <Label htmlFor="swarm-consensus">Default consensus strategy</Label>
+              <Select value={swarmConsensus} onValueChange={setSwarmConsensus}>
+                <SelectTrigger id="swarm-consensus" data-testid="select-swarm-consensus">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="majority_vote">Majority Vote</SelectItem>
+                  <SelectItem value="weighted_majority">Weighted Majority</SelectItem>
+                  <SelectItem value="unanimity">Unanimity</SelectItem>
+                  <SelectItem value="reconciliation_agent">Reconciliation Agent</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Strategy used when agents need to resolve disagreements. Weighted majority uses ACL 2025 quality-weighted voting.
+              </p>
+            </div>
+
+            <Button
+              size="sm"
+              onClick={handleSaveSwarm}
+              disabled={saveMutation.isPending}
+              data-testid="button-save-swarm"
+            >
+              Save swarm settings
             </Button>
           </CardContent>
         </Card>
