@@ -210,6 +210,7 @@ export function logExecution(
   ensureDir();
   const full: ExecutionEntry = {
     ...entry,
+    skillsUsed: Array.isArray(entry.skillsUsed) ? entry.skillsUsed : [],
     id: crypto.randomUUID(),
     timestamp: Date.now(),
   };
@@ -312,7 +313,7 @@ export function getLearningStats(): LearningStats {
   // Top skill by success rate (min 3 uses)
   const skillMap: Record<string, { ok: number; total: number }> = {};
   for (const e of log) {
-    for (const sk of e.skillsUsed) {
+    for (const sk of (e.skillsUsed || [])) {
       if (!skillMap[sk]) skillMap[sk] = { ok: 0, total: 0 };
       skillMap[sk].total++;
       if (e.outcome === "success") skillMap[sk].ok++;
@@ -446,7 +447,7 @@ export function analyzeSkillEffectiveness(): SkillEffectivenessReport {
 
   const bySkill: Record<string, ExecutionEntry[]> = {};
   for (const e of log) {
-    for (const sk of e.skillsUsed) {
+    for (const sk of (e.skillsUsed || [])) {
       (bySkill[sk] ??= []).push(e);
     }
   }
@@ -590,7 +591,7 @@ export function getTaskTypeInsights(taskType: string): TaskInsight {
   // Best skills
   const skillSR: Record<string, { ok: number; total: number }> = {};
   for (const e of log) {
-    for (const sk of e.skillsUsed) {
+    for (const sk of (e.skillsUsed || [])) {
       (skillSR[sk] ??= { ok: 0, total: 0 }).total++;
       if (isSuccess(e.outcome)) skillSR[sk].ok++;
     }
@@ -677,7 +678,7 @@ export function getRecommendation(
   // Best skills
   const skillSR: Record<string, { ok: number; total: number }> = {};
   for (const e of log) {
-    for (const sk of e.skillsUsed) {
+    for (const sk of (e.skillsUsed || [])) {
       (skillSR[sk] ??= { ok: 0, total: 0 }).total++;
       if (isSuccess(e.outcome)) skillSR[sk].ok++;
     }
@@ -777,7 +778,7 @@ export function deriveLearningRules(): LearningRule[] {
     Record<string, { ok: number; total: number }>
   > = {};
   for (const e of log) {
-    for (const sk of e.skillsUsed) {
+    for (const sk of (e.skillsUsed || [])) {
       (taskSkillMatrix[e.taskType] ??= {})[sk] ??= { ok: 0, total: 0 };
       taskSkillMatrix[e.taskType][sk].total++;
       if (isSuccess(e.outcome)) taskSkillMatrix[e.taskType][sk].ok++;
@@ -850,7 +851,7 @@ export function deriveLearningRules(): LearningRule[] {
   const TOKEN_THRESHOLD = 5000;
 
   for (const e of log) {
-    for (const sk of e.skillsUsed) {
+    for (const sk of (e.skillsUsed || [])) {
       skillTokenFailure[sk] ??= {
         highFail: 0, highTotal: 0, lowFail: 0, lowTotal: 0,
       };

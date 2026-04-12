@@ -108,6 +108,21 @@ export function registerMessagingRoutes(app: Express): void {
   });
 
   /**
+   * GET /api/messaging/channels/:id
+   * Get a single channel by ID.
+   */
+  app.get("/api/messaging/channels/:id", (req, res) => {
+    try {
+      const channels = messagingHub.getChannels();
+      const channel = channels.find((c: any) => c.id === req.params.id);
+      if (!channel) return res.status(404).json({ error: "Channel not found" });
+      res.json(channel);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "Failed to get channel" });
+    }
+  });
+
+  /**
    * POST /api/messaging/channels
    * Register a new messaging channel.
    * Body: { type, name, config }

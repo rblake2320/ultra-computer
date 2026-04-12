@@ -54,10 +54,10 @@ app.use(helmet({
 }));
 
 // ─── Rate limiting ────────────────────────────────────────────────────────
-// General API rate limit: 200 requests per minute per IP
+// General API rate limit: 500 requests per minute per IP
 const apiLimiter = rateLimit({
   windowMs: 60_000,
-  max: 200,
+  max: 500,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later" },

@@ -103,6 +103,12 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.json(discoverEnvVars());
   });
 
+  app.get("/api/models/:id", (req, res) => {
+    const model = storage.getModel(req.params.id);
+    if (!model) return res.status(404).json({ error: "Model not found" });
+    res.json({ ...model, apiKey: model.apiKey ? "***" : null, oauthTokens: model.oauthTokens ? "***" : null });
+  });
+
   app.post("/api/models", (req, res) => {
     const { id, name, provider, modelId, baseUrl, apiKey, capabilities, contextWindow,
             isDefault, isOrchestrator, speedTier, notes, authMethod, envVarName } = req.body;
@@ -367,6 +373,12 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.json(storage.getSkills());
   });
 
+  app.get("/api/skills/:id", (req, res) => {
+    const skill = storage.getSkill(req.params.id);
+    if (!skill) return res.status(404).json({ error: "Skill not found" });
+    res.json(skill);
+  });
+
   app.post("/api/skills", (req, res) => {
     const { name, description, content, triggerKeywords, enabled } = req.body;
     if (!name || !content) return res.status(400).json({ error: "name and content required" });
@@ -414,6 +426,12 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.json(connectors);
   });
 
+  app.get("/api/connectors/:id", (req, res) => {
+    const connector = storage.getConnector(req.params.id);
+    if (!connector) return res.status(404).json({ error: "Connector not found" });
+    res.json({ ...connector, config: undefined });
+  });
+
   const CONNECTOR_CATEGORY_ALLOWLIST = new Set(["custom", "productivity", "communication", "developer", "data", "storage", "crm", "finance", "security", "ai", "social", "ecommerce", "analytics", "infrastructure"]);
 
   app.post("/api/connectors", (req, res) => {
@@ -438,6 +456,20 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       logoUrl: null,
     });
     res.status(201).json({ ...connector, config: undefined });
+  });
+
+  app.patch("/api/connectors/:id", (req, res) => {
+    const connector = storage.getConnector(req.params.id);
+    if (!connector) return res.status(404).json({ error: "Connector not found" });
+    const { name, description, type, category, mcpServerUrl } = req.body;
+    const allowedUpdate: Record<string, any> = {};
+    if (name !== undefined) allowedUpdate.name = name;
+    if (description !== undefined) allowedUpdate.description = description;
+    if (type !== undefined) allowedUpdate.type = type;
+    if (category !== undefined) allowedUpdate.category = category;
+    if (mcpServerUrl !== undefined) allowedUpdate.mcpServerUrl = mcpServerUrl;
+    const updated = storage.updateConnector(connector.id, allowedUpdate);
+    res.json({ ...updated, config: undefined });
   });
 
   app.post("/api/connectors/:id/connect", (req, res) => {

@@ -260,7 +260,8 @@ export function registerAutonomyRoutes(app: Express) {
   });
 
   app.get("/api/autonomy/learning/skills", (_req, res) => {
-    res.json(analyzeSkillEffectiveness());
+    try { res.json(analyzeSkillEffectiveness()); }
+    catch (err: any) { res.status(500).json({ error: err.message ?? "Analysis failed" }); }
   });
 
   app.get("/api/autonomy/learning/failures", (_req, res) => {
