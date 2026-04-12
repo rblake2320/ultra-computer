@@ -205,6 +205,19 @@ export function registerAutonomyRoutes(app: Express) {
     res.json({ ok: true, state: breaker.getState() });
   });
 
+  app.post("/api/autonomy/circuits/:name/trip", (req, res) => {
+    const breaker = circuitRegistry.getAllBreakers().get(req.params.name);
+    if (!breaker) return res.status(404).json({ error: "Circuit breaker not found" });
+    breaker.trip();
+    res.json({ ok: true, state: breaker.getState(), message: `Circuit breaker '${req.params.name}' tripped to OPEN` });
+  });
+
+  app.get("/api/autonomy/circuits/:name/events", (req, res) => {
+    const breaker = circuitRegistry.getAllBreakers().get(req.params.name);
+    if (!breaker) return res.status(404).json({ error: "Circuit breaker not found" });
+    res.json({ name: req.params.name, state: breaker.getState(), events: breaker.getEventLog(), stats: breaker.getStats() });
+  });
+
   app.post("/api/autonomy/circuits/reset-all", (_req, res) => {
     circuitRegistry.resetAll();
     res.json({ ok: true });
