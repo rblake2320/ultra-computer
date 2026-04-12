@@ -30,6 +30,7 @@ import { startAutoImproveLoop } from "./skillAutoImprove.js";
 import { registerCacheRoutes } from "./cacheRoutes.js";
 import { cacheEngine } from "./cacheEngine.js";
 import { knowledgeEngine } from "./knowledgeEngine.js";
+import { registerSwarmRoutes } from "./swarmRoutes.js";
 
 export async function registerRoutes(httpServer: Server, app: Express) {
   // ─── Seed on startup ──────────────────────────────────────────────────────
@@ -49,6 +50,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   registerNIPRoutes(app);
   registerIdentityRoutes(app);
   registerCacheRoutes(app);
+  registerSwarmRoutes(app);
 
   // ─── Link identity engine to NIP for session authentication ────────────────
   setIdentityEngine(identityEngine);

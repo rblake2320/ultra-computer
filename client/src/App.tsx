@@ -25,6 +25,7 @@ import { NIPPage } from "./pages/NIPPage";
 import { IdentityPage } from "./pages/IdentityPage";
 import { CachePage } from "./pages/CachePage";
 import { KnowledgePage } from "./pages/KnowledgePage";
+import { SwarmPage } from "./pages/SwarmPage";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
@@ -107,6 +108,9 @@ export default function App() {
             </Route>
             <Route path="/knowledge">
               <Layout><ErrorBoundary><KnowledgePage /></ErrorBoundary></Layout>
+            </Route>
+            <Route path="/swarm">
+              <Layout><ErrorBoundary><SwarmPage /></ErrorBoundary></Layout>
             </Route>
             <Route component={NotFound} />
           </Switch>
