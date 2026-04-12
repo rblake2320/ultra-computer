@@ -158,9 +158,14 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   // Quick-add: create model from preset + connect in one step
+  // Accepts credentials flat ({apiKey, envVarName, baseUrl}) or nested ({credentials: {apiKey, ...}})
   app.post("/api/models/quick-add", async (req, res) => {
     try {
-      const { provider, presetModelId, authMethod, apiKey, envVarName, baseUrl } = req.body;
+      const { provider, presetModelId, authMethod, credentials } = req.body;
+      // Support both flat and nested credential formats
+      const apiKey = req.body.apiKey || credentials?.apiKey;
+      const envVarName = req.body.envVarName || credentials?.envVarName;
+      const baseUrl = req.body.baseUrl || credentials?.baseUrl;
       if (!provider || !presetModelId) return res.status(400).json({ error: "provider and presetModelId required" });
       const result = await quickAdd(provider, presetModelId, authMethod || "api_key", {
         apiKey, envVarName, baseUrl,
