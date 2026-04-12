@@ -20,6 +20,7 @@ import {
   type MarketplaceRating, type InsertMarketplaceRating,
   type MarketplaceInstall, type InsertMarketplaceInstall,
   knowledgeBase, type KnowledgeEntry, type InsertKnowledgeEntry,
+  swarms, type SwarmRecord, type InsertSwarmRecord,
 } from "@shared/schema";
 
 const sqlite = new Database("ultra_computer.db");
@@ -254,6 +255,26 @@ sqlite.exec(`
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS swarms (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    config TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'idle',
+    total_tokens_used INTEGER NOT NULL DEFAULT 0,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    circuit_broken INTEGER NOT NULL DEFAULT 0,
+    agents_json TEXT NOT NULL DEFAULT '[]',
+    tasks_json TEXT NOT NULL DEFAULT '[]',
+    blackboard_json TEXT NOT NULL DEFAULT '[]',
+    handoffs_json TEXT NOT NULL DEFAULT '[]',
+    consensus_json TEXT NOT NULL DEFAULT '[]',
+    started_at INTEGER,
+    completed_at INTEGER,
+    error TEXT,
+    created_at INTEGER NOT NULL
+  );
 `);
 
 export interface IStorage {
@@ -364,6 +385,12 @@ export interface IStorage {
   createKnowledgeEntry(data: InsertKnowledgeEntry): KnowledgeEntry;
   updateKnowledgeEntry(id: string, data: Partial<InsertKnowledgeEntry>): KnowledgeEntry | undefined;
   deleteKnowledgeEntry(id: string): void;
+
+  // Swarm Persistence
+  getAllSwarms(): SwarmRecord[];
+  getSwarmRecord(id: string): SwarmRecord | undefined;
+  upsertSwarm(data: InsertSwarmRecord): SwarmRecord;
+  deleteSwarmRecord(id: string): void;
 }
 
 export class SQLiteStorage implements IStorage {
@@ -665,6 +692,24 @@ export class SQLiteStorage implements IStorage {
   }
   deleteKnowledgeEntry(id: string): void {
     db.delete(knowledgeBase).where(eq(knowledgeBase.id, id)).run();
+  }
+
+  // ── Swarm Persistence ─────────────────────────────────────────────────────
+  getAllSwarms(): SwarmRecord[] {
+    return db.select().from(swarms).orderBy(desc(swarms.createdAt)).all();
+  }
+  getSwarmRecord(id: string): SwarmRecord | undefined {
+    return db.select().from(swarms).where(eq(swarms.id, id)).get();
+  }
+  upsertSwarm(data: InsertSwarmRecord): SwarmRecord {
+    const existing = this.getSwarmRecord(data.id!);
+    if (existing) {
+      return db.update(swarms).set(data).where(eq(swarms.id, data.id!)).returning().get();
+    }
+    return db.insert(swarms).values({ ...data, createdAt: Date.now() }).returning().get();
+  }
+  deleteSwarmRecord(id: string): void {
+    db.delete(swarms).where(eq(swarms.id, id)).run();
   }
 }
 

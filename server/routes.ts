@@ -31,6 +31,7 @@ import { registerCacheRoutes } from "./cacheRoutes.js";
 import { cacheEngine } from "./cacheEngine.js";
 import { knowledgeEngine } from "./knowledgeEngine.js";
 import { registerSwarmRoutes } from "./swarmRoutes.js";
+import { swarmEngine } from "./swarmEngine.js";
 
 export async function registerRoutes(httpServer: Server, app: Express) {
   // ─── Seed on startup ──────────────────────────────────────────────────────
@@ -51,6 +52,9 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   registerIdentityRoutes(app);
   registerCacheRoutes(app);
   registerSwarmRoutes(app);
+
+  // ─── Restore persisted swarms from SQLite ──────────────────────────────────
+  swarmEngine.restoreFromDB();
 
   // ─── Link identity engine to NIP for session authentication ────────────────
   setIdentityEngine(identityEngine);

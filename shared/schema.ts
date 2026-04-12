@@ -319,3 +319,27 @@ export const knowledgeBase = sqliteTable("knowledge_base", {
 
 export type KnowledgeEntry = typeof knowledgeBase.$inferSelect;
 export type InsertKnowledgeEntry = typeof knowledgeBase.$inferInsert;
+
+// ─── Swarm Persistence ──────────────────────────────────────────────────────
+export const swarms = sqliteTable("swarms", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  config: text("config").notNull(),                    // full JSON SwarmConfig
+  status: text("status").notNull().default("idle"),     // idle | running | paused | completed | failed
+  totalTokensUsed: integer("total_tokens_used").notNull().default(0),
+  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+  circuitBroken: integer("circuit_broken").notNull().default(0),
+  agentsJson: text("agents_json").notNull().default("[]"),
+  tasksJson: text("tasks_json").notNull().default("[]"),
+  blackboardJson: text("blackboard_json").notNull().default("[]"),
+  handoffsJson: text("handoffs_json").notNull().default("[]"),
+  consensusJson: text("consensus_json").notNull().default("[]"),
+  startedAt: integer("started_at"),
+  completedAt: integer("completed_at"),
+  error: text("error"),
+  createdAt: integer("created_at").notNull().$defaultFn(() => Date.now()),
+});
+
+export type SwarmRecord = typeof swarms.$inferSelect;
+export type InsertSwarmRecord = typeof swarms.$inferInsert;

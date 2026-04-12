@@ -25,6 +25,7 @@ import { withRetryAndFallback } from "./errorRecovery.js";
 import { analyzeTaskComplexity, routeToOptimalModel } from "./modelSpeedRouter.js";
 import { logExecution } from "./selfLearning.js";
 import { knowledgeEngine } from "./knowledgeEngine.js";
+import { swarmEngine } from "./swarmEngine.js";
 import type { Task } from "@shared/schema";
 
 // IPC directory for filesystem-based inter-agent communication
@@ -106,6 +107,86 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
     const orchModel = storage.getOrchestratorModel() || storage.getDefaultModel();
     if (!orchModel) {
       throw new Error("No model configured. Please add a model in the Models page first.");
+    }
+
+    // 4. Check for swarm mode — triggered by "swarm:" prefix or swarm-related keywords
+    const isSwarmMode = userMessage.toLowerCase().startsWith("swarm:") ||
+      (userMessage.toLowerCase().includes("use swarm") && userMessage.toLowerCase().includes("agents"));
+
+    if (isSwarmMode) {
+      console.log(`[orchestrator] Swarm mode detected for conversation ${conversationId}`);
+      emit(conversationId, { type: "status", status: "running", message: "Running in swarm mode..." });
+
+      // Strip the swarm: prefix if present
+      const swarmPrompt = userMessage.replace(/^swarm:\s*/i, "");
+
+      // Create a swarm, add default agents, decompose tasks, and run
+      const swarm = swarmEngine.createSwarm({
+        name: `Session ${conversationId.slice(0, 8)}`,
+        description: swarmPrompt.slice(0, 200),
+        defaultModelId: orchModel.id,
+        mode: "collaborative",
+      });
+
+      // Add a research agent and a synthesis agent by default
+      swarmEngine.addAgent(swarm.config.id, {
+        name: "Researcher",
+        role: "research",
+        instructions: "You are a thorough research agent. Find information, verify facts, and compile data.",
+        modelId: orchModel.id,
+        tools: ["search_web", "fetch_url", "read_file", "write_file"],
+        canSpawn: true,
+      });
+      swarmEngine.addAgent(swarm.config.id, {
+        name: "Analyst",
+        role: "analysis",
+        instructions: "You are an analytical agent. Examine data, identify patterns, and draw conclusions.",
+        modelId: orchModel.id,
+        tools: ["calculator", "bash", "read_file", "write_file"],
+        canSpawn: true,
+      });
+      swarmEngine.addAgent(swarm.config.id, {
+        name: "Writer",
+        role: "writing",
+        instructions: "You are a skilled writer. Produce clear, well-structured, comprehensive output.",
+        modelId: orchModel.id,
+        tools: ["write_file", "read_file"],
+        canSpawn: false,
+      });
+
+      // Add the main task
+      swarmEngine.addTask(swarm.config.id, {
+        description: swarmPrompt,
+        priority: 80,
+      });
+
+      // Run the swarm
+      const swarmResults = await swarmEngine.runSwarm(swarm.config.id);
+
+      // Synthesize results
+      const allResults = Array.from(swarmResults.values());
+      const finalResponse = allResults.length === 1
+        ? allResults[0]
+        : allResults.join("\n\n---\n\n");
+
+      // Save assistant message
+      const msgId = uuidv4();
+      storage.createMessage({
+        id: msgId,
+        conversationId,
+        role: "assistant",
+        content: finalResponse,
+        modelId: orchModel.id,
+        metadata: JSON.stringify({ swarmId: swarm.config.id, mode: "swarm" }),
+      });
+      emit(conversationId, { type: "message", role: "assistant", content: finalResponse, messageId: msgId });
+
+      await memoryManager.extractAndStore(userMessage, finalResponse, conversationId);
+      emit(conversationId, { type: "memory_update", summary: "Memory updated with swarm session context." });
+
+      storage.updateConversation(conversationId, { status: "idle" });
+      emit(conversationId, { type: "done", summary: `Swarm completed with ${swarmResults.size} result(s).` });
+      return;
     }
 
     // 4. Decompose into task graph (check for skill chain shortcut first)
