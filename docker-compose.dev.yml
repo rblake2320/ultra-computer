@@ -1,0 +1,42 @@
+# Development overrides — use alongside the base compose file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Or add a COMPOSE_FILE env var in a .env file:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
+
+version: "3.8"
+
+services:
+  ultra-computer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Build the builder stage only — no need for the lean production image
+      target: builder
+    image: ultra-computer:dev
+    container_name: ultra-computer-dev
+    command: npm run dev
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Vite HMR websocket host (set to match your machine's hostname/IP if needed)
+      VITE_HMR_HOST: localhost
+    ports:
+      - "5000:5000"   # Express API
+      - "5173:5173"   # Vite dev server (if run separately)
+    volumes:
+      # Mount source for hot reload — node_modules stays inside the container
+      - .:/app
+      - /app/node_modules
+      # SQLite persistence in development
+      - ./data:/app/data
+    healthcheck:
+      # Relax the health check in dev; the server may restart frequently
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/api/health"]
+      interval: 60s
+      timeout: 10s
+      start_period: 30s
+      retries: 5

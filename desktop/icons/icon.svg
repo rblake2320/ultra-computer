@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none" aria-label="Ultra Computer icon">
+  <!-- Hexagon background -->
+  <polygon
+    points="128,12 224,64 224,192 128,244 32,192 32,64"
+    fill="#0f172a"
+    stroke="#14b8a6"
+    stroke-width="8"
+    stroke-linejoin="round"
+  />
+
+  <!-- Inner hexagon accent ring -->
+  <polygon
+    points="128,30 210,76 210,180 128,226 46,180 46,76"
+    fill="none"
+    stroke="#14b8a6"
+    stroke-width="2"
+    stroke-linejoin="round"
+    opacity="0.25"
+  />
+
+  <!-- Letterform "U" -->
+  <path
+    d="M82 88
+       L82 154
+       Q82 176 105 176
+       L128 176
+       Q151 176 151 154
+       L151 88"
+    stroke="#14b8a6"
+    stroke-width="16"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    fill="none"
+  />
+
+  <!-- Letterform "C" -->
+  <path
+    d="M186 110
+       Q186 88 164 88
+       L155 88
+       Q133 88 133 110
+       L133 148
+       Q133 168 155 168
+       L164 168
+       Q186 168 186 148"
+    stroke="#ffffff"
+    stroke-width="14"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    fill="none"
+    opacity="0.9"
+  />
+
+  <!-- Teal accent dot -->
+  <circle cx="128" cy="220" r="6" fill="#14b8a6" />
+</svg>

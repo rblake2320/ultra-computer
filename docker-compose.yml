@@ -1,0 +1,86 @@
+version: "3.8"
+
+networks:
+  ultra-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  app-data:
+
+services:
+  # ───────────────────────────────────────────────
+  # Main application
+  # ───────────────────────────────────────────────
+  ultra-computer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ultra-computer:latest
+    container_name: ultra-computer
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      # SQLite database persistence
+      - ./data:/app/data
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      # Redis (optional — app degrades gracefully if unavailable)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    networks:
+      - ultra-network
+
+  # ───────────────────────────────────────────────
+  # Redis cache (optional — app degrades gracefully)
+  # ───────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ultra-computer-redis
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    networks:
+      - ultra-network
+
+  # ───────────────────────────────────────────────
+  # Sandbox service — OPTIONAL, for code execution
+  #
+  # Uncomment and build the sandbox image first:
+  #   docker build -t ultra-computer-sandbox ./sandbox
+  #
+  # Then start with:
+  #   docker compose --profile sandbox up
+  # ───────────────────────────────────────────────
+  # sandbox:
+  #   image: ultra-computer-sandbox
+  #   container_name: ultra-computer-sandbox
+  #   profiles:
+  #     - sandbox
+  #   restart: unless-stopped
+  #   privileged: true          # required for isolated code execution
+  #   # Alternatively, mount the Docker socket instead of privileged mode:
+  #   # volumes:
+  #   #   - /var/run/docker.sock:/var/run/docker.sock
+  #   environment:
+  #     NODE_ENV: production
+  #   networks:
+  #     - ultra-network

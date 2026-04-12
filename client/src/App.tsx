@@ -41,6 +41,7 @@ const SentinelPage = lazy(() => import("./pages/SentinelPage").then(m => ({ defa
 const DebuggerPage = lazy(() => import("./pages/DebuggerPage").then(m => ({ default: m.DebuggerPage })));
 const ObservabilityPage = lazy(() => import("./pages/ObservabilityPage").then(m => ({ default: m.ObservabilityPage })));
 const CostControllerPage = lazy(() => import("./pages/CostControllerPage").then(m => ({ default: m.CostControllerPage })));
+const SetupWizardPage = lazy(() => import("./pages/SetupWizard").then(m => ({ default: m.SetupWizard })));
 
 // ─── Loading fallback ────────────────────────────────────────────────────────
 function PageLoader() {
@@ -117,6 +118,11 @@ export default function App() {
             <Route path="/debugger"><LazyPage><DebuggerPage /></LazyPage></Route>
             <Route path="/observability"><LazyPage><ObservabilityPage /></LazyPage></Route>
             <Route path="/costs"><LazyPage><CostControllerPage /></LazyPage></Route>
+            <Route path="/setup">
+              <Suspense fallback={<PageLoader />}>
+                <SetupWizardPage />
+              </Suspense>
+            </Route>
             <Route component={NotFound} />
           </Switch>
         </Router>

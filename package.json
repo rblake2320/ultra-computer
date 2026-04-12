@@ -1,6 +1,17 @@
 {
-  "name": "rest-express",
-  "version": "1.0.0",
+  "name": "ultra-computer",
+  "version": "0.9.0",
+  "description": "Ultra Computer — Production AI agent orchestration platform with 19 providers, multi-agent swarms, real-time streaming, and intelligent sandbox execution.",
+  "author": "rblake2320",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rblake2320/ultra-computer.git"
+  },
+  "keywords": ["ai", "agents", "orchestration", "llm", "multi-model", "swarm"],
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=9.0.0"
+  },
   "license": "MIT",
   "type": "module",
   "scripts": {

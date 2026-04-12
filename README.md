@@ -1,32 +1,116 @@
 # Ultra Computer
 
-**AI Agent Orchestration Platform** — A production-grade autonomous agent harness with self-healing, self-learning, multi-protocol communication, and tamper-proof identity management.
+**AI Agent Orchestration Platform** — A production-grade autonomous agent harness with multi-provider model routing, sandboxed tool execution, multi-agent swarms, and self-healing infrastructure.
 
-> **Status**: Beta v0.1.0 — Active development, not yet production-hardened.
+> **Status**: Beta v0.9.0 — Fully functional, stress-tested (51/51 passing), ready for self-hosted deployment.
+
+---
+
+## Quick Start (3 options)
+
+### Option 1: One-Command Install (Mac / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rblake2320/ultra-computer/main/install.sh | bash
+```
+
+This will:
+- Check for Node.js 18+ (installs via nvm if missing)
+- Clone the repo
+- Install dependencies
+- Build the project
+- Start the server on http://localhost:5000
+
+### Option 2: Docker (Recommended for Production)
+
+```bash
+git clone https://github.com/rblake2320/ultra-computer.git
+cd ultra-computer
+docker compose up -d
+```
+
+Opens at http://localhost:5000. Includes Redis for task queuing and optional sandbox containers.
+
+### Option 3: Windows Install
+
+```powershell
+# Download and run the installer
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/rblake2320/ultra-computer/main/install.bat" -OutFile install.bat
+.\install.bat
+```
+
+### Option 4: Manual Setup
+
+```bash
+git clone https://github.com/rblake2320/ultra-computer.git
+cd ultra-computer
+npm install
+npm run build
+npm start
+```
+
+Open http://localhost:5000 in your browser.
+
+---
+
+## First Run
+
+When you first open Ultra Computer, you'll need to:
+
+1. **Add a Model** — Go to the Models page and add at least one AI model:
+   - Click "Add Model" or use Quick Add
+   - Enter your API key (Anthropic, OpenAI, Mistral, etc.)
+   - Or connect a local model (Ollama, LM Studio, vLLM)
+
+2. **Start Chatting** — Go to the Chat page and send a message. The orchestrator will:
+   - Decompose your request into parallel tasks
+   - Route each task to the best model
+   - Execute tools (code, web search, file I/O) automatically
+   - Synthesize results into a single response
+
+3. **Optional: Configure Sandbox** — For code execution in Docker containers:
+   - Go to the Sandbox page
+   - Select an image preset (Standard recommended)
+   - Docker must be installed on your machine
 
 ---
 
 ## What Is This?
 
-Ultra Computer is a complete agent orchestration system that manages AI model routing, tool execution, browser automation, skill libraries, and multi-agent coordination. It provides the infrastructure for agents to operate autonomously with human-in-the-loop safety controls.
+Ultra Computer is a self-hostable clone of how AI agent orchestration systems work internally — the full harness, not just a chat UI. It manages:
 
-### Key Capabilities
+- **Multi-provider model routing** across 19 providers with role-based assignment
+- **Autonomous task execution** with sandboxed Docker environments
+- **Multi-agent swarms** with blackboard collaboration and consensus
+- **Persistent memory** with semantic search
+- **Skill libraries** with versioning and a community marketplace
+- **Browser automation** via Playwright
+- **Self-healing** with watchdog, circuit breakers, and auto-recovery
+
+### Capabilities
 
 | Module | Description |
 |--------|-------------|
-| **Model Router** | Multi-provider model routing with speed tiers and automatic failover |
-| **Orchestrator** | Conversation-driven task decomposition with sub-agent spawning |
-| **Tool System** | Extensible tool execution with sandboxed Docker environments |
-| **Skill Library** | Persistent, versioned skill scripts with search and auto-improvement |
+| **Model Router** | 19 providers (Anthropic, OpenAI, Ollama, vLLM, Mistral, Groq, etc.) with role-based assignment and automatic failover |
+| **Orchestrator** | DAG-based task decomposition, parallel execution, 2-level agent hierarchy |
+| **Tool System** | 14 real tools (bash, file I/O, web search, browser, calculator, image gen) with per-task filtering |
+| **Sandbox** | Docker containers with CPU/memory limits, session isolation, smart auto-routing |
+| **Skill Library** | Versioned skill scripts with search, auto-improvement, and marketplace |
 | **Memory Manager** | Long-term memory with semantic search and session context |
+| **Swarm Engine** | Multi-agent collaboration with Contract Net Protocol and stigmergy |
 | **Connector Registry** | MCP-compatible integrations for external services |
-| **Browser Automation** | Playwright-based browser tool for web interactions |
+| **Browser Automation** | Playwright-based headless browser for web interactions |
 | **Marketplace** | Community skill marketplace with quality scoring pipeline |
 | **Autonomy Suite** | Self-healing watchdog, task checkpointing, cron scheduler, circuit breakers |
 | **Protocol Hub** | A2A, MCP, and CLI protocol adapters for agent interoperability |
 | **Messaging Hub** | Omni-channel messaging (Slack, Gmail, Webhooks) with delivery queues |
 | **NIP Engine** | AI-to-AI bidirectional NLP instruction protocol with safety monitoring |
-| **Identity System** | Tamper-proof cryptographic identity with verification tiers and trust scoring |
+| **Identity System** | Tamper-proof cryptographic identity with verification tiers |
+| **Sentinel** | Input/output safety filtering, PII detection, prompt injection blocking |
+| **Observability** | Distributed tracing, span tracking, performance dashboards |
+| **Cost Controller** | Per-model token tracking, budget caps, usage analytics |
+| **Telemetry** | Self-learning execution analytics for continuous improvement |
+| **Cache** | Intelligent response caching with TTL and hit-rate tracking |
 
 ---
 
@@ -35,185 +119,169 @@ Ultra Computer is a complete agent orchestration system that manages AI model ro
 ```
 ┌─────────────────────────────────────────────────────┐
 │                   Frontend (React)                    │
+│  29 pages · Tailwind CSS · shadcn/ui · Recharts      │
 │  Chat · Models · Skills · Connectors · Memory · NIP  │
-│  Sandbox · Browser · Marketplace · Autonomy · Identity│
+│  Sandbox · Browser · Marketplace · Autonomy · Swarm  │
+│  Identity · Protocols · Messaging · Telemetry · More │
 └──────────────────────┬──────────────────────────────┘
-                       │ REST + SSE
+                       │ REST (290+ endpoints) + SSE
 ┌──────────────────────┴──────────────────────────────┐
-│                Express 5 API Server                   │
+│              Express 5 API Server (Node.js)           │
 ├───────────────┬───────────────┬───────────────────────┤
 │  Orchestrator │  Model Router │  Tool Execution Layer │
+│  (DAG planner │  (19 providers│  (14 tools, Docker    │
+│   + workers)  │   + roles)    │   sandbox, sessions)  │
 ├───────────────┼───────────────┼───────────────────────┤
 │  Skill System │  Memory Mgr   │  Connector Registry   │
 ├───────────────┼───────────────┼───────────────────────┤
-│  A2A Protocol │  MCP Protocol │  CLI Tool Engine      │
+│  Swarm Engine │  NIP Engine   │  Identity System      │
 ├───────────────┼───────────────┼───────────────────────┤
-│  NIP Engine   │  Identity Sys │  Messaging Hub        │
+│  Self-Healing │  Sentinel     │  Cost Controller      │
 ├───────────────┼───────────────┼───────────────────────┤
-│  Self-Healing │  Self-Learning│  Cron Scheduler       │
+│  Observability│  Telemetry    │  Cache Engine         │
 └───────────────┴───────────────┴───────────────────────┘
                        │
-              ┌────────┴────────┐
-              │    SQLite DB    │
-              │  (Drizzle ORM)  │
-              └─────────────────┘
+              ┌────────┴────────┐     ┌───────────────┐
+              │    SQLite DB    │     │  Redis (opt.)  │
+              │  (24+ tables)   │     │  (task queue)  │
+              └─────────────────┘     └───────────────┘
 ```
 
-### Tech Stack
+---
 
-- **Runtime**: Node.js 20+ with TypeScript
-- **Server**: Express 5.2 with esbuild bundling
-- **Frontend**: React 19 + Vite + Tailwind CSS + shadcn/ui
-- **Database**: SQLite via Drizzle ORM
-- **ORM**: Drizzle with push migrations
-- **Build**: esbuild (server) + Vite (client) via custom `script/build.ts`
+## System Requirements
+
+| Requirement | Minimum | Recommended |
+|---|---|---|
+| **Node.js** | 18.0+ | 20.x LTS |
+| **RAM** | 2 GB | 4 GB+ |
+| **Disk** | 500 MB | 2 GB+ |
+| **OS** | Windows 10+, macOS 12+, Ubuntu 20.04+ | Any modern OS |
+| **Docker** | Optional (for sandbox) | Docker Desktop or Docker Engine |
+| **Redis** | Optional (for task queue) | Redis 7+ |
+
+### Supported AI Providers
+
+| Provider | Local/Cloud | Auth Method |
+|---|---|---|
+| Anthropic (Claude) | Cloud | API Key |
+| OpenAI (GPT) | Cloud | API Key |
+| Ollama | Local | None (auto-detect) |
+| LM Studio | Local | None (auto-detect) |
+| vLLM | Local | None / API Key |
+| Mistral | Cloud | API Key |
+| Groq | Cloud | API Key |
+| Together AI | Cloud | API Key |
+| DeepSeek | Cloud | API Key |
+| xAI (Grok) | Cloud | API Key |
+| Cohere | Cloud | API Key |
+| OpenRouter | Cloud | API Key |
+| Hugging Face | Cloud | API Key |
+| Fireworks AI | Cloud | API Key |
+| Cerebras | Cloud | API Key |
+| Perplexity | Cloud | API Key |
+| Google (Gemini) | Cloud | API Key |
+| NVIDIA NIM | Cloud | API Key |
+| Any OpenAI-compatible | Either | API Key |
 
 ---
 
-## NLP Instruction Protocol (NIP)
+## Configuration
 
-A novel protocol for AI-to-AI bidirectional natural language instruction. One agent teaches another through conversation, with full safety monitoring.
-
-**What makes NIP unique:**
-- **NLP-native** — agents communicate in natural language, not structured JSON
-- **Bidirectional** — both sides can instruct, question, and provide feedback
-- **Cross-trust-boundary** — works between separate organizations
-- **Traceable** — every message logged, human-readable reports auto-generated
-- **Safety-monitored** — inline prompt injection detection (39 patterns), scope drift detection, rate limiting, auto-lockdown
-
-## Tamper-Proof Identity System
-
-Every user/agent gets a cryptographic identity that cannot be spoofed, faked, or duplicated.
-
-- **CryptoID**: SHA-256 hash from 64 random bytes + timestamp + process entropy (64-char hex, immutable)
-- **Fingerprint**: Short 16-char identifier for display
-- **Verification Tiers**: Unverified → Verified → Premium → Enterprise → Admin
-- **Trust Scoring**: Dynamic 0-100 score based on account age, session completion, alerts, reports, community contributions
-- **Block Lists**: Users can block others; blocked-by count visible without revealing who
-- **Audit Trail**: Every identity action logged immutably
-
----
-
-## Quick Start
+### Environment Variables (optional)
 
 ```bash
-# Install dependencies
-npm install
+# Server
+PORT=5000                          # Server port (default: 5000)
+NODE_ENV=production                # Environment mode
 
-# Development (hot reload)
-npm run dev
-
-# Production build
-npm run build
-NODE_ENV=production node dist/index.cjs
-
-# The app serves on http://localhost:5000
+# Pre-configure a model (skip manual setup)
+DEFAULT_ANTHROPIC_KEY=sk-ant-...   # Auto-creates Anthropic model on first run
+DEFAULT_OPENAI_KEY=sk-...          # Auto-creates OpenAI model on first run
 ```
 
-### Environment Variables
+### Settings (via UI or API)
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | Server port | `5000` |
-| `NODE_ENV` | Environment | `development` |
-| `DATABASE_URL` | SQLite path | `./ultra_computer.db` |
+| Setting | Default | Description |
+|---|---|---|
+| `sandbox_auto_enable` | `smart` | When to use Docker sandbox: `smart`, `always`, `off` |
+| `max_tool_iterations` | `10` | Max tool-calling loops per agent |
+| `theme` | `dark` | UI theme: `dark` or `light` |
 
 ---
 
 ## API Overview
 
-All endpoints are under `/api/`. Key groups:
+Ultra Computer exposes 290+ REST endpoints. Key groups:
 
-| Prefix | Module | Endpoints |
-|--------|--------|-----------|
-| `/api/conversations` | Chat | CRUD + messages + SSE stream |
-| `/api/models` | Models | CRUD + test connection |
-| `/api/skills` | Skills | CRUD + trigger keywords |
-| `/api/connectors` | Connectors | CRUD + connect + MCP tool calls |
-| `/api/memory` | Memory | CRUD + semantic search |
-| `/api/sandbox` | Docker | Status + config + pull + cleanup |
-| `/api/skill-scripts` | Library | CRUD + versioning + run |
-| `/api/files` | Files | Browse + read + write + delete |
-| `/api/browser` | Browser | Navigate + screenshot + actions |
-| `/api/marketplace` | Marketplace | Skills + ratings + quality scores |
-| `/api/autonomy` | Autonomy | Watchdog + cron + checkpoints + learning |
-| `/api/protocols` | Protocols | A2A + MCP + CLI adapters |
-| `/api/messaging` | Messaging | Channels + send + webhooks + subscriptions |
-| `/api/nip` | NIP | Sessions + messages + monitor + reports + access |
-| `/api/identity` | Identity | Register + verify + trust + blocks + directory |
+| Endpoint Group | Description |
+|---|---|
+| `POST /api/chat` | Send a message, get orchestrated response via SSE |
+| `GET/POST /api/models` | CRUD for AI model connections |
+| `GET /api/models/roles` | Role-based model assignment (chat, code, vision, etc.) |
+| `GET/POST /api/skills` | Skill library management |
+| `GET/POST /api/connectors` | External service integrations |
+| `GET/POST /api/memory` | Long-term memory entries |
+| `GET /api/sandbox/status` | Docker sandbox health |
+| `GET /api/sandbox/tools-for-task/:type` | What tools each task type gets |
+| `GET /api/sandbox/image-presets` | Docker image presets for sandbox |
+| `GET /api/swarm` | Multi-agent swarm sessions |
+| `GET /api/telemetry` | Execution analytics |
+| `GET /api/health` | Server health check |
 
-Full API documentation: [Notion Page](https://www.notion.so/33f16b3224c981dca6c9c74293e36a47)
+Full API documentation: `GET /api/docs` (coming soon)
 
 ---
 
-## Project Structure
+## Development
+
+```bash
+# Start dev server (auto-reload)
+npm run dev
+
+# Type check
+npm run check
+
+# Build for production
+npm run build
+
+# Start production server
+npm start
+```
+
+### Project Structure
 
 ```
 ultra-computer/
-├── client/                  # React frontend
+├── client/                 # React frontend
 │   └── src/
-│       ├── components/      # Shared UI components
-│       ├── pages/           # Route pages (19 pages)
-│       ├── hooks/           # Custom React hooks
-│       └── lib/             # API client, utilities
-├── server/                  # Express backend
-│   ├── routes.ts            # Route registration hub
-│   ├── storage.ts           # Drizzle ORM data layer
-│   ├── orchestrator.ts      # Agent orchestration engine
-│   ├── modelRouter.ts       # Multi-provider model routing
-│   ├── tools.ts             # Tool execution + Docker sandbox
-│   ├── skillSystem.ts       # Skill management
-│   ├── memoryManager.ts     # Long-term memory
-│   ├── connectorRegistry.ts # External service connectors
-│   ├── a2aProtocol.ts       # Agent-to-Agent protocol
-│   ├── mcpProtocol.ts       # Model Context Protocol
-│   ├── cliToolEngine.ts     # CLI tool adapter
-│   ├── nipEngine.ts         # NLP Instruction Protocol
-│   ├── identityEngine.ts    # Cryptographic identity system
-│   ├── messagingHub.ts      # Omni-channel messaging
-│   ├── selfLearning.ts      # Self-improvement loops
-│   ├── processWatchdog.ts   # Health monitoring
-│   └── ... (38 server files)
-├── shared/                  # Shared types & schema
-│   └── schema.ts            # Drizzle database schema
-├── script/
-│   └── build.ts             # Custom build pipeline
+│       ├── pages/         # 29 page components
+│       ├── components/    # shadcn/ui components
+│       └── lib/           # Query client, utilities
+├── server/                 # Express backend
+│   ├── orchestrator.ts    # DAG task planner + worker agents
+│   ├── modelRouter.ts     # Multi-provider model selection
+│   ├── tools.ts           # Tool execution layer
+│   ├── dockerSandbox.ts   # Docker container management
+│   ├── swarmEngine.ts     # Multi-agent coordination
+│   ├── routes.ts          # 290+ API endpoints
+│   └── storage.ts         # SQLite + Drizzle ORM (24+ tables)
+├── shared/                 # Shared types (schema.ts)
+├── docker-compose.yml      # One-command deployment
+├── Dockerfile              # Production container image
+├── install.sh              # Mac/Linux installer
+├── install.bat             # Windows installer
 └── package.json
 ```
 
 ---
 
-## Versioning
-
-This project follows [Semantic Versioning](https://semver.org/):
-
-- **v0.x.x** — Beta releases, API may change
-- **v1.0.0** — First stable release (planned)
-
-### Changelog
-
-#### v0.1.0 (2026-04-11) — Initial Beta
-- Core agent orchestration (model router, orchestrator, tool system)
-- 19-page frontend with full CRUD for all modules
-- Skill library with versioning and auto-improvement
-- Docker sandbox execution environment
-- Playwright browser automation
-- Community skill marketplace with quality scoring
-- Autonomy suite (self-healing, self-learning, cron, circuit breakers)
-- Protocol hub (A2A, MCP, CLI)
-- Omni-channel messaging (Slack, Gmail, Webhooks)
-- NLP Instruction Protocol (AI-to-AI bidirectional instruction)
-- Tamper-proof cryptographic identity system
-- Full API documentation in Notion
-
----
-
 ## License
 
-Proprietary — Blakes Innovations. All rights reserved.
+MIT — Use it, modify it, ship it.
 
 ---
 
-## Author
+## Credits
 
-**Rob Blake** — Blakes Innovations
+Built as an educational reference implementation of AI agent orchestration architecture. Inspired by the design patterns of production AI agent systems.
