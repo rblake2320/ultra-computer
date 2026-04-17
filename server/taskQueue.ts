@@ -9,6 +9,7 @@
 
 import { Queue, Worker, Job, QueueEvents } from "bullmq";
 import IORedis from "ioredis";
+import { runOrchestrator } from "./orchestrator.js";
 
 // ─── Exported Types ───────────────────────────────────────────────────────────
 
@@ -65,42 +66,56 @@ export function estimateTaskDuration(
   return "short";
 }
 
-// ─── Worker Processor ────────────────────────────────────────────────────────
+// ─── Worker Processor ────────────────────────────────────────────────────────────
 
 /**
- * Placeholder processor — the real orchestrator integration wires in later.
- * For now we log and immediately return a stub result so jobs complete cleanly.
+ * Process a queued task by invoking the orchestrator.
+ * This is the real worker implementation that replaces the previous stub.
+ * The orchestrator handles task decomposition, model routing, tool execution,
+ * and result aggregation — the same pipeline used by the synchronous chat path.
  */
 async function processTask(job: Job<QueuedTask>): Promise<string> {
   const { conversationId, taskId, userMessage, estimatedDuration } = job.data;
 
   console.log(
-    `[TaskQueue] Would process job ${job.id}: ` +
+    `[TaskQueue] Processing job ${job.id}: ` +
       `conversationId=${conversationId} taskId=${taskId} ` +
       `estimatedDuration=${estimatedDuration} ` +
       `messageLength=${userMessage.length}`
   );
 
-  // Simulate progress reporting so the status endpoint returns useful data.
   await job.updateProgress(10);
 
-  // Stub: real implementation calls the orchestrator here.
-  console.log(
-    `[TaskQueue] Stub execution complete for taskId=${taskId}. ` +
-      `Real orchestrator integration pending.`
-  );
+  try {
+    // Run the full orchestrator pipeline (same as the synchronous chat path).
+    // The orchestrator writes assistant messages, tasks, and agent_runs to
+    // storage and emits SSE events to any connected clients.
+    await runOrchestrator(conversationId, userMessage);
 
-  await job.updateProgress(100);
+    await job.updateProgress(100);
 
-  return JSON.stringify({
-    taskId,
-    conversationId,
-    status: "stub_complete",
-    message:
-      "Task queued and processed by stub worker. Orchestrator integration pending.",
-  });
+    const result = JSON.stringify({
+      taskId,
+      conversationId,
+      status: "completed",
+      message: "Task processed successfully by orchestrator.",
+    });
+
+    console.log(`[TaskQueue] Job ${job.id} completed for taskId=${taskId}`);
+    return result;
+  } catch (err: any) {
+    console.error(
+      `[TaskQueue] Job ${job.id} failed for taskId=${taskId}:`,
+      err?.message ?? err
+    );
+
+    // Update progress to indicate failure state before BullMQ retries
+    await job.updateProgress(0);
+
+    // Re-throw so BullMQ handles retries according to the backoff policy
+    throw err;
+  }
 }
-
 // ─── TaskQueue Class ─────────────────────────────────────────────────────────
 
 export class TaskQueue {
