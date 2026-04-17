@@ -68,7 +68,7 @@ const chatLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Chat rate limit exceeded. Please wait before sending more messages." },
-  keyGenerator: (req) => req.ip || req.socket.remoteAddress || "unknown",
+  validate: { xForwardedForHeader: false },
 });
 app.use("/api/conversations/:id/messages", chatLimiter);
 
@@ -79,7 +79,7 @@ const executionLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Execution rate limit exceeded. Please wait before running more commands." },
-  keyGenerator: (req) => req.ip || req.socket.remoteAddress || "unknown",
+  validate: { xForwardedForHeader: false },
 });
 app.use("/api/protocols/cli/execute", executionLimiter);
 app.use("/api/protocols/cli/script", executionLimiter);
@@ -93,7 +93,7 @@ const swarmLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Swarm creation rate limit exceeded." },
-  keyGenerator: (req) => req.ip || req.socket.remoteAddress || "unknown",
+  validate: { xForwardedForHeader: false },
 });
 app.use("/api/swarm/sessions", swarmLimiter);
 

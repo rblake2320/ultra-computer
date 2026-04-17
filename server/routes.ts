@@ -61,7 +61,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   console.log("[identity] Identity engine linked to NIP protocol for session auth");
 
   // ─── Initialize autonomy systems ────────────────────────────────────────────
-  initWatchdog(httpServer);
+  // NOTE: initWatchdog is called from index.ts after httpServer.listen()
   startCheckpointHeartbeats();
   startScheduler(async (job) => {
     console.log(`[cron] Executing job: ${job.name}`);

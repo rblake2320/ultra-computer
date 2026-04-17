@@ -142,6 +142,11 @@ export class TaskQueue {
         enableReadyCheck: false,
         connectTimeout: 3000,
         lazyConnect: true,
+        retryStrategy: (times: number) => (times <= 3 ? Math.min(times * 500, 2000) : null),
+      });
+
+      redis.on('error', (err) => {
+        console.error('[TaskQueue] primaryRedis connection error:', err.message);
       });
 
       await redis.connect();
