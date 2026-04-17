@@ -256,16 +256,34 @@ async function* streamOpenAICompat(
   temperature: number
 ): AsyncGenerator<string> {
   const client = makeOpenAIClient(model);
-  const stream = await client.chat.completions.create({
-    model: model.modelId,
-    messages: msgs,
-    max_tokens: maxTokens,
-    temperature,
-    stream: true,
-  });
-  for await (const chunk of stream) {
-    const delta = chunk.choices[0]?.delta?.content;
-    if (delta) yield delta;
+  try {
+    const stream = await client.chat.completions.create({
+      model: model.modelId,
+      messages: msgs,
+      max_tokens: maxTokens,
+      temperature,
+      stream: true,
+    });
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) yield delta;
+    }
+  } catch (err: any) {
+    // Fallback to non-streaming if the provider does not support streaming
+    if (err?.status === 400 && /[Ss]treaming.*not supported/.test(err?.message || "")) {
+      console.warn(`[modelRouter] Streaming not supported for ${model.name} — falling back to non-streaming`);
+      const res = await client.chat.completions.create({
+        model: model.modelId,
+        messages: msgs,
+        max_tokens: maxTokens,
+        temperature,
+        stream: false,
+      });
+      const content = res.choices?.[0]?.message?.content || "";
+      if (content) yield content;
+    } else {
+      throw err;
+    }
   }
 }
 
