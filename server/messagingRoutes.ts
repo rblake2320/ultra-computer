@@ -743,7 +743,12 @@ export function registerMessagingRoutes(app: Express): void {
 
     // Keep-alive ping every 15 seconds
     const ping = setInterval(() => {
-      res.write(": ping\n\n");
+      try {
+        res.write(": ping\n\n");
+      } catch {
+        clearInterval(ping);
+        sseClients.delete(clientId);
+      }
     }, 15000);
 
     req.on("close", () => {

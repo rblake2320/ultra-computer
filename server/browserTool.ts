@@ -31,6 +31,9 @@ const _pages: Map<string, any> = new Map(); // sessionKey → playwright Page
 const _contexts: Map<string, any> = new Map(); // sessionKey → playwright BrowserContext
 const _pendingPages: Map<string, Promise<any>> = new Map(); // serialize concurrent getPage for same key
 
+/** Maximum concurrent browser sessions to prevent memory leaks */
+const MAX_BROWSER_SESSIONS = 50;
+
 let _playwrightAvailable: boolean | null = null; // cached availability check
 
 async function getPlaywright(): Promise<any | null> {
@@ -85,6 +88,15 @@ async function _getPageInternal(sessionKey: string): Promise<any> {
       _pages.delete(sessionKey);
       _contexts.delete(sessionKey);
     }
+  }
+
+  // Evict oldest sessions if we've hit the limit (prevents memory leak)
+  while (_pages.size >= MAX_BROWSER_SESSIONS) {
+    const oldestKey = _pages.keys().next().value;
+    if (oldestKey !== undefined && oldestKey !== sessionKey) {
+      console.warn(`[browserTool] Evicting oldest browser session '${oldestKey}' (limit: ${MAX_BROWSER_SESSIONS})`);
+      await closePage(oldestKey);
+    } else break;
   }
 
   const browser = await getBrowser();

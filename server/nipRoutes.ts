@@ -597,7 +597,12 @@ export function registerNIPRoutes(app: Express): void {
 
     // Keep-alive ping every 15 seconds
     const ping = setInterval(() => {
-      res.write(": ping\n\n");
+      try {
+        res.write(": ping\n\n");
+      } catch {
+        clearInterval(ping);
+        sseClients.delete(clientId);
+      }
     }, 15_000);
 
     req.on("close", () => {
@@ -643,7 +648,12 @@ export function registerNIPRoutes(app: Express): void {
 
     // Keep-alive ping every 15 seconds
     const ping = setInterval(() => {
-      res.write(": ping\n\n");
+      try {
+        res.write(": ping\n\n");
+      } catch {
+        clearInterval(ping);
+        sseClients.delete(clientId);
+      }
     }, 15_000);
 
     req.on("close", () => {

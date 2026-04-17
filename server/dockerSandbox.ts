@@ -268,7 +268,7 @@ export class DockerSandbox {
       // Install basic tools if using bare ubuntu image
       if (this.config.image.startsWith("ubuntu")) {
         await this.execInContainer(state, "apt-get update -qq && apt-get install -y -qq python3 curl jq bc 2>/dev/null || true", 60_000)
-          .catch(() => {}); // best effort
+          .catch((err) => { console.warn(`[DockerSandbox] Best-effort tool install failed for ${sessionId}: ${err.message}`); });
       }
 
       console.log(`[DockerSandbox] Container created: ${state.containerId.substring(0, 12)} for session ${sessionId.substring(0, 8)}`);
@@ -371,7 +371,9 @@ export class DockerSandbox {
       }
     }
     if (oldest) {
-      this.removeContainer(oldest.sessionId).catch(() => {});
+      this.removeContainer(oldest.sessionId).catch((err) => {
+        console.warn(`[DockerSandbox] Failed to evict container for ${oldest!.sessionId}: ${err.message}`);
+      });
       return true;
     }
     return false;
@@ -388,7 +390,9 @@ export class DockerSandbox {
           now - state.lastUsedAt > this.config.idleTimeoutMs
         ) {
           console.log(`[DockerSandbox] Reaping idle container: ${state.containerId.substring(0, 12)}`);
-          this.removeContainer(sessionId).catch(() => {});
+          this.removeContainer(sessionId).catch((err) => {
+            console.warn(`[DockerSandbox] Failed to reap idle container ${sessionId}: ${err.message}`);
+          });
         }
       }
     }, 30_000); // check every 30 seconds
@@ -402,7 +406,9 @@ export class DockerSandbox {
     }
 
     const removals = Array.from(this.containers.keys()).map(sid =>
-      this.removeContainer(sid).catch(() => {})
+      this.removeContainer(sid).catch((err) => {
+        console.warn(`[DockerSandbox] Failed to remove container ${sid} during shutdown: ${err.message}`);
+      })
     );
     await Promise.all(removals);
 
