@@ -54,7 +54,7 @@ export function registerAutonomyRoutes(app: Express) {
 
   app.get("/api/autonomy/checkpoints", (req, res) => {
     try {
-      const status = req.query.status as string | undefined;
+      const status = req.query.status as "running" | "failed" | "completed" | "paused" | "abandoned" | undefined;
       res.json(getAllCheckpoints(status));
     } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to list checkpoints" }); }
   });
@@ -73,7 +73,7 @@ export function registerAutonomyRoutes(app: Express) {
 
   app.get("/api/autonomy/checkpoints/:id", (req, res) => {
     try {
-      const cp = getCheckpoint(req.params.id);
+      const cp = getCheckpoint((req.params.id as string));
       if (!cp) return res.status(404).json({ error: "Checkpoint not found" });
       res.json(cp);
     } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get checkpoint" }); }
@@ -92,7 +92,7 @@ export function registerAutonomyRoutes(app: Express) {
       if (typeof body !== "object" || Array.isArray(body)) {
         return res.status(400).json({ error: "Request body must be an object" });
       }
-      const cp = updateCheckpoint(req.params.id, body);
+      const cp = updateCheckpoint((req.params.id as string), body);
       res.json(cp);
     } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to update checkpoint" }); }
   });
@@ -100,22 +100,22 @@ export function registerAutonomyRoutes(app: Express) {
   app.post("/api/autonomy/checkpoints/:id/advance", (req, res) => {
     const { stepId, result } = req.body;
     if (!stepId) return res.status(400).json({ error: "stepId required" });
-    const cp = advanceStep(req.params.id, stepId, result || "");
+    const cp = advanceStep((req.params.id as string), stepId, result || "");
     res.json(cp);
   });
 
   app.post("/api/autonomy/checkpoints/:id/heartbeat", (req, res) => {
-    heartbeatTask(req.params.id);
+    heartbeatTask((req.params.id as string));
     res.json({ ok: true });
   });
 
   app.post("/api/autonomy/checkpoints/:id/complete", (req, res) => {
-    completeTask(req.params.id);
+    completeTask((req.params.id as string));
     res.json({ ok: true });
   });
 
   app.post("/api/autonomy/checkpoints/:id/fail", (req, res) => {
-    failTask(req.params.id, req.body.reason || "Unknown failure");
+    failTask((req.params.id as string), req.body.reason || "Unknown failure");
     res.json({ ok: true });
   });
 
@@ -131,7 +131,7 @@ export function registerAutonomyRoutes(app: Express) {
   });
 
   app.delete("/api/autonomy/checkpoints/:id", (req, res) => {
-    deleteCheckpoint(req.params.id);
+    deleteCheckpoint((req.params.id as string));
     res.json({ ok: true });
   });
 
@@ -153,7 +153,7 @@ export function registerAutonomyRoutes(app: Express) {
 
   app.get("/api/autonomy/cron/:id", (req, res) => {
     try {
-      const job = getCronJob(req.params.id);
+      const job = getCronJob((req.params.id as string));
       if (!job) return res.status(404).json({ error: "Cron job not found" });
       res.json(job);
     } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get cron job" }); }
@@ -170,7 +170,7 @@ export function registerAutonomyRoutes(app: Express) {
 
   app.patch("/api/autonomy/cron/:id", (req, res) => {
     try {
-      const job = updateCronJob(req.params.id, req.body);
+      const job = updateCronJob((req.params.id as string), req.body);
       res.json(job);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -180,12 +180,12 @@ export function registerAutonomyRoutes(app: Express) {
   app.post("/api/autonomy/cron/:id/toggle", (req, res) => {
     const enabled = req.body.enabled !== undefined ? Boolean(req.body.enabled) : undefined;
     if (enabled === undefined) return res.status(400).json({ error: "enabled field required" });
-    const job = toggleJob(req.params.id, enabled);
+    const job = toggleJob((req.params.id as string), enabled);
     res.json(job);
   });
 
   app.delete("/api/autonomy/cron/:id", (req, res) => {
-    deleteCronJob(req.params.id);
+    deleteCronJob((req.params.id as string));
     res.json({ ok: true });
   });
 
@@ -199,7 +199,7 @@ export function registerAutonomyRoutes(app: Express) {
   });
 
   app.post("/api/autonomy/circuits/:name/reset", (req, res) => {
-    const breaker = circuitRegistry.getAllBreakers().get(req.params.name);
+    const breaker = circuitRegistry.getAllBreakers().get((req.params.name as string));
     if (!breaker) return res.status(404).json({ error: "Circuit breaker not found" });
     breaker.reset();
     res.json({ ok: true, state: breaker.getState() });
@@ -269,7 +269,7 @@ export function registerAutonomyRoutes(app: Express) {
   });
 
   app.get("/api/autonomy/learning/insights/:taskType", (req, res) => {
-    res.json(getTaskTypeInsights(req.params.taskType));
+    res.json(getTaskTypeInsights((req.params.taskType as string)));
   });
 
   app.post("/api/autonomy/learning/recommend", (req, res) => {
@@ -315,7 +315,7 @@ export function registerAutonomyRoutes(app: Express) {
   });
 
   app.post("/api/autonomy/skills/improvements/:id/apply", (req, res) => {
-    const result = applyImprovement(req.params.id);
+    const result = applyImprovement((req.params.id as string));
     res.json(result);
   });
 
@@ -325,7 +325,7 @@ export function registerAutonomyRoutes(app: Express) {
       if (reason !== undefined && typeof reason !== "string") {
         return res.status(400).json({ error: "reason must be a string" });
       }
-      rejectImprovement(req.params.id, typeof reason === "string" ? reason : undefined);
+      rejectImprovement((req.params.id as string), typeof reason === "string" ? reason : undefined);
       res.json({ ok: true });
     } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to reject improvement" }); }
   });
