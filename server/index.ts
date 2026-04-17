@@ -4,16 +4,12 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
+import { initWatchdog } from "./processWatchdog";
 
-// ─── Process-level error handlers (must be first) ────────────────────────────
-process.on("uncaughtException", (err) => {
-  console.error("[fatal] Uncaught exception:", err);
-  process.exit(1);
-});
-process.on("unhandledRejection", (reason) => {
-  console.error("[fatal] Unhandled promise rejection:", reason);
-  process.exit(1);
-});
+// NOTE: Process-level error handlers (uncaughtException, unhandledRejection,
+// SIGTERM, SIGINT) are managed exclusively by processWatchdog.ts to avoid
+// duplicate/conflicting handlers. The watchdog is initialised after the HTTP
+// server is created — see the bottom of this file.
 
 const app = express();
 const httpServer = createServer(app);
@@ -76,21 +72,10 @@ const chatLimiter = rateLimit({
 });
 app.use("/api/conversations/:id/messages", chatLimiter);
 
-// ─── Health check (no auth, no rate limit) ────────────────────────────────
-app.get("/api/health", (_req, res) => {
-  res.json({
-    status: "ok",
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-    version: "1.0.0",
-    nodeVersion: process.version,
-    memoryUsage: {
-      rss: Math.round(process.memoryUsage().rss / 1024 / 1024),
-      heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-      heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
-    },
-  });
-});
+// NOTE: The /api/health endpoint is registered in routes.ts with comprehensive
+// system status data (model count, sandbox status, watchdog health, etc.).
+// Removed the duplicate simple health check that was here to avoid Express
+// routing ambiguity where the first-registered handler always wins.
 
 // Strip __PORT_5000__ prefix only in non-production (dev/test only)
 // In production, the build process handles this substitution at bundle time.
@@ -177,6 +162,10 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      // Initialise the process watchdog (heartbeat, graceful shutdown,
+      // uncaughtException/unhandledRejection handlers, event-loop lag detection).
+      // Must be called AFTER listen() so the server is ready to drain.
+      initWatchdog(httpServer);
     },
   );
   } catch (err) {

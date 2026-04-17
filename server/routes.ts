@@ -851,8 +851,20 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     const models = storage.getModels();
     const hasOrch = !!storage.getOrchestratorModel();
     const hasDefault = !!storage.getDefaultModel();
+    const watchdog = getHealthStatus();
     res.json({
-      status: "ok",
+      status: watchdog.status,
+      uptime: watchdog.uptime,
+      uptimeHuman: watchdog.uptimeHuman,
+      pid: watchdog.pid,
+      eventLoopLag: watchdog.eventLoopLag,
+      restartCount: watchdog.restartCount,
+      activeConnections: watchdog.activeConnections,
+      memoryUsage: watchdog.memoryUsage,
+      lastHeartbeat: watchdog.lastHeartbeat,
+      timestamp: new Date().toISOString(),
+      version: "1.0.0",
+      nodeVersion: process.version,
       modelCount: models.length,
       hasOrchestratorModel: hasOrch,
       hasDefaultModel: hasDefault,
