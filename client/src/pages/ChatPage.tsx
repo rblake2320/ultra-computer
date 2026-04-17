@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 import { Input } from "../components/ui/input";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "../components/ui/collapsible";
 import { useToast } from "../hooks/use-toast";
+import DOMPurify from "dompurify";
 import {
   Send, Loader2, CheckCircle2, Circle, XCircle,
   ChevronDown, ChevronRight, Zap, Network, Cpu,
@@ -33,7 +34,56 @@ function safeUrl(url: string): string {
   return /^(https?:|mailto:|#|\/)/i.test(url.trim()) ? url.trim() : '#';
 }
 
-// Render markdown + LLM HTML mix to safe HTML
+// ─── DOMPurify Configuration ─────────────────────────────────────────────────
+// Configure DOMPurify to allow only safe HTML tags and attributes.
+// This replaces the previous custom regex-based sanitizer which was vulnerable
+// to XSS bypass via crafted payloads.
+const PURIFY_CONFIG: DOMPurify.Config = {
+  ALLOWED_TAGS: [
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'p', 'br', 'hr',
+    'strong', 'b', 'em', 'i', 'u', 's', 'del', 'ins', 'mark',
+    'code', 'pre', 'kbd', 'samp', 'var',
+    'a', 'img',
+    'ul', 'ol', 'li',
+    'blockquote', 'q', 'cite',
+    'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'colgroup', 'col',
+    'details', 'summary',
+    'div', 'span', 'section',
+    'sup', 'sub', 'abbr',
+  ],
+  ALLOWED_ATTR: [
+    'href', 'target', 'rel', 'src', 'alt', 'title', 'class', 'id',
+    'colspan', 'rowspan', 'scope', 'width', 'height',
+    'open', 'lang',
+  ],
+  ALLOW_DATA_ATTR: false,
+  ADD_ATTR: ['target'],
+  // Force all links to open in new tab safely
+  FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'textarea', 'select', 'button'],
+  FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur', 'onsubmit', 'onchange'],
+};
+
+// Hook: Force all <a> tags to have safe attributes
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (node.tagName === 'A') {
+    node.setAttribute('target', '_blank');
+    node.setAttribute('rel', 'noopener noreferrer');
+    // Block javascript: URIs that might slip through
+    const href = node.getAttribute('href') || '';
+    if (!/^(https?:|mailto:|#|\/)/i.test(href.trim())) {
+      node.setAttribute('href', '#');
+    }
+  }
+});
+
+/**
+ * Render markdown + LLM HTML mix to safe HTML.
+ * Uses DOMPurify (battle-tested, 10k+ GitHub stars) for sanitization instead
+ * of custom regex stripping. The markdown-to-HTML conversion is kept simple
+ * (no heavy library needed for chat output), but all output is run through
+ * DOMPurify before being injected into the DOM.
+ */
 function renderMarkdown(raw: string): string {
   // Phase 1: Normalize LLM HTML tags to markdown equivalents so we can process uniformly
   let text = raw
@@ -45,8 +95,7 @@ function renderMarkdown(raw: string): string {
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/?p>/gi, '\n\n')
     .replace(/<h([1-3])>(.*?)<\/h\1>/gi, (_, lvl, t) => '#'.repeat(Number(lvl)) + ' ' + t)
-    // Strip any remaining HTML tags for XSS safety
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    // Strip HTML before markdown processing (DOMPurify will handle final sanitization)
     .replace(/<[^>]+>/g, '');
 
   // Phase 2: Extract fenced code blocks to protect them from further processing
@@ -134,7 +183,8 @@ function renderMarkdown(raw: string): string {
 
   if (inList) html.push(listType === 'ul' ? '</ul>' : '</ol>');
 
-  return html.join('\n');
+  // CRITICAL: Sanitize all output through DOMPurify before returning
+  return DOMPurify.sanitize(html.join('\n'), PURIFY_CONFIG);
 }
 
 // ── Tool activity types ──
