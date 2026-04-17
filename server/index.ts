@@ -72,6 +72,31 @@ const chatLimiter = rateLimit({
 });
 app.use("/api/conversations/:id/messages", chatLimiter);
 
+// Rate limit on code execution / CLI endpoints: 30 per minute per IP
+const executionLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Execution rate limit exceeded. Please wait before running more commands." },
+  keyGenerator: (req) => req.ip || req.socket.remoteAddress || "unknown",
+});
+app.use("/api/protocols/cli/execute", executionLimiter);
+app.use("/api/protocols/cli/script", executionLimiter);
+app.use("/api/protocols/cli/pipeline", executionLimiter);
+app.use("/api/protocols/code/interpret", executionLimiter);
+
+// Rate limit on swarm creation: 10 per minute per IP
+const swarmLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Swarm creation rate limit exceeded." },
+  keyGenerator: (req) => req.ip || req.socket.remoteAddress || "unknown",
+});
+app.use("/api/swarm/sessions", swarmLimiter);
+
 // NOTE: The /api/health endpoint is registered in routes.ts with comprehensive
 // system status data (model count, sandbox status, watchdog health, etc.).
 // Removed the duplicate simple health check that was here to avoid Express

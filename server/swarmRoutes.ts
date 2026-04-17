@@ -52,6 +52,36 @@
 import type { Express, Request, Response } from "express";
 import { swarmEngine } from "./swarmEngine.js";
 
+// ─── Validation Helpers ─────────────────────────────────────────────────────
+
+function requireString(value: unknown, field: string, maxLen = 500): string | null {
+  if (typeof value !== "string") return `${field} must be a string`;
+  if (value.trim().length === 0) return `${field} is required`;
+  if (value.length > maxLen) return `${field} must be at most ${maxLen} characters`;
+  return null;
+}
+
+function optionalString(value: unknown, field: string, maxLen = 500): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") return `${field} must be a string`;
+  if (value.length > maxLen) return `${field} must be at most ${maxLen} characters`;
+  return null;
+}
+
+function requireBody(req: Request, res: Response): boolean {
+  if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+    res.status(400).json({ error: "Request body must be a JSON object" });
+    return false;
+  }
+  return true;
+}
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const n = parseInt(String(value), 10);
+  if (isNaN(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
 export function registerSwarmRoutes(app: Express): void {
 
   // ── Session CRUD ──────────────────────────────────────────────────────
@@ -75,8 +105,16 @@ export function registerSwarmRoutes(app: Express): void {
   });
 
   app.post("/api/swarm/sessions", (req: Request, res: Response) => {
+    if (!requireBody(req, res)) return;
     try {
       const { agents, ...config } = req.body;
+      // Validate critical config fields
+      const nameErr = optionalString(config.name, "name", 200);
+      if (nameErr) return res.status(400).json({ error: nameErr });
+      const goalErr = optionalString(config.goal, "goal", 10_000);
+      if (goalErr) return res.status(400).json({ error: goalErr });
+      if (config.maxAgents !== undefined) config.maxAgents = clampInt(config.maxAgents, 1, 100, 10);
+      if (config.maxTasks !== undefined) config.maxTasks = clampInt(config.maxTasks, 1, 500, 50);
       const session = swarmEngine.createSwarm(config);
       // Auto-add agents if provided in the create body
       if (Array.isArray(agents)) {
@@ -158,7 +196,7 @@ export function registerSwarmRoutes(app: Express): void {
   });
 
   app.get("/api/swarm/sessions/:id/events", (req: Request, res: Response) => {
-    const limit = parseInt(req.query.limit as string) || 100;
+    const limit = clampInt(req.query.limit, 1, 1000, 100);
     const events = swarmEngine.getEventLog(req.params.id, limit);
     res.json(events);
   });
@@ -208,7 +246,14 @@ export function registerSwarmRoutes(app: Express): void {
   });
 
   app.post("/api/swarm/sessions/:id/agents", (req: Request, res: Response) => {
+    if (!requireBody(req, res)) return;
     try {
+      const nameErr = optionalString(req.body.name, "name", 200);
+      if (nameErr) return res.status(400).json({ error: nameErr });
+      const roleErr = optionalString(req.body.role, "role", 100);
+      if (roleErr) return res.status(400).json({ error: roleErr });
+      const instrErr = optionalString(req.body.instructions, "instructions", 50_000);
+      if (instrErr) return res.status(400).json({ error: instrErr });
       const agent = swarmEngine.addAgent(req.params.id, req.body);
       res.status(201).json(agent);
     } catch (e: any) {
@@ -285,7 +330,13 @@ export function registerSwarmRoutes(app: Express): void {
   });
 
   app.post("/api/swarm/sessions/:id/tasks", (req: Request, res: Response) => {
+    if (!requireBody(req, res)) return;
     try {
+      const titleErr = optionalString(req.body.title, "title", 500);
+      if (titleErr) return res.status(400).json({ error: titleErr });
+      const descErr = optionalString(req.body.description, "description", 50_000);
+      if (descErr) return res.status(400).json({ error: descErr });
+      if (req.body.priority !== undefined) req.body.priority = clampInt(req.body.priority, 0, 100, 50);
       const task = swarmEngine.addTask(req.params.id, req.body);
       res.status(201).json(task);
     } catch (e: any) {
@@ -408,7 +459,7 @@ export function registerSwarmRoutes(app: Express): void {
   // ── Messages (Lateral Communication) ──────────────────────────────────
 
   app.get("/api/swarm/sessions/:id/messages", (req: Request, res: Response) => {
-    const limit = parseInt(req.query.limit as string) || 200;
+    const limit = clampInt(req.query.limit, 1, 1000, 200);
     let messages = swarmEngine.getMessages(req.params.id, limit);
     // Optional filters: ?agentId= (from or to), ?type= (messageType)
     const agentFilter = req.query.agentId as string;
@@ -423,11 +474,15 @@ export function registerSwarmRoutes(app: Express): void {
   });
 
   app.post("/api/swarm/sessions/:id/messages", (req: Request, res: Response) => {
+    if (!requireBody(req, res)) return;
     // Accept field aliases: fromAgentId / fromAgent / from, toAgentId / toAgent / to
     const fromId = req.body.fromAgentId || req.body.fromAgent || req.body.from || "human_operator";
     const toId = req.body.toAgentId || req.body.toAgent || req.body.to || null;
     const { messageType, content, metadata } = req.body;
-    if (!content) return res.status(400).json({ error: "content required" });
+    const contentErr = requireString(content, "content", 50_000);
+    if (contentErr) return res.status(400).json({ error: contentErr });
+    const typeErr = optionalString(messageType, "messageType", 50);
+    if (typeErr) return res.status(400).json({ error: typeErr });
     swarmEngine.sendAgentMessage(
       req.params.id,
       fromId,
@@ -465,6 +520,12 @@ export function registerSwarmRoutes(app: Express): void {
   });
 
   app.put("/api/swarm/config", (req: Request, res: Response) => {
+    if (!requireBody(req, res)) return;
+    // Validate and clamp numeric fields
+    if (req.body.maxAgents !== undefined) req.body.maxAgents = clampInt(req.body.maxAgents, 1, 100, 10);
+    if (req.body.maxTasks !== undefined) req.body.maxTasks = clampInt(req.body.maxTasks, 1, 500, 50);
+    const nameErr = optionalString(req.body.name, "name", 200);
+    if (nameErr) return res.status(400).json({ error: nameErr });
     // Config updates are applied to new swarms only (not existing ones)
     // Store in settings for persistence
     res.json({ ok: true, message: "Config applies to newly created swarms", config: req.body });

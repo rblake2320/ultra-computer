@@ -106,6 +106,12 @@ export function registerProtocolRoutes(app: Express) {
    * JSON-RPC 2.0 endpoint — handles all A2A JSON-RPC method calls.
    */
   app.post("/api/protocols/a2a/rpc", async (req: Request, res: Response) => {
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      return res.status(400).json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Request body must be a JSON-RPC object" } });
+    }
+    if (typeof req.body.method !== "string" || req.body.method.length > 200) {
+      return res.status(400).json({ jsonrpc: "2.0", id: req.body?.id ?? null, error: { code: -32600, message: "method must be a string (max 200 chars)" } });
+    }
     try {
             const result = await a2aProtocol.handleA2ARequest(req.body);
       res.json(result);
@@ -160,6 +166,9 @@ export function registerProtocolRoutes(app: Express) {
    */
   app.post("/api/protocols/a2a/agents/:id/send", async (req: Request, res: Response) => {
     const { id } = req.params;
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      return res.status(400).json({ error: "Request body must be a JSON object" });
+    }
     // Verify id is a registered agent URL to prevent SSRF via arbitrary URLs
     const registeredAgent = a2aProtocol.getAgent(id);
     if (!registeredAgent) {
@@ -170,8 +179,14 @@ export function registerProtocolRoutes(app: Express) {
     if (!urlCheck.ok) {
       return res.status(400).json({ error: `Invalid agent URL: ${urlCheck.reason}` });
     }
+    // Validate message content size
+    const message = (req.body).message || req.body;
+    const messageStr = typeof message === "string" ? message : JSON.stringify(message);
+    if (messageStr.length > 100_000) {
+      return res.status(400).json({ error: "Message payload too large (max 100KB)" });
+    }
     try {
-            const result = await a2aProtocol.sendMessage(id, (req.body ?? {}).message || (req.body ?? {}), (req.body ?? {}).taskId);
+            const result = await a2aProtocol.sendMessage(id, (req.body).message || req.body, (req.body).taskId);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -239,12 +254,23 @@ export function registerProtocolRoutes(app: Express) {
    * Connect to a remote MCP server. Body: { url, name, transport }
    */
   app.post("/api/protocols/mcp/servers/connect", async (req: Request, res: Response) => {
-    const { url, name, transport } = req.body;
+    const { url, name, transport } = req.body ?? {};
     if (!url || typeof url !== "string") {
       return res.status(400).json({ error: "url (string) is required" });
     }
+    if (url.length > 2000) {
+      return res.status(400).json({ error: "url too long (max 2000 chars)" });
+    }
+    // SSRF protection: validate URL is public
+    const urlCheck = isValidPublicUrl(url);
+    if (!urlCheck.ok) {
+      return res.status(400).json({ error: `Invalid server URL: ${urlCheck.reason}` });
+    }
     if (!name || typeof name !== "string") {
       return res.status(400).json({ error: "name (string) is required" });
+    }
+    if (name.length > 200) {
+      return res.status(400).json({ error: "name too long (max 200 chars)" });
     }
     const validTransports = ["streamable-http", "sse"];
     const resolvedTransport = validTransports.includes(transport) ? transport : "streamable-http";
@@ -290,8 +316,16 @@ export function registerProtocolRoutes(app: Express) {
    */
   app.post("/api/protocols/mcp/servers/:id/tools/:toolName/call", async (req: Request, res: Response) => {
     const { id, toolName } = req.params;
+    if (toolName.length > 200) {
+      return res.status(400).json({ error: "toolName too long (max 200 chars)" });
+    }
+    // Limit argument payload size
+    const bodyStr = JSON.stringify(req.body ?? {});
+    if (bodyStr.length > 500_000) {
+      return res.status(400).json({ error: "Tool arguments payload too large (max 500KB)" });
+    }
     try {
-            const result = await mcpProtocol.callRemoteTool(id, toolName, req.body);
+            const result = await mcpProtocol.callRemoteTool(id, toolName, req.body ?? {});
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -335,7 +369,10 @@ export function registerProtocolRoutes(app: Express) {
    * Execute a shell command. Body: { command, timeout?, workDir?, env? }
    */
   app.post("/api/protocols/cli/execute", async (req: Request, res: Response) => {
-    const { command, timeout, workDir, env } = req.body ?? {};
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      return res.status(400).json({ error: "Request body must be a JSON object" });
+    }
+    const { command, timeout, workDir, env } = req.body;
     // Validate workDir is within the sandbox
     if (workDir !== undefined && typeof workDir === "string") {
       const resolvedWorkDir = require("path").resolve(workDir);
@@ -592,15 +629,26 @@ export function registerProtocolRoutes(app: Express) {
    * File transform. Body: { inputPath, outputPath, transformType, options? }
    */
   app.post("/api/protocols/files/transform", async (req: Request, res: Response) => {
-    const { inputPath, outputPath, transformType, options } = req.body;
+    const { inputPath, outputPath, transformType, options } = req.body ?? {};
     if (!inputPath || typeof inputPath !== "string") {
       return res.status(400).json({ error: "inputPath (string) is required" });
     }
     if (!outputPath || typeof outputPath !== "string") {
       return res.status(400).json({ error: "outputPath (string) is required" });
     }
+    // Sandbox path enforcement for file transforms
+    const path = require("path");
+    const sandboxBase = path.resolve("/tmp/ultra-sandbox");
+    const resolvedInput = path.resolve(inputPath);
+    const resolvedOutput = path.resolve(outputPath);
+    if (!resolvedInput.startsWith(sandboxBase) || !resolvedOutput.startsWith(sandboxBase)) {
+      return res.status(400).json({ error: "inputPath and outputPath must be within the sandbox directory (/tmp/ultra-sandbox)" });
+    }
     if (!transformType || typeof transformType !== "string") {
       return res.status(400).json({ error: "transformType (string) is required" });
+    }
+    if (transformType.length > 100) {
+      return res.status(400).json({ error: "transformType too long (max 100 chars)" });
     }
     try {
             const result = await cliToolEngine.executeFileTransform(inputPath, outputPath, transformType, options || {});

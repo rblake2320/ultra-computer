@@ -118,14 +118,25 @@ export function registerMarketplaceRoutes(app: Express) {
     const existing = storage.getMarketplaceSkill(req.params.id);
     if (!existing) return res.status(404).json({ error: "Skill not found" });
 
-    const { tags, ...rest } = req.body;
-    const updateData: any = { ...rest };
-    if (tags !== undefined) {
-      updateData.tags = Array.isArray(tags) ? JSON.stringify(tags) : tags;
+    // Explicit allowlist — no mass assignment via ...rest
+    const ALLOWED_FIELDS = ["name", "description", "longDescription", "authorName", "authorEmail",
+      "category", "license", "repoUrl", "visibility", "featured", "verified"] as const;
+    const updateData: Record<string, any> = {};
+    for (const field of ALLOWED_FIELDS) {
+      if (req.body[field] !== undefined) {
+        const val = req.body[field];
+        if (typeof val === "string" && val.length > 10_000) {
+          return res.status(400).json({ error: `${field} too long (max 10,000 chars)` });
+        }
+        updateData[field] = val;
+      }
     }
-    // Don't allow changing slug or id
-    delete updateData.id;
-    delete updateData.slug;
+    if (updateData.category && !VALID_CATEGORIES.includes(updateData.category)) {
+      return res.status(400).json({ error: `category must be one of: ${VALID_CATEGORIES.join(", ")}` });
+    }
+    if (req.body.tags !== undefined) {
+      updateData.tags = Array.isArray(req.body.tags) ? JSON.stringify(req.body.tags) : req.body.tags;
+    }
 
     const updated = storage.updateMarketplaceSkill(req.params.id, updateData);
     res.json(updated);
