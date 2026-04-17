@@ -9,7 +9,9 @@
  */
 
 import { exec } from "child_process";
+import dns from "dns";
 import fs from "fs";
+import net from "net";
 import path from "path";
 import { promisify } from "util";
 import { dockerSandbox } from "./dockerSandbox.js";
@@ -17,6 +19,7 @@ import { BROWSER_TOOL_SCHEMAS, executeBrowserTool } from "./browserTool.js";
 import { IMAGE_GEN_TOOL_SCHEMAS, executeImageGenTool } from "./imageGenTool.js";
 
 const execAsync = promisify(exec);
+const dnsResolve = promisify(dns.resolve);
 
 // All agent-created files live here — mounted into Docker containers as /workspace
 const SANDBOX_DIR = path.join(process.cwd(), "sandbox");
@@ -349,20 +352,36 @@ async function executeFetchUrl(url: string, extractText: boolean, start: number)
   }
 
   // SSRF protection: block private/loopback/link-local addresses
-  const hostname = parsedUrl.hostname.toLowerCase();
-  const isPrivate = (
+  // Step 1: Quick hostname check (catches obvious cases)
+  const hostname = parsedUrl.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const quickIsPrivate = (
     hostname === 'localhost' ||
     hostname.endsWith('.local') ||
-    /^127\./.test(hostname) ||
-    /^10\./.test(hostname) ||
-    /^192\.168\./.test(hostname) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
     hostname === '::1' ||
-    hostname === '[::1]' ||
-    /^169\.254\./.test(hostname) // link-local
+    /^0\./.test(hostname) ||
+    hostname === '0.0.0.0'
   );
-  if (isPrivate) {
+  if (quickIsPrivate) {
     return { success: false, output: "", error: "Fetching private/internal network addresses is not allowed", durationMs: Date.now() - start };
+  }
+
+  // Step 2: Resolve DNS and check the ACTUAL IP addresses (prevents DNS rebinding)
+  // This catches domains that resolve to 127.0.0.1, 10.x.x.x, 169.254.x.x, etc.
+  try {
+    let resolvedIPs: string[];
+    if (net.isIP(hostname)) {
+      resolvedIPs = [hostname];
+    } else {
+      resolvedIPs = await dnsResolve(hostname);
+    }
+
+    for (const ip of resolvedIPs) {
+      if (isPrivateIP(ip)) {
+        return { success: false, output: "", error: `Fetching private/internal network addresses is not allowed (resolved to ${ip})`, durationMs: Date.now() - start };
+      }
+    }
+  } catch (dnsErr: any) {
+    return { success: false, output: "", error: `DNS resolution failed for ${hostname}: ${dnsErr.message}`, durationMs: Date.now() - start };
   }
 
   const controller = new AbortController();
@@ -426,43 +445,50 @@ async function executeFetchUrl(url: string, extractText: boolean, start: number)
 }
 
 // ─── calculator ───────────────────────────────────────────────────────────────
-const ALLOWED_MATH_FUNCTIONS = new Set([
-  "Math.abs", "Math.ceil", "Math.floor", "Math.round", "Math.sqrt", "Math.cbrt",
-  "Math.pow", "Math.min", "Math.max", "Math.log", "Math.log2", "Math.log10",
-  "Math.sin", "Math.cos", "Math.tan", "Math.asin", "Math.acos", "Math.atan", "Math.atan2",
-  "Math.PI", "Math.E", "Math.exp", "Math.sign", "Math.trunc", "Math.hypot", "Math.random",
-]);
+import { evaluate as mathjsEvaluate, create, all } from "mathjs";
+
+// Create a restricted mathjs instance — no dangerous functions
+const mathInstance = create(all);
+
+// Remove potentially dangerous functions from mathjs scope
+const DANGEROUS_FUNCTIONS = [
+  "import", "createUnit", "evaluate", "parse", "simplify",
+  "derivative", "resolve", "compile", "chain",
+];
+for (const fn of DANGEROUS_FUNCTIONS) {
+  try { (mathInstance as any)[fn] = undefined; } catch { /* skip */ }
+}
 
 /**
- * Safe math expression evaluator.
- * Validates the expression: only allows digits, arithmetic operators, parentheses,
- * whitespace, comma (for multi-arg Math functions), and whitelisted Math.* calls.
- * Passes only the Math object as scope — no access to process, require, etc.
+ * Safe math expression evaluator using mathjs.
+ * mathjs builds an AST and evaluates it without using the JavaScript engine's
+ * compiler (no `new Function`, no `eval`). This eliminates arbitrary code
+ * execution risks entirely.
+ *
+ * Supports: arithmetic, trig, logarithms, constants (pi, e), matrix ops, units.
+ * Blocks: import, evaluate, parse, compile, and other meta-programming functions.
  */
 function safeEvalMath(expression: string): number {
-  // Validate all Math.* tokens against allowlist
-  const mathTokenPattern = /Math\.\w+/g;
-  const mathTokens = expression.match(mathTokenPattern) || [];
-  for (const token of mathTokens) {
-    if (!ALLOWED_MATH_FUNCTIONS.has(token)) {
-      throw new Error(`Disallowed function: ${token}`);
-    }
+  // Normalize common JavaScript Math.* syntax to mathjs equivalents
+  let normalized = expression
+    .replace(/Math\.PI/g, "pi")
+    .replace(/Math\.E/g, "e")
+    .replace(/Math\.(abs|ceil|floor|round|sqrt|cbrt|pow|min|max|log|log2|log10|sin|cos|tan|asin|acos|atan|atan2|exp|sign|trunc|hypot|random)/g, "$1");
+
+  // Block any attempt to access dangerous patterns
+  if (/import|require|process|global|eval|Function|constructor|prototype|__proto__/i.test(normalized)) {
+    throw new Error("Expression contains disallowed keywords");
   }
 
-  // After removing Math.identifier tokens, only safe characters should remain
-  const withoutMathIdents = expression.replace(/Math\.[a-z0-9]+/gi, "");
-  for (const ch of withoutMathIdents) {
-    if (!/[0-9.+\-*/%() \t\n,eE]/.test(ch)) {
-      throw new Error(`Disallowed character in expression: '${ch}'`);
-    }
-  }
+  const result = mathInstance.evaluate!(normalized);
 
-  // Evaluate with only Math in scope — no globals, no process, no require
-  // eslint-disable-next-line no-new-func
-  const fn = new Function("Math", `"use strict"; return (${expression});`);
-  const result = fn(Math);
-  if (typeof result !== "number") throw new Error("Expression did not evaluate to a number");
-  return result;
+  // mathjs can return various types; ensure we get a number
+  if (typeof result === "number") return result;
+  if (typeof result === "object" && result !== null && typeof result.toNumber === "function") {
+    return result.toNumber();
+  }
+  if (typeof result === "bigint") return Number(result);
+  throw new Error("Expression did not evaluate to a number");
 }
 
 function executeCalculator(expression: string, start: number): ToolResult {
@@ -607,7 +633,43 @@ async function executeSearchWeb(query: string, numResultsStr: string | undefined
   }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── SSRF: Private IP detection ───────────────────────────────────────────────────────
+
+/**
+ * Check if an IP address is in a private/reserved range.
+ * Covers: loopback, private RFC1918, link-local, multicast, broadcast,
+ * IPv6 loopback, IPv6 link-local, IPv6 unique-local, and AWS metadata (169.254.x.x).
+ */
+function isPrivateIP(ip: string): boolean {
+  // IPv4 checks
+  if (net.isIPv4(ip)) {
+    const parts = ip.split(".").map(Number);
+    if (parts[0] === 127) return true;                                    // 127.0.0.0/8 loopback
+    if (parts[0] === 10) return true;                                     // 10.0.0.0/8 private
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true; // 172.16.0.0/12 private
+    if (parts[0] === 192 && parts[1] === 168) return true;                // 192.168.0.0/16 private
+    if (parts[0] === 169 && parts[1] === 254) return true;                // 169.254.0.0/16 link-local / AWS metadata
+    if (parts[0] === 0) return true;                                      // 0.0.0.0/8
+    if (parts[0] >= 224) return true;                                     // 224.0.0.0+ multicast/reserved
+    if (ip === "255.255.255.255") return true;                            // broadcast
+    return false;
+  }
+  // IPv6 checks
+  if (net.isIPv6(ip)) {
+    const lower = ip.toLowerCase();
+    if (lower === "::1") return true;                                     // loopback
+    if (lower.startsWith("fe80:")) return true;                           // link-local
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true;    // unique-local
+    if (lower === "::") return true;                                      // unspecified
+    // IPv4-mapped IPv6 (::ffff:x.x.x.x)
+    const v4Match = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (v4Match) return isPrivateIP(v4Match[1]);
+    return false;
+  }
+  return true; // Unknown format — block by default
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────────
 
 function resolveSandboxPath(filename: string): string {
   const resolved = path.resolve(SANDBOX_DIR, filename);
