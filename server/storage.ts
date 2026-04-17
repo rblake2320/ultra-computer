@@ -116,7 +116,8 @@ sqlite.exec(`
     agent_id TEXT,
     task_id TEXT,
     metadata TEXT NOT NULL DEFAULT '{}',
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
   );
   CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
@@ -133,7 +134,9 @@ sqlite.exec(`
     error TEXT,
     started_at INTEGER,
     completed_at INTEGER,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_task_id) REFERENCES tasks(id) ON DELETE SET NULL
   );
   CREATE TABLE IF NOT EXISTS agent_runs (
     id TEXT PRIMARY KEY,
@@ -149,7 +152,9 @@ sqlite.exec(`
     status TEXT NOT NULL DEFAULT 'running',
     token_usage TEXT NOT NULL DEFAULT '{}',
     started_at INTEGER NOT NULL,
-    completed_at INTEGER
+    completed_at INTEGER,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
   );
   CREATE TABLE IF NOT EXISTS skill_scripts (
     id TEXT PRIMARY KEY,
@@ -173,7 +178,8 @@ sqlite.exec(`
     version INTEGER NOT NULL,
     content TEXT NOT NULL,
     change_note TEXT NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (script_id) REFERENCES skill_scripts(id) ON DELETE CASCADE
   );
   CREATE TABLE IF NOT EXISTS marketplace_skills (
     id TEXT PRIMARY KEY,
@@ -219,7 +225,8 @@ sqlite.exec(`
     language TEXT,
     trigger_keywords TEXT NOT NULL DEFAULT '[]',
     file_size INTEGER NOT NULL DEFAULT 0,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (skill_id) REFERENCES marketplace_skills(id) ON DELETE CASCADE
   );
   CREATE TABLE IF NOT EXISTS marketplace_ratings (
     id TEXT PRIMARY KEY,
@@ -227,7 +234,8 @@ sqlite.exec(`
     user_id TEXT NOT NULL,
     rating INTEGER NOT NULL,
     review TEXT,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (skill_id) REFERENCES marketplace_skills(id) ON DELETE CASCADE
   );
   CREATE TABLE IF NOT EXISTS marketplace_installs (
     id TEXT PRIMARY KEY,
@@ -236,7 +244,8 @@ sqlite.exec(`
     local_type TEXT NOT NULL DEFAULT 'instruction',
     installed_version TEXT NOT NULL,
     auto_update INTEGER NOT NULL DEFAULT 0,
-    installed_at INTEGER NOT NULL
+    installed_at INTEGER NOT NULL,
+    FOREIGN KEY (skill_id) REFERENCES marketplace_skills(id) ON DELETE CASCADE
   );
   CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
@@ -261,7 +270,9 @@ sqlite.exec(`
     updated_at INTEGER NOT NULL
   );
 
-  DROP TABLE IF EXISTS swarms;
+  -- NOTE: Removed destructive DROP TABLE IF EXISTS swarms (was destroying data on every startup)
+  -- Migration: The old 'swarms' table has been replaced by 'swarm_sessions'.
+  -- If upgrading from an older version, manually run: DROP TABLE IF EXISTS swarms;
 
   CREATE TABLE IF NOT EXISTS swarm_sessions (
     id TEXT PRIMARY KEY,
