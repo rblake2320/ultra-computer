@@ -152,7 +152,7 @@ function TierCard({
             <div className="space-y-1">
               <p className="text-[10px] text-muted-foreground">Est. Hits Generated</p>
               <p className="text-lg font-bold text-emerald-400">
-                {(stats.estimatedHits ?? (stats as Record<string, number>).estimatedHitsGenerated ?? 0).toLocaleString()}
+                {(stats.estimatedHits ?? (stats as unknown as Record<string, number>).estimatedHitsGenerated ?? 0).toLocaleString()}
               </p>
             </div>
             <div className="space-y-1">
@@ -215,9 +215,9 @@ function TierCard({
 
 // ─── Memory Section ──────────────────────────────────────────────────────────
 
-function MemorySection({ memory }: { memory: Record<string, unknown> }) {
+function MemorySection({ memory }: { memory: MemoryUsage }) {
   // Handle both expected shapes from the API
-  const mem = memory as Record<string, unknown>;
+  const mem = memory as unknown as Record<string, unknown>;
   const totalBytes = (mem.totalBytes ?? mem.totalEstimatedBytes ?? 0) as number;
   const budgetBytes = (mem.budgetBytes ?? mem.limitBytes ?? 268435456) as number;
   const usedPct = budgetBytes > 0

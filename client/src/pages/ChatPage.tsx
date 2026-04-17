@@ -38,7 +38,7 @@ function safeUrl(url: string): string {
 // Configure DOMPurify to allow only safe HTML tags and attributes.
 // This replaces the previous custom regex-based sanitizer which was vulnerable
 // to XSS bypass via crafted payloads.
-const PURIFY_CONFIG: DOMPurify.Config = {
+const PURIFY_CONFIG = {
   ALLOWED_TAGS: [
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'p', 'br', 'hr',
@@ -184,7 +184,7 @@ function renderMarkdown(raw: string): string {
   if (inList) html.push(listType === 'ul' ? '</ul>' : '</ol>');
 
   // CRITICAL: Sanitize all output through DOMPurify before returning
-  return DOMPurify.sanitize(html.join('\n'), PURIFY_CONFIG);
+  return DOMPurify.sanitize(html.join('\n'), PURIFY_CONFIG) as string;
 }
 
 // ── Tool activity types ──
@@ -636,7 +636,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
               } catch {
-                toast({ title: 'Export failed', variant: 'destructive' });
+                console.error('Export failed');
               }
             }}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"

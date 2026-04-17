@@ -102,7 +102,7 @@ export function registerBrowserRoutes(app: Express) {
   // Get a live screenshot of a session as PNG
   app.get("/api/browser/screenshot/:session", async (req: Request, res: Response) => {
     try {
-      const sessionKey = req.params.session;
+      const sessionKey = req.params.session as string;
       const png = await takeSessionScreenshot(sessionKey);
       if (!png) return res.status(404).json({ error: "No active session found" });
       res.setHeader("Content-Type", "image/png");
@@ -136,7 +136,7 @@ export function registerBrowserRoutes(app: Express) {
   // Close a browser session
   app.delete("/api/browser/sessions/:session", async (req: Request, res: Response) => {
     try {
-      const sessionKey = req.params.session;
+      const sessionKey = req.params.session as string;
       const result = await executeBrowserTool("browser_close", { session: sessionKey });
       res.json(result);
     } catch (err: any) {

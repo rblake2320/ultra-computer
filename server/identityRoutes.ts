@@ -235,7 +235,7 @@ export function registerIdentityRoutes(app: Express): void {
   app.post(
     "/api/identity/verifications/:id/approve",
     (req: Request, res: Response) => {
-      const { id } = req.params;
+      const { id } = req.params as Record<string, string>;
       const { reviewerId } = req.body ?? {};
 
       if (!id || typeof id !== "string") {
@@ -266,7 +266,7 @@ export function registerIdentityRoutes(app: Express): void {
   app.post(
     "/api/identity/verifications/:id/reject",
     (req: Request, res: Response) => {
-      const { id } = req.params;
+      const { id } = req.params as Record<string, string>;
       const { reviewerId, reason } = req.body ?? {};
 
       if (!id || typeof id !== "string") {
@@ -463,7 +463,7 @@ export function registerIdentityRoutes(app: Express): void {
    * Query: ?viewerId=xxx (optional)
    */
   app.get("/api/identity/:cryptoId", (req: Request, res: Response) => {
-    const { cryptoId } = req.params;
+    const { cryptoId } = req.params as Record<string, string>;
     const { viewerId } = req.query as Record<string, string | undefined>;
 
     const idErr = validateCryptoId(cryptoId);
@@ -491,7 +491,7 @@ export function registerIdentityRoutes(app: Express): void {
    * Get the full identity object (self only; auth-gated in production).
    */
   app.get("/api/identity/:cryptoId/full", (req: Request, res: Response) => {
-    const { cryptoId } = req.params;
+    const { cryptoId } = req.params as Record<string, string>;
 
     const idErr = validateCryptoId(cryptoId);
     if (idErr) return res.status(400).json({ error: idErr });
@@ -514,7 +514,7 @@ export function registerIdentityRoutes(app: Express): void {
    * Body: { displayName?, displayAvatar?, bio?, organizationName?, website? }
    */
   app.patch("/api/identity/:cryptoId/profile", (req: Request, res: Response) => {
-    const { cryptoId } = req.params;
+    const { cryptoId } = req.params as Record<string, string>;
     const { displayName, displayAvatar, bio, organizationName, website } =
       req.body ?? {};
 
@@ -581,7 +581,7 @@ export function registerIdentityRoutes(app: Express): void {
   app.patch(
     "/api/identity/:cryptoId/community",
     (req: Request, res: Response) => {
-      const { cryptoId } = req.params;
+      const { cryptoId } = req.params as Record<string, string>;
       const { title, company, location, skills, badges } = req.body ?? {};
 
       const idErr = validateCryptoId(cryptoId);
@@ -643,7 +643,7 @@ export function registerIdentityRoutes(app: Express): void {
    * Body: { method, evidence?, requestedTier }
    */
   app.post("/api/identity/:cryptoId/verify", (req: Request, res: Response) => {
-    const { cryptoId } = req.params;
+    const { cryptoId } = req.params as Record<string, string>;
     const { method, evidence, requestedTier } = req.body ?? {};
 
     const idErr = validateCryptoId(cryptoId);
@@ -684,7 +684,7 @@ export function registerIdentityRoutes(app: Express): void {
    * Get trust score and trust factors for an identity.
    */
   app.get("/api/identity/:cryptoId/trust", (req: Request, res: Response) => {
-    const { cryptoId } = req.params;
+    const { cryptoId } = req.params as Record<string, string>;
 
     const idErr = validateCryptoId(cryptoId);
     if (idErr) return res.status(400).json({ error: idErr });
@@ -714,7 +714,7 @@ export function registerIdentityRoutes(app: Express): void {
   app.post(
     "/api/identity/:cryptoId/activity",
     (req: Request, res: Response) => {
-      const { cryptoId } = req.params;
+      const { cryptoId } = req.params as Record<string, string>;
       const { activity } = req.body ?? {};
 
       const idErr = validateCryptoId(cryptoId);
@@ -744,7 +744,7 @@ export function registerIdentityRoutes(app: Express): void {
    * Body: { blockedId, reason? }
    */
   app.post("/api/identity/:cryptoId/block", (req: Request, res: Response) => {
-    const { cryptoId } = req.params;
+    const { cryptoId } = req.params as Record<string, string>;
     const { blockedId, reason } = req.body ?? {};
 
     const idErr = validateCryptoId(cryptoId);
@@ -781,7 +781,7 @@ export function registerIdentityRoutes(app: Express): void {
    * Body: { blockedId }
    */
   app.post("/api/identity/:cryptoId/unblock", (req: Request, res: Response) => {
-    const { cryptoId } = req.params;
+    const { cryptoId } = req.params as Record<string, string>;
     const { blockedId } = req.body ?? {};
 
     const idErr = validateCryptoId(cryptoId);
@@ -805,7 +805,7 @@ export function registerIdentityRoutes(app: Express): void {
    * This is the RESTful DELETE equivalent of POST .../unblock.
    */
   app.delete("/api/identity/:cryptoId/blocks/:blockId", (req: Request, res: Response) => {
-    const { cryptoId, blockId } = req.params;
+    const { cryptoId, blockId } = req.params as Record<string, string>;
 
     const idErr = validateCryptoId(cryptoId);
     if (idErr) return res.status(400).json({ error: idErr });
@@ -829,7 +829,7 @@ export function registerIdentityRoutes(app: Express): void {
    * Get the block list for an identity.
    */
   app.get("/api/identity/:cryptoId/blocks", (req: Request, res: Response) => {
-    const { cryptoId } = req.params;
+    const { cryptoId } = req.params as Record<string, string>;
 
     const idErr = validateCryptoId(cryptoId);
     if (idErr) return res.status(400).json({ error: idErr });
@@ -851,7 +851,7 @@ export function registerIdentityRoutes(app: Express): void {
   app.get(
     "/api/identity/:cryptoId/blocked-by/:targetId",
     (req: Request, res: Response) => {
-      const { cryptoId, targetId } = req.params;
+      const { cryptoId, targetId } = req.params as Record<string, string>;
 
       const idErr = validateCryptoId(cryptoId);
       if (idErr) return res.status(400).json({ error: idErr });
@@ -877,7 +877,7 @@ export function registerIdentityRoutes(app: Express): void {
    * Body: { reason, performedBy }
    */
   app.post("/api/identity/:cryptoId/suspend", (req: Request, res: Response) => {
-    const { cryptoId } = req.params;
+    const { cryptoId } = req.params as Record<string, string>;
     const { reason, performedBy } = req.body ?? {};
 
     const idErr = validateCryptoId(cryptoId);
@@ -908,7 +908,7 @@ export function registerIdentityRoutes(app: Express): void {
    * Body: { reason, performedBy }
    */
   app.post("/api/identity/:cryptoId/ban", (req: Request, res: Response) => {
-    const { cryptoId } = req.params;
+    const { cryptoId } = req.params as Record<string, string>;
     const { reason, performedBy } = req.body ?? {};
 
     const idErr = validateCryptoId(cryptoId);
@@ -941,7 +941,7 @@ export function registerIdentityRoutes(app: Express): void {
   app.post(
     "/api/identity/:cryptoId/reactivate",
     (req: Request, res: Response) => {
-      const { cryptoId } = req.params;
+      const { cryptoId } = req.params as Record<string, string>;
       const { performedBy } = req.body ?? {};
 
       const idErr = validateCryptoId(cryptoId);

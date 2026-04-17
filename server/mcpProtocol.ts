@@ -1180,7 +1180,4 @@ export async function getRemotePrompt(
 
 export {
   handleMCPRequest as default,
-  type MCPServerConnection,
-  type MCPTool,
-  type MCPResource,
 };

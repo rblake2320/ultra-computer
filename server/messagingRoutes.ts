@@ -323,7 +323,8 @@ export function registerMessagingRoutes(app: Express): void {
         ts: Date.now(),
       });
 
-      res.json({ ok: true, messageId, ...result });
+      const { ok: _ok, ...restResult } = result ?? {} as any;
+      res.json({ ok: true, messageId, ...restResult });
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to send message" });
     }
