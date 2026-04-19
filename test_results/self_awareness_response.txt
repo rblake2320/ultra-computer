@@ -1,0 +1,12 @@
+SELF-AWARENESS LIVE TEST — Real Chat Response
+================================================
+Question: "What model are you? What are your real capabilities and limitations? Be completely honest."
+
+RESULT: The system correctly identified itself as GPT-4.1 Mini/Nano and provided:
+- Accurate model identity (GPT-4.1 Mini/Nano, model ID: gpt-4.1-mini)
+- Honest capabilities (chat, code, analysis, web search via tools, image gen via DALL-E)
+- Honest limitations (no native vision, no audio/video, potential hallucinations, stateless, knowledge cutoff March 2025)
+- Correct context window (128k tokens)
+- Acknowledged smaller model size and limited reasoning depth
+
+VERDICT: PASS — Self-awareness is working correctly in live orchestrator prompts.
