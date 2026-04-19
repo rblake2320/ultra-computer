@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
@@ -50,6 +50,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement>(null);
 
+  // Delete confirmation state
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [showClearAll, setShowClearAll] = useState(false);
+
   const { data: conversations = [], isError: convsError } = useQuery<Conversation[]>({ queryKey: ["/api/conversations"] });
 
   const { toast } = useToast();
@@ -67,10 +71,34 @@ export function Layout({ children }: { children: React.ReactNode }) {
     mutationFn: (id: string) => apiRequest("DELETE", `/api/conversations/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/conversations"] });
+      setPendingDeleteId(null);
       if (location.includes("/chat/")) setLocation("/");
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => { setPendingDeleteId(null); toast({ title: "Error", description: e.message, variant: "destructive" }); },
   });
+
+  const confirmDelete = useCallback((id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setPendingDeleteId(id);
+  }, []);
+
+  const executeDelete = useCallback(() => {
+    if (pendingDeleteId) deleteConv.mutate(pendingDeleteId);
+  }, [pendingDeleteId, deleteConv]);
+
+  const cancelDelete = useCallback(() => {
+    setPendingDeleteId(null);
+  }, []);
+
+  const clearAllSessions = useCallback(async () => {
+    for (const conv of conversations) {
+      await apiRequest("DELETE", `/api/conversations/${conv.id}`);
+    }
+    qc.invalidateQueries({ queryKey: ["/api/conversations"] });
+    setShowClearAll(false);
+    setLocation("/");
+    toast({ title: "Cleared", description: "All sessions deleted." });
+  }, [conversations, qc, setLocation, toast]);
 
   const renameConv = useMutation({
     mutationFn: ({ id, title }: { id: string; title: string }) =>
@@ -157,8 +185,24 @@ export function Layout({ children }: { children: React.ReactNode }) {
               onClick={() => setLocation(`/chat/${conv.id}`)}
             >
               <p className="text-xs font-medium truncate flex-1 min-w-0">{conv.title}</p>
+              <button
+                onClick={(e) => confirmDelete(conv.id, e)}
+                className="p-1 rounded hover:bg-destructive/20 text-muted-foreground/70 hover:text-destructive transition-all shrink-0"
+                aria-label={`Delete session: ${conv.title}`}
+                title="Delete session"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
             </div>
           ))}
+          {conversations.length > 0 && (
+            <button
+              onClick={() => setShowClearAll(true)}
+              className="w-full text-xs text-muted-foreground hover:text-destructive py-2 mt-1 border border-dashed border-muted-foreground/30 hover:border-destructive/50 rounded transition-colors"
+            >
+              Clear all sessions
+            </button>
+          )}
           {conversations.length === 0 && !convsError && (
             <p className="text-xs text-muted-foreground text-center py-4">No sessions yet</p>
           )}
@@ -288,16 +332,25 @@ export function Layout({ children }: { children: React.ReactNode }) {
                   )}
                   {renamingId !== conv.id && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); deleteConv.mutate(conv.id); }}
-                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
-                      aria-label={`Delete conversation: ${conv.title}`}
-                      title="Delete conversation"
+                      onClick={(e) => confirmDelete(conv.id, e)}
+                      className="shrink-0 p-1 rounded hover:bg-destructive/20 text-muted-foreground/70 hover:text-destructive transition-all"
+                      aria-label={`Delete session: ${conv.title}`}
+                      title="Delete session"
+                      tabIndex={0}
                     >
-                      <Trash2 className="w-3 h-3" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   )}
                 </div>
               ))}
+              {conversations.length > 0 && (
+                <button
+                  onClick={() => setShowClearAll(true)}
+                  className="w-full text-xs text-muted-foreground hover:text-destructive py-2 mt-1 border border-dashed border-muted-foreground/30 hover:border-destructive/50 rounded transition-colors"
+                >
+                  Clear all sessions
+                </button>
+              )}
               {conversations.length === 0 && (
                 <p className="text-xs text-muted-foreground text-center py-4">No sessions yet</p>
               )}
@@ -333,6 +386,38 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       </aside>
+
+      {/* Delete confirmation dialog */}
+      {pendingDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={cancelDelete}>
+          <div className="bg-card border border-border rounded-lg shadow-lg p-6 max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold mb-2">Delete Session?</h3>
+            <p className="text-xs text-muted-foreground mb-4">This will permanently delete this session and all its messages, tasks, and agent runs. This cannot be undone.</p>
+            <div className="flex gap-2 justify-end">
+              <Button size="sm" variant="outline" onClick={cancelDelete}>Cancel</Button>
+              <Button size="sm" variant="destructive" onClick={executeDelete} disabled={deleteConv.isPending}>
+                {deleteConv.isPending ? "Deleting..." : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear all confirmation dialog */}
+      {showClearAll && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowClearAll(false)}>
+          <div className="bg-card border border-border rounded-lg shadow-lg p-6 max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold mb-2">Clear All Sessions?</h3>
+            <p className="text-xs text-muted-foreground mb-4">This will permanently delete all {conversations.length} sessions and their messages. This cannot be undone.</p>
+            <div className="flex gap-2 justify-end">
+              <Button size="sm" variant="outline" onClick={() => setShowClearAll(false)}>Cancel</Button>
+              <Button size="sm" variant="destructive" onClick={clearAllSessions}>
+                Delete All ({conversations.length})
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main content */}
       <main className="flex-1 min-w-0 overflow-hidden flex flex-col">
