@@ -26,6 +26,10 @@ import { analyzeTaskComplexity, routeToOptimalModel } from "./modelSpeedRouter.j
 import { logExecution } from "./selfLearning.js";
 import { knowledgeEngine } from "./knowledgeEngine.js";
 import { swarmEngine } from "./swarmEngine.js";
+import { buildSelfAwarenessBlock, buildCompactSelfAwareness, assessModelForTask } from "./selfAwarenessEngine.js";
+import { detectGapFromRequest, detectGapFromError } from "./capabilityGapDetector.js";
+import { healGap, getHealingStats } from "./selfHealingEngine.js";
+import { withToolCorrection } from "./selfCorrectionLoop.js";
 import type { Task } from "@shared/schema";
 
 // IPC directory for filesystem-based inter-agent communication
@@ -107,6 +111,24 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
     const orchModel = storage.getOrchestratorModel() || storage.getDefaultModel();
     if (!orchModel) {
       throw new Error("No model configured. Please add a model in the Models page first.");
+    }
+
+    // 3a. Self-Awareness: Pre-execution capability gap detection & auto-healing
+    try {
+      const gap = detectGapFromRequest(userMessage);
+      if (gap) {
+        console.log(`[orchestrator] Capability gap detected: ${gap.capability} (${gap.type})`);
+        emit(conversationId, { type: "status", status: "planning", message: `Detected missing capability: ${gap.capability}. Attempting auto-heal...` });
+        const healResult = await healGap(gap);
+        if (healResult.success) {
+          console.log(`[orchestrator] Self-healing succeeded: ${healResult.message}`);
+          emit(conversationId, { type: "status", status: "planning", message: `Auto-healed: ${healResult.message}` });
+        } else {
+          console.log(`[orchestrator] Self-healing could not fully resolve: ${healResult.message}`);
+        }
+      }
+    } catch (gapErr) {
+      console.error("[orchestrator] Gap detection/healing error (non-fatal):", gapErr);
     }
 
     // 4. Check for swarm mode — triggered by "swarm:" prefix or swarm-related keywords
@@ -348,7 +370,10 @@ Output format:
 }
 
 ${memories ? `\nUser memory context:\n${memories}` : ""}
-${skillContext ? `\nActive skills:\n${skillContext}` : ""}`;
+${skillContext ? `\nActive skills:\n${skillContext}` : ""}
+
+${buildCompactSelfAwareness()}
+IMPORTANT: When decomposing tasks, consider the system's actual capabilities listed above. If a capability is missing, include a task to handle the limitation honestly.`;
 
   const msgs: ChatMessage[] = [
     { role: "system", content: systemPrompt },
@@ -598,7 +623,20 @@ async function runWorkerAgent(
       totalPromptTokens += Math.ceil(promptChars / 4);
       totalCompletionTokens += Math.ceil(llmResponse.length / 4);
     } catch (llmErr: any) {
-      // All retries + fallbacks exhausted
+      // All retries + fallbacks exhausted — try self-healing
+      try {
+        const llmGap = detectGapFromError(llmErr.message || "Unknown LLM error", `llm_call for model ${model.id}`);
+        if (llmGap) {
+          console.log(`[orchestrator] LLM error gap detected: ${llmGap.capability}`);
+          const healResult = await healGap(llmGap);
+          if (healResult.success) {
+            console.log(`[orchestrator] Auto-healed LLM error: ${healResult.message}`);
+            // Don't break — let the loop retry with healed state
+            llmResponse = `[Self-healing applied: ${healResult.message}. Retrying...]`;
+            continue;
+          }
+        }
+      } catch { /* non-critical */ }
       llmResponse = `[LLM call failed after retries: ${llmErr.message}]`;
       break;
     }
@@ -628,8 +666,40 @@ async function runWorkerAgent(
         callId,
       });
 
-      // Execute the tool — pass sessionId explicitly for container isolation
-      const result = await executeTool(call.name, call.args, agentRunId);
+      // Execute the tool with self-correction (auto-retry on failure)
+      const { result, corrected, attempts: toolAttempts } = await withToolCorrection(
+        () => executeTool(call.name, call.args, agentRunId),
+        call.name,
+        2
+      );
+
+      // Self-Healing: if tool failed, detect capability gap and attempt auto-heal
+      if (!result.success && result.error) {
+        try {
+          const errorGap = detectGapFromError(result.error, `tool:${call.name} args:${JSON.stringify(call.args).slice(0, 200)}`);
+          if (errorGap) {
+            console.log(`[orchestrator] Tool error gap detected: ${errorGap.capability}`);
+            const healResult = await healGap(errorGap);
+            if (healResult.success) {
+              console.log(`[orchestrator] Auto-healed after tool error: ${healResult.message}`);
+              // Retry the tool once more after healing
+              try {
+                const retryResult = await executeTool(call.name, call.args, agentRunId);
+                if (retryResult.success) {
+                  // Use the healed result instead
+                  Object.assign(result, retryResult);
+                }
+              } catch { /* use original failed result */ }
+            }
+          }
+        } catch (healErr) {
+          console.error("[orchestrator] Post-tool-error healing failed (non-fatal):", healErr);
+        }
+      }
+
+      if (corrected) {
+        console.log(`[orchestrator] Tool ${call.name} self-corrected after ${toolAttempts} attempts`);
+      }
 
       // Emit tool result event to UI
       emit(conversationId, {
@@ -706,9 +776,10 @@ async function runWorkerAgent(
   });
 
   // Log execution for self-learning / continuous improvement
+  const selfHealingApplied = finalOutput.includes("[Self-healing applied");
   const outcome = (finalOutput.includes("[FAILED:") || finalOutput.includes("[LLM call failed"))
     ? "failure"
-    : "success";
+    : selfHealingApplied ? "partial" : "success";
   logExecution({
     conversationId,
     taskType: task.taskType ?? "general",
@@ -716,6 +787,8 @@ async function runWorkerAgent(
     skillsUsed: [],
     modelUsed: model.id,
     outcome,
+    errorType: outcome === "failure" ? "execution_failure" : undefined,
+    errorMessage: outcome === "failure" ? finalOutput.slice(0, 500) : undefined,
     durationMs: Date.now() - agentRunStart,
     retryCount: 0,
     inputTokenEstimate: totalPromptTokens,
@@ -804,8 +877,18 @@ function buildWorkerSystemPrompt(task: Task, skillContext: string, knowledgeCont
   // Knowledge base context — injected as a stable prefix for cache reuse
   const kbBlock = knowledgeContext ? `\n${knowledgeContext}\n` : "";
 
+  // Self-Awareness: inject honest capability awareness
+  let selfAwarenessBlock = "";
+  try {
+    selfAwarenessBlock = buildSelfAwarenessBlock();
+  } catch (err) {
+    console.error("[orchestrator] Failed to build self-awareness block:", err);
+  }
+
   return `You are a specialized worker agent in the Ultra Computer system.
 Your single responsibility: complete the assigned task and produce a focused, high-quality result.
+
+${selfAwarenessBlock}
 
 Task type: ${task.taskType}
 Task title: ${task.title}
@@ -884,7 +967,10 @@ You receive outputs from multiple parallel worker agents and synthesize them int
 - Preserve all important details, code, citations, and data
 - Format the response clearly with appropriate markdown
 - If results conflict, present both perspectives
-${skillNames.length > 0 ? `- Skills active: ${skillNames.join(", ")}` : ""}`,
+- NEVER claim capabilities you don't have. Be honest about limitations.
+${skillNames.length > 0 ? `- Skills active: ${skillNames.join(", ")}` : ""}
+
+${buildCompactSelfAwareness()}`,
     },
     {
       role: "user",

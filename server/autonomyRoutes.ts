@@ -33,6 +33,18 @@ import {
   generateImprovements, getImprovementSuggestions,
   applyImprovement, rejectImprovement, getSkillHealth,
 } from "./skillAutoImprove.js";
+import {
+  getSelfAwarenessReport, getSystemState, getModelProfile,
+  assessModelForTask, buildSelfAwarenessBlock,
+} from "./selfAwarenessEngine.js";
+import {
+  getCapabilityMap, getGaps, buildCapabilitySummary,
+  detectGapFromRequest, compactGaps,
+} from "./capabilityGapDetector.js";
+import {
+  healGap, getHealingHistory, getHealingStats, rollbackAction,
+} from "./selfHealingEngine.js";
+import { getCorrectionStats } from "./selfCorrectionLoop.js";
 
 export function registerAutonomyRoutes(app: Express) {
 
@@ -344,6 +356,13 @@ export function registerAutonomyRoutes(app: Express) {
       const skillHealth = getSkillHealth();
       const resumable = getResumableTasks();
 
+      // Enhanced dashboard with self-awareness, healing, and correction data
+      let selfAwareness, healingStatsData, correctionStatsData, gapCount;
+      try { selfAwareness = getSelfAwarenessReport(); } catch { selfAwareness = null; }
+      try { healingStatsData = getHealingStats(); } catch { healingStatsData = null; }
+      try { correctionStatsData = getCorrectionStats(); } catch { correctionStatsData = null; }
+      try { gapCount = getGaps({ resolved: false }).length; } catch { gapCount = 0; }
+
       res.json({
         health,
         checkpoints: { ...checkpointStats, resumable: resumable.length },
@@ -351,7 +370,151 @@ export function registerAutonomyRoutes(app: Express) {
         circuits: circuitStats,
         learning: learningStats,
         skillHealth,
+        selfAwareness,
+        healing: healingStatsData,
+        corrections: correctionStatsData,
+        unresolvedGaps: gapCount,
       });
     } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to fetch autonomy dashboard" }); }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SELF-AWARENESS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Full self-awareness report — identity, capabilities, limitations, health */
+  app.get("/api/autonomy/self-awareness", (_req, res) => {
+    try {
+      res.json(getSelfAwarenessReport());
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get self-awareness report" }); }
+  });
+
+  /** System state — everything the system knows about itself */
+  app.get("/api/autonomy/system-state", (_req, res) => {
+    try {
+      res.json(getSystemState());
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get system state" }); }
+  });
+
+  /** Model profile — honest assessment of a specific model */
+  app.get("/api/autonomy/model-profile/:modelId", (req, res) => {
+    try {
+      const profile = getModelProfile(req.params.modelId);
+      res.json(profile);
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get model profile" }); }
+  });
+
+  /** Assess model suitability for a specific task */
+  app.post("/api/autonomy/assess-model", (req, res) => {
+    try {
+      const { modelId, taskDescription, taskType } = req.body;
+      if (!modelId || !taskDescription) return res.status(400).json({ error: "modelId and taskDescription required" });
+      const assessment = assessModelForTask(modelId, taskDescription, taskType || "general");
+      res.json(assessment);
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to assess model" }); }
+  });
+
+  /** Self-awareness prompt block — the text injected into system prompts */
+  app.get("/api/autonomy/self-awareness/prompt", (_req, res) => {
+    try {
+      res.json({ block: buildSelfAwarenessBlock() });
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to build self-awareness block" }); }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CAPABILITY GAPS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** List all capability gaps */
+  app.get("/api/autonomy/gaps", (req, res) => {
+    try {
+      const resolved = req.query.resolved === "true" ? true : req.query.resolved === "false" ? false : undefined;
+      const capability = req.query.capability as string | undefined;
+      res.json(getGaps({ resolved, capability }));
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get capability gaps" }); }
+  });
+
+  /** Capability map — what the system can and cannot do */
+  app.get("/api/autonomy/capability-map", (_req, res) => {
+    try {
+      res.json(getCapabilityMap());
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get capability map" }); }
+  });
+
+  /** Capability summary — human-readable text */
+  app.get("/api/autonomy/capability-summary", (_req, res) => {
+    try {
+      res.json({ summary: buildCapabilitySummary() });
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to build capability summary" }); }
+  });
+
+  /** Detect gap from a hypothetical request */
+  app.post("/api/autonomy/detect-gap", (req, res) => {
+    try {
+      const { message } = req.body;
+      if (!message) return res.status(400).json({ error: "message required" });
+      const gap = detectGapFromRequest(message);
+      res.json({ gap });
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to detect gap" }); }
+  });
+
+  /** Compact old gap records */
+  app.post("/api/autonomy/gaps/compact", (req, res) => {
+    try {
+      const keepDays = req.body.keepDays ?? 30;
+      const result = compactGaps(keepDays);
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to compact gaps" }); }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SELF-HEALING
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Healing history */
+  app.get("/api/autonomy/healing/history", (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+      const status = req.query.status as string | undefined;
+      res.json(getHealingHistory({ limit, status: status as any }));
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get healing history" }); }
+  });
+
+  /** Healing stats */
+  app.get("/api/autonomy/healing/stats", (_req, res) => {
+    try {
+      res.json(getHealingStats());
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get healing stats" }); }
+  });
+
+  /** Manual heal — trigger healing for a detected gap */
+  app.post("/api/autonomy/healing/heal", async (req, res) => {
+    try {
+      const { message } = req.body;
+      if (!message) return res.status(400).json({ error: "message required" });
+      const gap = detectGapFromRequest(message);
+      if (!gap) return res.json({ healed: false, message: "No capability gap detected" });
+      const result = await healGap(gap);
+      res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to heal" }); }
+  });
+
+  /** Rollback a healing action */
+  app.post("/api/autonomy/healing/rollback/:actionId", (req, res) => {
+    try {
+      const success = rollbackAction(req.params.actionId);
+      res.json({ success, message: success ? "Rolled back successfully" : "Rollback failed or action not found" });
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to rollback" }); }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SELF-CORRECTION
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Correction stats */
+  app.get("/api/autonomy/corrections/stats", (_req, res) => {
+    try {
+      res.json(getCorrectionStats());
+    } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to get correction stats" }); }
   });
 }
