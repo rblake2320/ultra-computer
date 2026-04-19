@@ -1,0 +1,27 @@
+DISPLAY LAYER ASSESSMENT
+========================
+
+PROBLEM: The chat UI renders all content as plain text/basic HTML. No rich media rendering.
+
+CURRENT STATE:
+1. renderMarkdown() in ChatPage.tsx converts markdown to basic HTML (headers, bold, italic, code blocks, lists, tables, links)
+2. DOMPurify sanitizes output — allows <img> tag but renderMarkdown() never creates <img> tags
+3. Artifacts from tool calls (images, files) are shown as tiny badges in the Tool Activity sidebar — just filename text, no preview
+4. No image preview anywhere in the chat
+5. No audio player
+6. No syntax highlighting (code blocks are just monospace text)
+7. File serving exists at /api/sandbox/files/*filePath/download — can serve binary files
+
+WHAT NEEDS TO HAPPEN:
+1. renderMarkdown() must detect image URLs/paths and render <img> tags with preview
+2. renderMarkdown() must detect audio file references and render <audio> players
+3. Tool call artifacts with type "image/*" should show inline image previews, not just badges
+4. Message content containing image URLs (from DALL-E) should render as clickable image previews
+5. Code blocks need syntax highlighting (use highlight.js or prism)
+6. Add a raw file serving endpoint that returns actual binary content with correct MIME type (for inline image/audio display)
+
+KEY PATHS:
+- Images saved to: sandbox/images/generated_*.png
+- File download endpoint: /api/sandbox/files/*filePath/download (serves as octet-stream)
+- Need a /api/sandbox/files/*filePath/raw endpoint that serves with correct MIME type for inline display
+- Artifacts have { path: string, type: string } where type is like "image/png"

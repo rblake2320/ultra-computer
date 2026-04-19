@@ -166,6 +166,43 @@ export function registerFileRoutes(app: Express) {
     stream.pipe(res);
   });
 
+  // ─── GET /api/sandbox/files/:filePath*/raw ─────────────────────────────────
+  // Serves files with correct MIME type for inline display (images, audio, video)
+  app.get("/api/sandbox/files/*filePath/raw", (req, res) => {
+    const rawParam = (req.params as any).filePath;
+    const relativePath = paramToPath(rawParam);
+    const resolved = resolveSafe(relativePath);
+    if (!resolved) return res.status(400).json({ error: "Invalid path" });
+    if (!fs.existsSync(resolved)) return res.status(404).json({ error: "File not found" });
+
+    const stat = fs.statSync(resolved);
+    if (stat.isDirectory()) return res.status(400).json({ error: "Cannot serve a directory" });
+
+    const ext = path.extname(resolved).toLowerCase();
+    const MIME_MAP: Record<string, string> = {
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml',
+      '.bmp': 'image/bmp', '.ico': 'image/x-icon',
+      '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg',
+      '.flac': 'audio/flac', '.aac': 'audio/aac', '.m4a': 'audio/mp4',
+      '.mp4': 'video/mp4', '.webm': 'video/webm', '.ogv': 'video/ogg',
+      '.pdf': 'application/pdf',
+      '.json': 'application/json', '.txt': 'text/plain',
+      '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript',
+    };
+    const contentType = MIME_MAP[ext] || 'application/octet-stream';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    // Allow inline display
+    const filename = path.basename(resolved);
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    const stream = fs.createReadStream(resolved);
+    stream.on('error', (err) => { if (!res.headersSent) res.status(500).json({ error: 'Read error' }); });
+    stream.pipe(res);
+  });
+
   // ─── GET /api/sandbox/files/:filePath* ────────────────────────────────────
   app.get("/api/sandbox/files/*filePath", (req, res) => {
     const rawParam = (req.params as any).filePath;

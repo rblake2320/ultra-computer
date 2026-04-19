@@ -119,3 +119,64 @@
 .prose-ultra td { @apply p-2 border-b border-border text-sm; }
 .prose-ultra a { @apply text-primary hover:underline; }
 .prose-ultra strong { @apply font-semibold; }
+
+/* ─── Rich Content: Image Preview ─────────────────────────────────────────── */
+.rich-image-container {
+  @apply my-3;
+}
+.rich-image-container img {
+  @apply rounded-lg transition-transform duration-200;
+}
+.rich-image-container img:hover {
+  transform: scale(1.01);
+}
+
+/* ─── Rich Content: Audio Player ──────────────────────────────────────────── */
+.rich-audio-container audio {
+  @apply rounded-md;
+  height: 36px;
+}
+.rich-audio-container audio::-webkit-media-controls-panel {
+  background: hsl(var(--muted));
+}
+
+/* ─── Rich Content: Video Player ──────────────────────────────────────────── */
+.rich-video-container video {
+  @apply w-full;
+}
+
+/* ─── Rich Content: Code Block Overrides ──────────────────────────────────── */
+.rich-message pre {
+  @apply mb-3;
+}
+.rich-message .group:hover .copy-btn {
+  @apply opacity-100;
+}
+
+/* ─── Rich Content: Table Overrides ───────────────────────────────────────── */
+.rich-message table {
+  @apply w-full text-sm;
+}
+.rich-message th {
+  @apply text-left p-2 border-b border-border font-semibold text-xs uppercase tracking-wide bg-muted/50;
+}
+.rich-message td {
+  @apply p-2 border-b border-border text-sm;
+}
+.rich-message tr:hover td {
+  @apply bg-muted/30;
+}
+
+/* ─── Rich Content: Task Lists ────────────────────────────────────────────── */
+.rich-message input[type="checkbox"] {
+  @apply mr-1.5 accent-primary;
+}
+
+/* ─── Lightbox Animation ─────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+.fixed.z-50 > div {
+  animation: fadeIn 0.2s ease-out;
+}

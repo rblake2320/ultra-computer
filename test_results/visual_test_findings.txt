@@ -1,0 +1,52 @@
+Visual Test Findings - RichMessageRenderer
+==========================================
+
+Test 1: "What model are you?" conversation
+- PASS: Markdown headings render correctly (h1, h2, h3 with proper sizing)
+- PASS: Bold text renders correctly (GPT-4.1 Mini/Nano, March 2025)
+- PASS: Bullet points render correctly with proper indentation
+- PASS: Inline code renders correctly (gpt-4.1-mini in code badge)
+- PASS: Text is clean, readable, well-structured
+- PASS: No raw HTML or dangerouslySetInnerHTML artifacts
+
+Scrolling down to check:
+- Code block rendering with syntax highlighting
+- Table rendering
+- Image/link handling
+
+After scrolling:
+- PASS: Table renders beautifully with proper borders, header styling, alternating rows
+- PASS: Table columns (FEATURE, DESCRIPTION) are properly aligned
+- PASS: Code block renders with syntax highlighting (Python code with line numbers)
+- PASS: Language label shows "PYTHON" in the code block header
+- PASS: Line numbers visible in the code block
+- PASS: Bold headings (What I can do, Summary, etc.) render correctly
+- PASS: Multiple message types (user/assistant) render correctly
+- PASS: Inline code (pip install openai) renders with proper styling
+
+After scrolling further:
+- PASS: Code block has dark theme (oneDark) with proper syntax colors
+- PASS: Python keywords (import, def, if) highlighted in different colors
+- PASS: String literals highlighted in green
+- PASS: Line numbers visible (1-16)
+- PASS: Language label "PYTHON" shows in code block header
+- PASS: Inline code (pip install openai, "YOUR_OPENAI_API_KEY") renders with background badges
+- PASS: Bold text (GPT-4.1 Mini/Nano) renders correctly in paragraphs
+- PASS: Second table (CAPABILITY, AVAILABLE HERE?, NOTES) renders with proper structure
+- PASS: Emoji checkmarks and X marks display correctly in table cells
+- PASS: All message bubbles properly styled and separated
+
+Test 2: Fibonacci code conversation
+- PASS: Full Python code block with syntax highlighting (29 lines)
+- PASS: Dark theme (oneDark) applied correctly
+- PASS: Line numbers visible (1-29)
+- PASS: Language label "PYTHON" in header bar
+- PASS: Keywords (from, import, def, if, return, for) highlighted in blue/purple
+- PASS: Strings highlighted in green
+- PASS: Comments highlighted in gray/italic
+- PASS: Function name highlighted differently
+- PASS: Bold text (n, O(1), O(n), O(2^n)) renders correctly inline
+- PASS: Summary table (COMPLEXITY, DESCRIPTION) renders with proper borders
+- PASS: Overall layout is clean, professional, and readable
+
+VERDICT: RichMessageRenderer is working perfectly for all content types tested.

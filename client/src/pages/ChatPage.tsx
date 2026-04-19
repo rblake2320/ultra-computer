@@ -18,6 +18,7 @@ import {
   Library, BookmarkPlus, Bot, Clock, Hash, Wrench, Download
 } from "lucide-react";
 import type { Message, Task, Conversation } from "../../../shared/schema";
+import { RichMessageRenderer, ArtifactPreview } from "../components/RichMessageRenderer";
 
 // Sanitize a string for safe use as HTML text node
 function escapeHtml(str: string): string {
@@ -756,7 +757,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
                   {msg.role === "user" ? (
                     <p className="whitespace-pre-wrap">{msg.content}</p>
                   ) : (
-                    <div className="prose-ultra" dangerouslySetInnerHTML={{ __html: renderMarkdown(stripToolCallBlocks(msg.content)) }} />
+                    <RichMessageRenderer content={stripToolCallBlocks(msg.content)} />
                   )}
                 </div>
                 {msg.role === "user" && (
@@ -857,10 +858,9 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
                               {/* Streaming content */}
                               <div className="px-3 py-2.5 max-h-[400px] overflow-auto">
                                 {stream.content ? (
-                                  <div
-                                    className={`prose-ultra text-sm ${isRunning ? "cursor-blink" : ""}`}
-                                    dangerouslySetInnerHTML={{ __html: renderMarkdown(stripToolCallBlocks(stream.content)) }}
-                                  />
+                                  <div className={`text-sm ${isRunning ? "cursor-blink" : ""}`}>
+                                    <RichMessageRenderer content={stripToolCallBlocks(stream.content)} />
+                                  </div>
                                 ) : (
                                   <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
                                     <Loader2 className="w-3 h-3 animate-spin" />
@@ -912,9 +912,9 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
                   <Cpu className="w-3.5 h-3.5 text-primary animate-pulse" />
                 </div>
                 <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-sm bg-card border border-primary/30">
-                  <div className="prose-ultra cursor-blink"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(stripToolCallBlocks(streamingContent)) }}
-                  />
+                  <div className="cursor-blink">
+                    <RichMessageRenderer content={stripToolCallBlocks(streamingContent)} />
+                  </div>
                 </div>
               </div>
             )}
@@ -1031,12 +1031,9 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
                               {tc.result.output.slice(0, 3000)}{tc.result.output.length > 3000 ? "\n... (truncated)" : ""}
                             </pre>
                             {tc.result.artifacts && tc.result.artifacts.length > 0 && (
-                              <div className="mt-1.5 flex flex-wrap gap-1">
+                              <div className="mt-2 space-y-2">
                                 {tc.result.artifacts.map(a => (
-                                  <Badge key={a.path} variant="secondary" className="text-[10px] gap-1">
-                                    <FileText className="w-2.5 h-2.5" />
-                                    {a.path.split("/").pop()} ({a.type})
-                                  </Badge>
+                                  <ArtifactPreview key={a.path} artifact={a} />
                                 ))}
                               </div>
                             )}
