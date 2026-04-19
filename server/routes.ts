@@ -32,6 +32,9 @@ import { cacheEngine } from "./cacheEngine.js";
 import { knowledgeEngine } from "./knowledgeEngine.js";
 import { registerSwarmRoutes } from "./swarmRoutes.js";
 import { swarmEngine } from "./swarmEngine.js";
+import { registerEnhancedRoutes } from "./enhancedRoutes.js";
+import { dreamTaskEngine } from "./dreamTask.js";
+import { awaySummaryEngine } from "./awaySummary.js";
 
 export async function registerRoutes(httpServer: Server, app: Express) {
   // ─── Seed on startup ──────────────────────────────────────────────────────
@@ -52,6 +55,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   registerIdentityRoutes(app);
   registerCacheRoutes(app);
   registerSwarmRoutes(app);
+  registerEnhancedRoutes(app);
 
   // ─── Restore persisted swarms from SQLite ──────────────────────────────────
   swarmEngine.restoreFromDB();
@@ -72,7 +76,13 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
   startLearningLoop();
   startAutoImproveLoop();
+
+  // ─── Initialize v2 enhanced features ─────────────────────────────────────
+  dreamTaskEngine.recordActivity(); // kicks off idle detection timer
+  awaySummaryEngine.markUserPresent();
+  awaySummaryEngine.recordEvent("system_alert", "Ultra Computer started", "Server boot completed with all v2 features active", "system");
   console.log("[autonomy] All autonomous systems initialized: watchdog, checkpointing, cron, learning, skill-improvement");
+  console.log("[v2] Enhanced features active: bash-security, dream-task, prompt-cache, file-history, token-budget, notebook, lsp, away-summary");
 
   // ─── Initialize task queue (non-blocking) ──────────────────────────────────
   taskQueue.initialize().then(available => {

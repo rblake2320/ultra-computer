@@ -13,6 +13,7 @@ import { spawn, exec } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs/promises";
 import * as path from "path";
+import { analyzeBashCommand } from "./bashSecurity.js";
 import * as os from "os";
 import { v4 as uuidv4 } from "uuid";
 
@@ -595,7 +596,17 @@ export function validateCommand(
   allowlist: RegExp[] = [],
   blocklist: Array<{ pattern: RegExp; reason: string }> = []
 ): ValidationResult {
-  // Check allowlist first
+  // Layer 1: AST-based security analysis (v2 enhancement)
+  const astResult = analyzeBashCommand(cmd);
+  if (!astResult.allowed) {
+    return {
+      safe: false,
+      reason: `[AST] ${astResult.reason || "Blocked by AST security analysis"}`,
+      matchedRule: astResult.triggers?.[0] || "ast-security",
+    };
+  }
+
+  // Layer 2: Legacy regex allowlist check
   const allAllowed = [
     ...ALLOWED_COMMANDS.map((c) => new RegExp(`^${c}`)),
     ...allowlist,
@@ -604,7 +615,7 @@ export function validateCommand(
     return { safe: true };
   }
 
-  // Check combined blocklist
+  // Layer 3: Legacy regex blocklist check
   const allBlocked = [...BLOCKED_PATTERNS, ...customBlocklist, ...blocklist];
   for (const entry of allBlocked) {
     if (entry.pattern.test(cmd)) {
