@@ -637,8 +637,8 @@ const BLOCKED_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   // Package manager installs (network + arbitrary code via install scripts)
   { pattern: /\bpip3?\s+install\b/, reason: "pip install is not allowed in sandboxed execution" },
   { pattern: /\bnpm\s+(install|i)\b/, reason: "npm install is not allowed in sandboxed execution" },
-  // Generalized fork bomb
-  { pattern: /\(\)\s*\{[^}]*\|[^}]*&[^}]*\}/, reason: "Fork bomb pattern detected" },
+  // Generalized fork bomb (matches both compact and spaced variants)
+  { pattern: /\w+\s*\(\s*\)\s*\{[^}]*\|[^}]*&[^}]*\}/, reason: "Fork bomb pattern detected" },
 ];
 
 /** Default allowlist — commands that bypass pattern checks. Extend as needed. */
