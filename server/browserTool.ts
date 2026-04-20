@@ -59,7 +59,9 @@ async function getBrowser(): Promise<any> {
 }
 
 async function getPage(sessionKey: string): Promise<any> {
-  // Serialize concurrent getPage calls for the same session to avoid race conditions
+  // Serialize concurrent getPage calls for the same session to avoid race conditions.
+  // If a creation is already in-flight, return the same promise so callers share
+  // the result (or the same error) without spawning duplicate pages.
   const pending = _pendingPages.get(sessionKey);
   if (pending) return pending;
 
@@ -69,6 +71,10 @@ async function getPage(sessionKey: string): Promise<any> {
     const page = await creation;
     return page;
   } finally {
+    // The finally block runs on BOTH success and failure, ensuring the stale
+    // promise is removed from the map in either case. A rejected creation
+    // promise will not stay cached: the next getPage call will retry creation
+    // from scratch. This is the correct behaviour — no bug here.
     _pendingPages.delete(sessionKey);
   }
 }
@@ -754,8 +760,11 @@ async function executeBrowserResize(
   if (device && DEVICE_PRESETS[device]) {
     ({ width, height } = DEVICE_PRESETS[device]);
   } else {
-    width = parseInt(args.width || "1280", 10);
-    height = parseInt(args.height || "800", 10);
+    const parsedW = parseInt(args.width || "1280", 10);
+    const parsedH = parseInt(args.height || "800", 10);
+    // Guard against NaN (e.g. parseInt("abc")) — fall back to sensible defaults.
+    width = isNaN(parsedW) ? 1280 : parsedW;
+    height = isNaN(parsedH) ? 800 : parsedH;
   }
 
   // Clamp to sane bounds
