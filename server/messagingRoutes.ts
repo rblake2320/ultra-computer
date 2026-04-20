@@ -13,6 +13,7 @@
 import type { Express } from "express";
 import { messagingHub } from "./messagingHub.js";
 import { v4 as uuidv4 } from "uuid";
+import crypto from "crypto";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -416,14 +417,62 @@ export function registerMessagingRoutes(app: Express): void {
   /**
    * POST /api/messaging/webhook/slack
    * Slack Events API / slash command handler.
-   * TODO: Implement Slack webhook signature verification.
-   * Slack signs requests with X-Slack-Signature (HMAC-SHA256). Without this
-   * check, any caller can forge Slack events. Implement when SLACK_SIGNING_SECRET
-   * is available in environment.
+   * HMAC-SHA256 signature verification via SLACK_SIGNING_SECRET.
+   * If the env var is not set a startup warning is emitted and verification
+   * is skipped (dev mode).
    */
   app.post("/api/messaging/webhook/slack", async (req, res) => {
-    // TODO: verify X-Slack-Signature header using SLACK_SIGNING_SECRET
-    console.warn("[messaging] Slack webhook signature verification is NOT implemented — TODO: add HMAC-SHA256 check");
+    const slackSigningSecret = process.env.SLACK_SIGNING_SECRET;
+
+    if (!slackSigningSecret) {
+      console.warn("[messaging] SLACK_SIGNING_SECRET is not set — Slack webhook signature verification is DISABLED. Set this variable in production.");
+    } else {
+      // Verify the Slack-signed request.
+      const slackSignature = req.headers["x-slack-signature"] as string | undefined;
+      const slackTimestamp = req.headers["x-slack-request-timestamp"] as string | undefined;
+
+      if (!slackSignature || !slackTimestamp) {
+        return res.status(403).json({ error: "Missing Slack signature headers" });
+      }
+
+      // Replay attack prevention: reject requests older than 5 minutes.
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const tsSeconds = parseInt(slackTimestamp, 10);
+      if (isNaN(tsSeconds) || Math.abs(nowSeconds - tsSeconds) > 300) {
+        return res.status(403).json({ error: "Request timestamp too old" });
+      }
+
+      // Reconstruct the signature base string using the raw body captured by
+      // the express.json verify() callback in index.ts.
+      const rawBody = req.rawBody instanceof Buffer
+        ? req.rawBody.toString("utf-8")
+        : (typeof req.rawBody === "string" ? req.rawBody : JSON.stringify(req.body ?? {}));
+
+      const sigBaseString = `v0:${slackTimestamp}:${rawBody}`;
+      const hmac = crypto
+        .createHmac("sha256", slackSigningSecret)
+        .update(sigBaseString)
+        .digest("hex");
+      const expectedSignature = `v0=${hmac}`;
+
+      // Constant-time comparison to prevent timing attacks.
+      const signaturesMatch = (() => {
+        try {
+          return crypto.timingSafeEqual(
+            Buffer.from(slackSignature),
+            Buffer.from(expectedSignature)
+          );
+        } catch {
+          return false;
+        }
+      })();
+
+      if (!signaturesMatch) {
+        console.warn("[messaging] Slack webhook signature verification FAILED — rejecting request.");
+        return res.status(403).json({ error: "Invalid Slack signature" });
+      }
+    }
+
     try {
       const payload = req.body ?? {};
 
