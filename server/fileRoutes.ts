@@ -157,6 +157,11 @@ export function registerFileRoutes(app: Express) {
     const stat = fs.statSync(resolved);
     if (stat.isDirectory()) return res.status(400).json({ error: "Cannot download a directory" });
 
+    const MAX_DOWNLOAD_SIZE = 500 * 1024 * 1024; // 500 MB
+    if (stat.size > MAX_DOWNLOAD_SIZE) {
+      return res.status(413).json({ error: "File too large for download" });
+    }
+
     const filename = path.basename(resolved);
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.setHeader("Content-Length", stat.size);
