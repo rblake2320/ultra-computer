@@ -77,9 +77,14 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   // ─── Initialize task queue (non-blocking) ──────────────────────────────────
   taskQueue.initialize().then(available => {
     if (available) console.log("[taskQueue] BullMQ connected to Redis");
-    else console.log("[taskQueue] Redis not available — queue disabled (graceful fallback)");
+    else console.log("[taskQueue] Redis not available — queue disabled (graceful fallback). " +
+      "All taskQueue.enqueue() calls will return synthetic IDs and log warnings.");
   }).catch((err) => {
-    console.error("[taskQueue] Initialization error:", err);
+    // initialize() has its own try/catch and should never reject, but if it
+    // does the queue stays in its initial unavailable state (available=false).
+    // Subsequent enqueue/status/cancel calls will degrade gracefully — they
+    // check isAvailable() and log a warning before returning safe no-ops.
+    console.error("[taskQueue] Initialization threw unexpectedly — queue permanently disabled:", err);
   });
 
   // ─── Models ───────────────────────────────────────────────────────────────
