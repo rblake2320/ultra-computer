@@ -612,6 +612,16 @@ export function validateCommand(
     }
   }
 
+  // DESIGN CHOICE — Blocklist-only mode:
+  // This function uses a blocklist (deny-list) approach: commands are allowed
+  // by default unless they match a blocked pattern or are explicitly in the
+  // allowlist. If ALLOWED_COMMANDS is non-empty, commands NOT in the allowlist
+  // are rejected first (see check above). Since ALLOWED_COMMANDS is currently
+  // empty, all commands pass through to the blocklist check.
+  //
+  // If you want full allowlist (default-deny) behaviour, populate
+  // ALLOWED_COMMANDS with every permitted command prefix — then nothing outside
+  // that list will be executed regardless of the blocklist.
   return { safe: true };
 }
 
