@@ -594,6 +594,83 @@ export function registerMessagingRoutes(app: Express): void {
   });
 
   /**
+   * POST /api/messaging/webhook/github
+   * GitHub Events webhook handler.
+   * HMAC-SHA256 signature verification via GITHUB_WEBHOOK_SECRET.
+   * If the env var is not set a startup warning is emitted and verification
+   * is skipped (dev mode).
+   */
+  app.post("/api/messaging/webhook/github", async (req, res) => {
+    const githubSecret = process.env.GITHUB_WEBHOOK_SECRET;
+
+    if (!githubSecret) {
+      console.warn("[messaging] GITHUB_WEBHOOK_SECRET is not set — GitHub webhook signature verification is DISABLED. Set this variable in production.");
+    } else {
+      // Verify the GitHub-signed request using X-Hub-Signature-256.
+      const hubSignature = req.headers["x-hub-signature-256"] as string | undefined;
+
+      if (!hubSignature) {
+        return res.status(403).json({ error: "Missing X-Hub-Signature-256 header" });
+      }
+
+      // Reconstruct the raw body using the verify() callback captured in index.ts.
+      const rawBody = req.rawBody instanceof Buffer
+        ? req.rawBody
+        : Buffer.from(typeof req.rawBody === "string" ? req.rawBody : JSON.stringify(req.body ?? {}));
+
+      const hmac = crypto.createHmac("sha256", githubSecret).update(rawBody).digest("hex");
+      const expectedSignature = `sha256=${hmac}`;
+
+      // Constant-time comparison to prevent timing attacks.
+      const signaturesMatch = (() => {
+        try {
+          return crypto.timingSafeEqual(
+            Buffer.from(hubSignature),
+            Buffer.from(expectedSignature)
+          );
+        } catch {
+          return false;
+        }
+      })();
+
+      if (!signaturesMatch) {
+        console.warn("[messaging] GitHub webhook signature verification FAILED — rejecting request.");
+        return res.status(403).json({ error: "Invalid GitHub signature" });
+      }
+    }
+
+    try {
+      const payload = req.body ?? {};
+      const event = req.headers["x-github-event"] as string | undefined;
+
+      const inbound = {
+        id: uuidv4(),
+        channelType: "webhook" as ChannelType,
+        externalId: String(payload.delivery ?? payload.hook_id ?? uuidv4()),
+        content: JSON.stringify(payload),
+        sender: payload.sender?.login ?? "github",
+        direction: "inbound" as MessageDirection,
+        timestamp: new Date().toISOString(),
+        raw: payload,
+      };
+
+      await messagingHub.routeInbound(inbound);
+
+      broadcastSseEvent({
+        type: "message_received",
+        channelType: "github",
+        event,
+        messageId: inbound.id,
+        ts: Date.now(),
+      });
+
+      res.json({ ok: true, messageId: inbound.id });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message ?? "GitHub webhook error" });
+    }
+  });
+
+  /**
    * POST /api/messaging/webhook/:channelId
    * Generic webhook for custom channels.
    */
