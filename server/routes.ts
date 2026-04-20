@@ -103,7 +103,15 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.json(getProviderCatalog());
   });
 
-  // Discover environment variables already set on the server
+  // Discover environment variables already set on the server.
+  // SECURITY NOTE: this endpoint reveals which API keys are configured on the
+  // server (masked to first-6/last-4 characters).  It is intentionally placed
+  // under /api/* so that it is covered by the auth middleware in
+  // authMiddleware.ts — when ULTRA_API_KEY is set, all /api/* routes except
+  // the explicit EXEMPT_ROUTES (health + webhook receivers) require a valid
+  // bearer token.  This route is NOT in the exemption list and therefore
+  // requires authentication in production.  In dev mode (no ULTRA_API_KEY) the
+  // middleware is a pass-through, which is intentional and documented.
   app.get("/api/models/env-vars", (_req, res) => {
     res.json(discoverEnvVars());
   });
