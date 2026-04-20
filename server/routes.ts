@@ -826,6 +826,9 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   // Aggregated SSE stream for the NotificationCenter component.
   // Subscribes to all active conversations and re-emits "done", "error", and
   // "agent_complete" events with a conversationId field attached.
+  //
+  // Hardening: 30-minute inactivity timeout and 10,000 event cap (matches the
+  // per-conversation SSE stream hardened in the same codebase).
   app.get("/api/notifications", (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -833,17 +836,53 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
 
-    const send = (event: any) => {
-      try {
-        res.write(`data: ${JSON.stringify(event)}\n\n`);
-      } catch {
-        // Client disconnected — cleanup handled on "close" event
-      }
-    };
+    let eventCount = 0;
+    const NOTIF_MAX_EVENTS = SSE_MAX_EVENTS;
+    const NOTIF_MAX_DURATION_MS = SSE_MAX_DURATION_MS;
 
     // Subscribe to all current conversations
     const conversations = storage.getConversations();
     const handlers = new Map<string, (event: any) => void>();
+
+    const cleanup = () => {
+      clearInterval(ping);
+      clearTimeout(maxDurationTimer);
+      Array.from(handlers.entries()).forEach(([convId, handler]) => {
+        unsubscribeFromConversation(convId, handler);
+      });
+    };
+
+    // Reset inactivity timer on each event sent
+    let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+    const resetInactivityTimer = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        try {
+          res.write(`data: ${JSON.stringify({ type: "stream_timeout", reason: "Stream closed after 30 minutes of inactivity" })}\n\n`);
+        } catch { /* ignore */ }
+        cleanup();
+        res.end();
+      }, NOTIF_MAX_DURATION_MS);
+    };
+    resetInactivityTimer();
+
+    const send = (event: any) => {
+      try {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+        eventCount++;
+        resetInactivityTimer();
+        if (eventCount >= NOTIF_MAX_EVENTS) {
+          // Gracefully close after hitting the event cap.
+          try {
+            res.write(`data: ${JSON.stringify({ type: "stream_limit", reason: "Max events reached" })}\n\n`);
+          } catch { /* ignore */ }
+          cleanup();
+          res.end();
+        }
+      } catch {
+        // Client disconnected — cleanup handled on "close" event
+      }
+    };
 
     for (const conv of conversations) {
       const handler = (event: any) => {
@@ -856,23 +895,27 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       subscribeToConversation(conv.id, handler);
     }
 
+    // Hard wall-clock cap: close after 30 minutes regardless of activity.
+    const maxDurationTimer = setTimeout(() => {
+      try {
+        res.write(`data: ${JSON.stringify({ type: "stream_timeout", reason: "Stream closed after 30 minutes" })}\n\n`);
+      } catch { /* ignore */ }
+      cleanup();
+      res.end();
+    }, NOTIF_MAX_DURATION_MS);
+
     // Keep-alive ping
     const ping = setInterval(() => {
       try {
         res.write(": ping\n\n");
       } catch {
-        clearInterval(ping);
-        Array.from(handlers.entries()).forEach(([convId, handler]) => {
-          unsubscribeFromConversation(convId, handler);
-        });
+        cleanup();
       }
     }, 15000);
 
     req.on("close", () => {
-      clearInterval(ping);
-      Array.from(handlers.entries()).forEach(([convId, handler]) => {
-        unsubscribeFromConversation(convId, handler);
-      });
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      cleanup();
     });
   });
 
