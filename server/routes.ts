@@ -33,6 +33,9 @@ import { knowledgeEngine } from "./knowledgeEngine.js";
 import { registerSwarmRoutes } from "./swarmRoutes.js";
 import { swarmEngine } from "./swarmEngine.js";
 
+const sseConnectionsPerIp = new Map<string, number>();
+const MAX_SSE_PER_IP = 5;
+
 export async function registerRoutes(httpServer: Server, app: Express) {
   // ─── Seed on startup ──────────────────────────────────────────────────────
   seedConnectors();
@@ -342,6 +345,13 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   const SSE_MAX_EVENTS = 10_000;
 
   app.get("/api/conversations/:id/stream", (req, res) => {
+    const clientIp = (req.ip || req.socket?.remoteAddress || "unknown") as string;
+    const ipCount = sseConnectionsPerIp.get(clientIp) ?? 0;
+    if (ipCount >= MAX_SSE_PER_IP) {
+      return res.status(429).json({ error: "Too many SSE connections from this IP" });
+    }
+    sseConnectionsPerIp.set(clientIp, ipCount + 1);
+
     const convId = req.params.id;
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -394,6 +404,9 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     }, SSE_MAX_DURATION_MS);
 
     req.on("close", () => {
+      const count = sseConnectionsPerIp.get(clientIp) ?? 1;
+      if (count <= 1) sseConnectionsPerIp.delete(clientIp);
+      else sseConnectionsPerIp.set(clientIp, count - 1);
       cleanup();
     });
   });
@@ -838,6 +851,13 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   // Hardening: 30-minute inactivity timeout and 10,000 event cap (matches the
   // per-conversation SSE stream hardened in the same codebase).
   app.get("/api/notifications", (req, res) => {
+    const clientIp = (req.ip || req.socket?.remoteAddress || "unknown") as string;
+    const ipCount = sseConnectionsPerIp.get(clientIp) ?? 0;
+    if (ipCount >= MAX_SSE_PER_IP) {
+      return res.status(429).json({ error: "Too many SSE connections from this IP" });
+    }
+    sseConnectionsPerIp.set(clientIp, ipCount + 1);
+
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
@@ -923,6 +943,9 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
     req.on("close", () => {
       if (inactivityTimer) clearTimeout(inactivityTimer);
+      const count = sseConnectionsPerIp.get(clientIp) ?? 1;
+      if (count <= 1) sseConnectionsPerIp.delete(clientIp);
+      else sseConnectionsPerIp.set(clientIp, count - 1);
       cleanup();
     });
   });

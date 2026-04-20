@@ -16,6 +16,7 @@
  */
 
 import type { Request, Response, NextFunction } from "express";
+import crypto from "crypto";
 
 // Routes that must remain publicly accessible regardless of auth config.
 const EXEMPT_ROUTES: Array<{ method: string; path: string }> = [
@@ -68,7 +69,12 @@ export function createAuthMiddleware() {
       suppliedKey = xApiKey.trim();
     }
 
-    if (!suppliedKey || suppliedKey !== apiKey) {
+    if (!suppliedKey) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    const keyBuf = Buffer.from(apiKey, "utf-8");
+    const suppliedBuf = Buffer.from(suppliedKey, "utf-8");
+    if (keyBuf.length !== suppliedBuf.length || !crypto.timingSafeEqual(keyBuf, suppliedBuf)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 

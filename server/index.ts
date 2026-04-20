@@ -49,7 +49,12 @@ app.use(
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({
+  extended: false,
+  verify: (req: any, _res: any, buf: Buffer) => {
+    req.rawBody = buf;
+  },
+}));
 
 // ─── Security headers ─────────────────────────────────────────────────────
 app.use(helmet({
@@ -166,6 +171,17 @@ app.use((req, res, next) => {
   } else {
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    const missing: string[] = [];
+    if (!process.env.ULTRA_API_KEY) missing.push("ULTRA_API_KEY");
+    if (!process.env.SLACK_SIGNING_SECRET) missing.push("SLACK_SIGNING_SECRET");
+    if (!process.env.GITHUB_WEBHOOK_SECRET) missing.push("GITHUB_WEBHOOK_SECRET");
+    if (missing.length > 0) {
+      console.error(`[FATAL] Production mode requires: ${missing.join(", ")}`);
+      process.exit(1);
+    }
   }
 
   // ALWAYS serve the app on the port specified in the environment variable PORT

@@ -36,6 +36,19 @@ function resolveSafe(relativePath: string): string | null {
   const base = path.resolve(SANDBOX_DIR);
   const resolved = path.resolve(base, relativePath);
   if (!resolved.startsWith(base)) return null;
+  try {
+    const real = fs.realpathSync(resolved);
+    if (!real.startsWith(base)) return null;
+  } catch {
+    // File may not exist yet (write ops) — check parent
+    const parent = path.dirname(resolved);
+    try {
+      const realParent = fs.realpathSync(parent);
+      if (!realParent.startsWith(base)) return null;
+    } catch {
+      // Parent doesn't exist either — OK, will be created in sandbox
+    }
+  }
   return resolved;
 }
 
