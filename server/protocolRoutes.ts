@@ -14,6 +14,7 @@
  */
 
 import type { Express, Request, Response } from "express";
+import { routesLogger } from "./logger.js";
 import { v4 as uuidv4 } from "uuid";
 import * as a2aProtocol from "./a2aProtocol.js";
 import * as mcpProtocol from "./mcpProtocol.js";
@@ -560,11 +561,11 @@ export function registerProtocolRoutes(app: Express) {
       try {
         handler(req.body);
       } catch (handlerErr: any) {
-        console.error(`[webhook:${id}] Handler error:`, handlerErr);
+        routesLogger.error({ err: handlerErr, webhookId: id }, "Webhook handler error");
       }
     }
 
-    console.log(`[webhook] Received payload for webhook ${id} (invocation #${entry.invocations})`);
+    routesLogger.info({ webhookId: id, invocations: entry.invocations }, "Received webhook payload");
     res.json({ ok: true, webhookId: id, invocations: entry.invocations });
   });
 
@@ -660,5 +661,5 @@ export function registerProtocolRoutes(app: Express) {
     });
   });
 
-  console.log("[protocols] All protocol routes registered (A2A, MCP, CLI, HTTP/Webhooks, Code/Transform)");
+  routesLogger.info("All protocol routes registered (A2A, MCP, CLI, HTTP/Webhooks, Code/Transform)");
 }

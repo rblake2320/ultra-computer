@@ -1,4 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
+import logger from "./logger.js";
+import { requestLoggerMiddleware } from "./requestLogger.js";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -7,14 +9,15 @@ import helmet from "helmet";
 import compression from "compression";
 import { requestTimeout, llmTimeout } from "./requestTimeout";
 import { AppError } from "./errorCodes";
+import { initKeyManager, migrateExistingKeys } from "./keyManager";
 
 // ─── Process-level error handlers (must be first) ────────────────────────────
 process.on("uncaughtException", (err) => {
-  console.error("[fatal] Uncaught exception:", err);
+  logger.fatal({ err }, "Uncaught exception");
   process.exit(1);
 });
 process.on("unhandledRejection", (reason) => {
-  console.error("[fatal] Unhandled promise rejection:", reason);
+  logger.fatal({ reason }, "Unhandled promise rejection");
   process.exit(1);
 });
 
@@ -132,31 +135,25 @@ export function log(message: string, source = "express") {
     hour12: true,
   });
 
-  console.log(`${formattedTime} [${source}] ${message}`);
+  logger.info({ source }, message);
 }
 
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      // Do not log response bodies — they may contain sensitive data (API keys, tokens, etc.)
-      const logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      log(logLine);
-    }
-  });
-
-  next();
-});
+app.use(requestLoggerMiddleware);
 
 (async () => {
   try {
+  // ─── Initialize encryption (must run before any DB model reads) ─────────
+  initKeyManager();
+  const migrated = migrateExistingKeys();
+  if (migrated > 0) {
+    logger.info(`[keyManager] Migrated ${migrated} plaintext credential(s) to AES-256-GCM encrypted storage`);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     // Log the real error server-side for debugging
-    console.error("[server] Error:", err);
+    logger.error({ err }, "Server error");
 
     if (res.headersSent) {
       return next(err);
@@ -211,7 +208,7 @@ app.use((req, res, next) => {
     },
   );
   } catch (err) {
-    console.error("[fatal] Failed to start server:", err);
+    logger.fatal({ err }, "Failed to start server");
     process.exit(1);
   }
 })();

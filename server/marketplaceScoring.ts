@@ -25,6 +25,8 @@
  */
 
 import { storage } from "./storage.js";
+import logger from "./logger.js";
+const scoringLogger = logger.child({ module: "scoring" });
 import type { MarketplaceSkill, MarketplaceVersion, MarketplaceRating } from "@shared/schema";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -323,9 +325,7 @@ export function runScoringPipeline(): {
   // Sort by quality score descending
   results.sort((a, b) => b.qualityScore - a.qualityScore);
 
-  console.log(`[scoring] Pipeline complete: ${results.length} skills scored | ` +
-    `platinum=${tierDist.platinum} gold=${tierDist.gold} silver=${tierDist.silver} ` +
-    `bronze=${tierDist.bronze} unranked=${tierDist.unranked}`);
+  scoringLogger.info({ scored: results.length, ...tierDist }, "Pipeline complete");
 
   return { scored: results.length, results, tierDistribution: tierDist };
 }

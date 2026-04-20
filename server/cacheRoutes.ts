@@ -4,6 +4,7 @@
  */
 
 import type { Express, Request, Response } from "express";
+import { cacheLogger } from "./logger.js";
 import { cacheEngine } from "./cacheEngine.js";
 import type { CacheConfig } from "./cacheEngine.js";
 
@@ -14,7 +15,7 @@ export function registerCacheRoutes(app: Express): void {
       const stats = cacheEngine.getStats();
       res.json(stats);
     } catch (err) {
-      console.error("[CacheRoutes] Failed to get stats:", err);
+      cacheLogger.error({ err }, "Failed to get stats");
       res.status(500).json({ error: "Failed to retrieve cache stats" });
     }
   });
@@ -25,7 +26,7 @@ export function registerCacheRoutes(app: Express): void {
       const memory = cacheEngine.getMemoryUsage();
       res.json(memory);
     } catch (err) {
-      console.error("[CacheRoutes] Failed to get memory usage:", err);
+      cacheLogger.error({ err }, "Failed to get memory usage");
       res.status(500).json({ error: "Failed to retrieve memory usage" });
     }
   });
@@ -42,7 +43,7 @@ export function registerCacheRoutes(app: Express): void {
         totalEntries: stats.exact.entries + stats.semantic.entries,
       });
     } catch (err) {
-      console.error("[CacheRoutes] Failed to get config:", err);
+      cacheLogger.error({ err }, "Failed to get config");
       res.status(500).json({ error: "Failed to retrieve cache config" });
     }
   });
@@ -67,7 +68,7 @@ export function registerCacheRoutes(app: Express): void {
         res.json({ cleared: true, scope: "all" });
       }
     } catch (err) {
-      console.error("[CacheRoutes] Failed to clear cache:", err);
+      cacheLogger.error({ err }, "Failed to clear cache");
       res.status(500).json({ error: "Failed to clear cache" });
     }
   });
@@ -78,7 +79,7 @@ export function registerCacheRoutes(app: Express): void {
       cacheEngine.resetStats();
       res.json({ reset: true });
     } catch (err) {
-      console.error("[CacheRoutes] Failed to reset stats:", err);
+      cacheLogger.error({ err }, "Failed to reset stats");
       res.status(500).json({ error: "Failed to reset stats" });
     }
   });
@@ -94,7 +95,7 @@ export function registerCacheRoutes(app: Express): void {
       cacheEngine.setPolicy(route, policy);
       res.json({ set: true, route });
     } catch (err) {
-      console.error("[CacheRoutes] Failed to set policy:", err);
+      cacheLogger.error({ err }, "Failed to set policy");
       res.status(500).json({ error: "Failed to set cache policy" });
     }
   });
@@ -128,7 +129,7 @@ export function registerCacheRoutes(app: Express): void {
         rollingWindows: stats.rollingWindow ?? {},
       });
     } catch (err) {
-      console.error("[CacheRoutes] Failed to get dashboard:", err);
+      cacheLogger.error({ err }, "Failed to get dashboard");
       res.status(500).json({ error: "Failed to retrieve dashboard data" });
     }
   });

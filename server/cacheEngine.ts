@@ -9,6 +9,7 @@
  */
 
 import { createHash } from "crypto";
+import { cacheLogger } from "./logger.js";
 import { advancedMemorySearch } from "./memoryUpgrades.js";
 import type { Memory } from "@shared/schema";
 
@@ -593,8 +594,7 @@ function estimateBytes(value: unknown): number {
 
 function debug(msg: string): void {
   if (process.env.DEBUG_CACHE) {
-    // eslint-disable-next-line no-console
-    console.debug(`[CacheEngine] ${msg}`);
+    cacheLogger.debug(msg);
   }
 }
 

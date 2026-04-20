@@ -8,6 +8,8 @@
  */
 
 import { v4 as uuidv4 } from "uuid";
+import logger from "./logger.js";
+const messagingLogger = logger.child({ module: "messaging" });
 import { EventEmitter } from "events";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -201,7 +203,7 @@ class SlackAdapter implements ChannelAdapter {
    * TODO: wire up real Slack API calls when a Slack connector is available.
    */
   async send(payload: OutboundMessage): Promise<SendResult> {
-    console.warn("[MessagingHub] SlackAdapter.send() is a stub — message is prepared but not actually delivered to Slack");
+    messagingLogger.warn("SlackAdapter.send() is a stub — message is prepared but not actually delivered to Slack");
     const channelTarget = payload.metadata?.slackChannel ?? payload.recipient ?? "#general";
 
     try {
@@ -421,7 +423,7 @@ class GmailAdapter implements ChannelAdapter {
    * TODO: wire up real Gmail API calls when a Gmail connector is available.
    */
   async send(payload: OutboundMessage): Promise<SendResult> {
-    console.warn("[MessagingHub] GmailAdapter.send() is a stub — message is prepared but not actually delivered via Gmail");
+    messagingLogger.warn("GmailAdapter.send() is a stub — message is prepared but not actually delivered via Gmail");
     if (!payload.recipient) {
       return { ok: false, error: "No recipient specified for Gmail channel", retryable: false };
     }

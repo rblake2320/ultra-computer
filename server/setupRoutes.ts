@@ -9,6 +9,7 @@
  */
 
 import type { Express, Request, Response } from "express";
+import { routesLogger } from "./logger.js";
 import net from "net";
 import { execSync } from "child_process";
 import {
@@ -108,7 +109,7 @@ export function registerSetupRoutes(app: Express): void {
 
       ok(res, { firstRun, environment: cachedEnv });
     } catch (e: any) {
-      console.error("[SetupRoutes] /status error:", e);
+      routesLogger.error({ err: e }, "/status error");
       err(res, e.message || "Failed to check setup status");
     }
   });
@@ -122,7 +123,7 @@ export function registerSetupRoutes(app: Express): void {
       const recommended = getRecommendedSettings(environment);
       ok(res, { environment, recommended });
     } catch (e: any) {
-      console.error("[SetupRoutes] /detect error:", e);
+      routesLogger.error({ err: e }, "/detect error");
       err(res, e.message || "Environment detection failed");
     }
   });
@@ -152,7 +153,7 @@ export function registerSetupRoutes(app: Express): void {
       applySettings(merged);
       ok(res, { applied: merged });
     } catch (e: any) {
-      console.error("[SetupRoutes] /configure error:", e);
+      routesLogger.error({ err: e }, "/configure error");
       err(res, e.message || "Failed to apply settings");
     }
   });
@@ -163,7 +164,7 @@ export function registerSetupRoutes(app: Express): void {
       markSetupComplete();
       ok(res, { success: true, completedAt: new Date().toISOString() });
     } catch (e: any) {
-      console.error("[SetupRoutes] /complete error:", e);
+      routesLogger.error({ err: e }, "/complete error");
       err(res, e.message || "Failed to mark setup complete");
     }
   });
@@ -206,7 +207,7 @@ export function registerSetupRoutes(app: Express): void {
 
       ok(res, result);
     } catch (e: any) {
-      console.error("[SetupRoutes] /test-connection error:", e);
+      routesLogger.error({ err: e }, "/test-connection error");
       err(res, e.message || "Connection test failed");
     }
   });

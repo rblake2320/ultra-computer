@@ -23,6 +23,8 @@
  */
 
 import crypto from "crypto";
+import logger from "./logger.js";
+const knowledgeLogger = logger.child({ module: "knowledge" });
 import { storage } from "./storage.js";
 import { PROVIDER_REGISTRY } from "./modelConnections.js";
 import type { KnowledgeEntry } from "@shared/schema";
@@ -235,7 +237,7 @@ End of Knowledge Base Context.`;
     const existing = storage.getKnowledgeEntries();
     if (existing.length > 0) return;
 
-    console.log("[KnowledgeEngine] Empty KB detected — seeding system references...");
+    knowledgeLogger.info("Empty KB detected — seeding system references");
 
     // 1. Provider & Model Registry
     this.seedProviderRegistry();
@@ -246,7 +248,7 @@ End of Knowledge Base Context.`;
     // 3. Tool Schema Reference
     this.seedToolSchemaRef();
 
-    console.log(`[KnowledgeEngine] Seeded ${storage.getKnowledgeEntries().length} entries.`);
+    knowledgeLogger.info({ entries: storage.getKnowledgeEntries().length }, "Seeded entries");
   }
 
   private seedProviderRegistry(): void {

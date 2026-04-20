@@ -11,6 +11,7 @@
 import crypto from "crypto";
 import { storage } from "./storage.js";
 import type { Model } from "@shared/schema";
+import { encryptApiKey, decryptApiKey } from "./keyManager.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Provider Definitions
@@ -380,13 +381,16 @@ export function resolveCredentials(model: Model): ResolvedCredentials {
   const method = (model.authMethod || "api_key") as AuthMethod;
 
   switch (method) {
-    case "api_key":
+    case "api_key": {
+      const rawKey = model.apiKey || "";
+      const resolvedKey = rawKey ? decryptApiKey(rawKey) : "";
       return {
-        apiKey: model.apiKey || "",
+        apiKey: resolvedKey,
         baseUrl: model.baseUrl || getProviderBaseUrl(model.provider),
         method: "api_key",
-        isValid: !!(model.apiKey && model.apiKey.length > 0),
+        isValid: !!(resolvedKey && resolvedKey.length > 0),
       };
+    }
 
     case "env_var": {
       const envName = model.envVarName || "";
@@ -415,19 +419,22 @@ export function resolveCredentials(model: Model): ResolvedCredentials {
     case "none":
       // Ollama, local models — no auth needed
       return {
-        apiKey: model.provider === "ollama" ? "ollama" : (model.apiKey || "none"),
+        apiKey: model.provider === "ollama" ? "ollama" : (model.apiKey ? decryptApiKey(model.apiKey) : "none"),
         baseUrl: model.baseUrl || getProviderBaseUrl(model.provider),
         method: "none",
         isValid: true,
       };
 
-    default:
+    default: {
+      const rawKey = model.apiKey || "";
+      const resolvedKey = rawKey ? decryptApiKey(rawKey) : "";
       return {
-        apiKey: model.apiKey || "",
+        apiKey: resolvedKey,
         baseUrl: model.baseUrl || getProviderBaseUrl(model.provider),
         method: "api_key",
-        isValid: !!(model.apiKey),
+        isValid: !!(resolvedKey),
       };
+    }
   }
 }
 
@@ -571,7 +578,7 @@ export async function connectModel(
   const updates: Record<string, any> = { authMethod };
 
   if (authMethod === "api_key" && credentials.apiKey) {
-    updates.apiKey = credentials.apiKey;
+    updates.apiKey = encryptApiKey(credentials.apiKey);
   }
   if (authMethod === "env_var" && credentials.envVarName) {
     updates.envVarName = credentials.envVarName;
@@ -687,7 +694,7 @@ export function createFromPreset(
     provider,
     modelId: preset.modelId,
     baseUrl: credentials.baseUrl || providerConfig.defaultBaseUrl || null,
-    apiKey: credentials.apiKey || null,
+    apiKey: credentials.apiKey ? encryptApiKey(credentials.apiKey) : null,
     enabled: true,
     capabilities: JSON.stringify(preset.capabilities),
     contextWindow: preset.contextWindow,

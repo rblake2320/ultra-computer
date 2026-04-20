@@ -3,6 +3,7 @@
  */
 
 import type { Express, Request, Response } from "express";
+import { routesLogger } from "./logger.js";
 import { voiceEngine, checkNIMHealth } from "./voiceEngine.js";
 import type { ASRRequest, TTSRequest, VoiceConfig } from "./voiceEngine.js";
 import { apiCache } from "./apiCache.js";
@@ -122,7 +123,7 @@ export function registerVoiceRoutes(app: Express) {
         return;
       }
     } catch (error: any) {
-      console.error("[VOICE ROUTE] Transcribe error:", error);
+      routesLogger.error({ err: error }, "Voice: transcribe error");
       res.status(500).json({ error: error.message });
     }
   });
@@ -189,7 +190,7 @@ export function registerVoiceRoutes(app: Express) {
         res.send(result.audio);
       }
     } catch (error: any) {
-      console.error("[VOICE ROUTE] Synthesize error:", error);
+      routesLogger.error({ err: error }, "Voice: synthesize error");
       res.status(500).json({ error: error.message });
     }
   });
@@ -235,7 +236,7 @@ export function registerVoiceRoutes(app: Express) {
         ttsLatencyMs: result.ttsLatencyMs,
       });
     } catch (error: any) {
-      console.error("[VOICE ROUTE] Pipeline error:", error);
+      routesLogger.error({ err: error }, "Voice: pipeline error");
       res.status(500).json({ error: error.message });
     }
   });

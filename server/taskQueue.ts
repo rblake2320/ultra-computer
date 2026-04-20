@@ -8,6 +8,7 @@
  */
 
 import { Queue, Worker, Job, QueueEvents } from "bullmq";
+import { cacheLogger } from "./logger.js";
 import IORedis from "ioredis";
 
 // ─── Exported Types ───────────────────────────────────────────────────────────
@@ -74,21 +75,13 @@ export function estimateTaskDuration(
 async function processTask(job: Job<QueuedTask>): Promise<string> {
   const { conversationId, taskId, userMessage, estimatedDuration } = job.data;
 
-  console.log(
-    `[TaskQueue] Would process job ${job.id}: ` +
-      `conversationId=${conversationId} taskId=${taskId} ` +
-      `estimatedDuration=${estimatedDuration} ` +
-      `messageLength=${userMessage.length}`
-  );
+  cacheLogger.info({ jobId: job.id, conversationId, taskId, estimatedDuration, messageLength: userMessage.length }, "TaskQueue: processing job");
 
   // Simulate progress reporting so the status endpoint returns useful data.
   await job.updateProgress(10);
 
   // Stub: real implementation calls the orchestrator here.
-  console.log(
-    `[TaskQueue] Stub execution complete for taskId=${taskId}. ` +
-      `Real orchestrator integration pending.`
-  );
+  cacheLogger.info({ taskId }, "TaskQueue: stub execution complete");
 
   await job.updateProgress(100);
 
@@ -156,7 +149,7 @@ export class TaskQueue {
       });
 
       workerRedis.on('error', (err) => {
-        console.error('[TaskQueue] workerRedis connection error:', err.message);
+        cacheLogger.error({ err }, "TaskQueue: workerRedis connection error");
       });
 
       this.worker = new Worker<QueuedTask, string>(
@@ -169,15 +162,15 @@ export class TaskQueue {
       );
 
       this.worker.on("completed", (job, returnValue) => {
-        console.log(`[TaskQueue] Job ${job.id} completed:`, returnValue);
+        cacheLogger.info({ jobId: job.id, returnValue }, "TaskQueue: job completed");
       });
 
       this.worker.on("failed", (job, err) => {
-        console.error(`[TaskQueue] Job ${job?.id} failed:`, err.message);
+        cacheLogger.error({ err, jobId: job?.id }, "TaskQueue: job failed");
       });
 
       this.worker.on("error", (err) => {
-        console.error("[TaskQueue] Worker error:", err.message);
+        cacheLogger.error({ err }, "TaskQueue: worker error");
       });
 
       // QueueEvents for advanced state tracking (separate connection).
@@ -189,7 +182,7 @@ export class TaskQueue {
       });
 
       eventsRedis.on('error', (err) => {
-        console.error('[TaskQueue] eventsRedis connection error:', err.message);
+        cacheLogger.error({ err }, "TaskQueue: eventsRedis connection error");
       });
 
       this.queueEvents = new QueueEvents("ultra-tasks", {
@@ -197,13 +190,10 @@ export class TaskQueue {
       });
 
       this.available = true;
-      console.log("[TaskQueue] Initialized successfully — Redis connected.");
+      cacheLogger.info("TaskQueue: initialized successfully — Redis connected");
       return true;
     } catch (err: any) {
-      console.warn(
-        "[TaskQueue] Redis unavailable — task queue disabled. All operations will degrade gracefully.",
-        err?.message ?? err
-      );
+      cacheLogger.warn({ err }, "TaskQueue: Redis unavailable — task queue disabled. All operations will degrade gracefully");
       this.available = false;
       return false;
     }
@@ -220,10 +210,7 @@ export class TaskQueue {
    */
   async enqueue(task: QueuedTask): Promise<string> {
     if (!this.available || !this.queue) {
-      console.warn(
-        "[TaskQueue] enqueue called but queue is unavailable — skipping.",
-        { taskId: task.taskId }
-      );
+      cacheLogger.warn({ taskId: task.taskId }, "TaskQueue: enqueue called but queue is unavailable — skipping");
       // Return a synthetic ID so callers can store it without null-checks.
       return `unavailable:${task.taskId}:${Date.now()}`;
     }
@@ -240,15 +227,12 @@ export class TaskQueue {
         }
       );
 
-      console.log(
-        `[TaskQueue] Enqueued job ${job.id} for taskId=${task.taskId} ` +
-          `(${task.estimatedDuration} duration)`
-      );
+      cacheLogger.info({ jobId: job.id, taskId: task.taskId, duration: task.estimatedDuration }, "TaskQueue: job enqueued");
 
       return job.id ?? `enqueued:${task.taskId}:${Date.now()}`;
       // job.id is always set by BullMQ for newly added jobs
     } catch (err: any) {
-      console.error("[TaskQueue] Failed to enqueue task:", err?.message ?? err);
+      cacheLogger.error({ err }, "TaskQueue: failed to enqueue task");
       // Graceful degradation — don't crash callers.
       return `error:${task.taskId}:${Date.now()}`;
     }
@@ -292,10 +276,7 @@ export class TaskQueue {
             : undefined,
       };
     } catch (err: any) {
-      console.error(
-        `[TaskQueue] Failed to fetch status for job ${jobId}:`,
-        err?.message ?? err
-      );
+      cacheLogger.error({ err, jobId }, "TaskQueue: failed to fetch job status");
       return null;
     }
   }
@@ -324,26 +305,21 @@ export class TaskQueue {
       // Only cancel jobs that haven't started yet.
       if (state === "waiting" || state === "delayed" || state === "prioritized") {
         await job.remove();
-        console.log(`[TaskQueue] Cancelled job ${jobId}`);
+        cacheLogger.info({ jobId }, "TaskQueue: job cancelled");
         return true;
       }
 
       // For active jobs, attempt to mark failed (worker will detect this).
       if (state === "active") {
         await job.moveToFailed(new Error("Cancelled by user"), "0");
-        console.log(`[TaskQueue] Marked active job ${jobId} as failed (cancelled).`);
+        cacheLogger.info({ jobId }, "TaskQueue: marked active job as failed (cancelled)");
         return true;
       }
 
-      console.warn(
-        `[TaskQueue] Cannot cancel job ${jobId} in state "${state}".`
-      );
+      cacheLogger.warn({ jobId, state }, "TaskQueue: cannot cancel job in current state");
       return false;
     } catch (err: any) {
-      console.error(
-        `[TaskQueue] Failed to cancel job ${jobId}:`,
-        err?.message ?? err
-      );
+      cacheLogger.error({ err, jobId }, "TaskQueue: failed to cancel job");
       return false;
     }
   }
@@ -352,14 +328,14 @@ export class TaskQueue {
    * Gracefully shuts down the worker and closes Redis connections.
    */
   async shutdown(): Promise<void> {
-    console.log("[TaskQueue] Shutting down…");
+    cacheLogger.info("TaskQueue: shutting down");
 
     try {
       if (this.worker) {
         await this.worker.close();
       }
     } catch (err: any) {
-      console.warn("[TaskQueue] Error closing worker:", err?.message ?? err);
+      cacheLogger.warn({ err }, "TaskQueue: error closing worker");
     }
 
     try {
@@ -367,10 +343,7 @@ export class TaskQueue {
         await this.queueEvents.close();
       }
     } catch (err: any) {
-      console.warn(
-        "[TaskQueue] Error closing queue events:",
-        err?.message ?? err
-      );
+      cacheLogger.warn({ err }, "TaskQueue: error closing queue events");
     }
 
     try {
@@ -378,7 +351,7 @@ export class TaskQueue {
         await this.queue.close();
       }
     } catch (err: any) {
-      console.warn("[TaskQueue] Error closing queue:", err?.message ?? err);
+      cacheLogger.warn({ err }, "TaskQueue: error closing queue");
     }
 
     try {
@@ -386,11 +359,11 @@ export class TaskQueue {
         this.redisConnection.disconnect();
       }
     } catch (err: any) {
-      console.warn("[TaskQueue] Error disconnecting Redis:", err?.message ?? err);
+      cacheLogger.warn({ err }, "TaskQueue: error disconnecting Redis");
     }
 
     this.available = false;
-    console.log("[TaskQueue] Shutdown complete.");
+    cacheLogger.info("TaskQueue: shutdown complete");
   }
 }
 

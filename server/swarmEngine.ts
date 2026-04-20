@@ -22,6 +22,7 @@
  */
 
 import { randomUUID } from "crypto";
+import { swarmLogger } from "./logger.js";
 import { EventEmitter } from "events";
 import { logExecutionWithPrivacy } from "./telemetryEngine.js";
 import { chat, chatStream, selectModelForTask, type ChatMessage, type TaskType } from "./modelRouter.js";
@@ -342,10 +343,10 @@ class SwarmEngine {
         this.swarms.set(row.id, session);
       }
       if (dbSessions.length > 0) {
-        console.log(`[swarm] Rehydrated ${dbSessions.length} session(s) from DB`);
+        swarmLogger.info({ sessions: dbSessions.length }, "Rehydrated sessions from DB");
       }
     } catch (e) {
-      console.error("[swarm] Rehydration failed (non-fatal):", e);
+      swarmLogger.error({ err: e }, "Rehydration failed (non-fatal)");
     }
   }
 
@@ -416,7 +417,7 @@ class SwarmEngine {
     for (const key of this.bbSubscribers.keys()) {
       if (key.startsWith(`${id}:`)) this.bbSubscribers.delete(key);
     }
-    try { storage.deleteSwarmSession(id); } catch (e) { console.error("[swarm] Delete error:", e); }
+    try { storage.deleteSwarmSession(id); } catch (e) { swarmLogger.error({ err: e }, "Delete error"); }
     return true;
   }
 
@@ -880,7 +881,7 @@ class SwarmEngine {
           expiresAt: bbEntry.expiresAt,
         });
       }
-    } catch (e) { console.error("[swarm] Blackboard persist error:", e); }
+    } catch (e) { swarmLogger.error({ err: e }, "Blackboard persist error"); }
 
     const evtType = existing ? "blackboard_write" : "blackboard_write";
     this.emitEvent(swarmId, evtType, { topic: entry.topic, key: entry.key, author: agentId, version: bbEntry.version, entryType: bbEntry.entryType });
@@ -1000,7 +1001,7 @@ class SwarmEngine {
     for (const key of expired) { session.blackboard.delete(key); }
     if (expired.length > 0) {
       try { storage.deleteExpiredBlackboardEntries(swarmId, now); } catch { /* ok */ }
-      console.log(`[swarm] GC cleaned ${expired.length} expired entries from ${swarmId}`);
+      swarmLogger.info({ count: expired.length, swarmId }, "GC cleaned expired entries");
     }
   }
 
@@ -1903,7 +1904,7 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
         error: session.error,
         createdAt: session.config.createdAt,
       });
-    } catch (e) { console.error("[swarm] Session persist error:", e); }
+    } catch (e) { swarmLogger.error({ err: e }, "Session persist error"); }
   }
 
   private persistAgent(swarmId: string, agent: SwarmAgentMem): void {
@@ -1928,7 +1929,7 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
         capabilityProfile: JSON.stringify(agent.capabilityProfile),
         lastActiveAt: agent.lastActiveAt,
       });
-    } catch (e) { console.error("[swarm] Agent persist error:", e); }
+    } catch (e) { swarmLogger.error({ err: e }, "Agent persist error"); }
   }
 
   private persistTask(swarmId: string, task: SwarmTaskMem): void {
@@ -1947,7 +1948,7 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
         claimedAt: task.claimedAt,
         completedAt: task.completedAt,
       });
-    } catch (e) { console.error("[swarm] Task persist error:", e); }
+    } catch (e) { swarmLogger.error({ err: e }, "Task persist error"); }
   }
 
   private persistConsensus(swarmId: string, round: ConsensusRoundMem): void {
@@ -1965,7 +1966,7 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
         currentRound: round.currentRound,
         resolvedAt: round.resolvedAt,
       });
-    } catch (e) { console.error("[swarm] Consensus persist error:", e); }
+    } catch (e) { swarmLogger.error({ err: e }, "Consensus persist error"); }
   }
 
   // ── Restore from DB ───────────────────────────────────────────────────
@@ -2085,10 +2086,10 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
           };
 
           this.swarms.set(config.id, session);
-          console.log(`[swarm] Restored: ${config.name} (${config.id}) — ${agents.size} agents, ${tasks.size} tasks, ${blackboard.size} bb entries`);
-        } catch (e) { console.error("[swarm] Restore error:", e); }
+          swarmLogger.info({ name: config.name, id: config.id, agents: agents.size, tasks: tasks.size, bbEntries: blackboard.size }, "Swarm restored");
+        } catch (e) { swarmLogger.error({ err: e }, "Restore error"); }
       }
-    } catch (e) { console.error("[swarm] DB restore error:", e); }
+    } catch (e) { swarmLogger.error({ err: e }, "DB restore error"); }
   }
 
   // ── Serialization ────────────────────────────────────────────────────

@@ -5,6 +5,7 @@
  */
 
 import { v4 as uuidv4 } from "uuid";
+import { memoryLogger } from "./logger.js";
 import { storage } from "./storage.js";
 import { chat } from "./modelRouter.js";
 import { advancedMemorySearch, extractEntities, calculateImportance, deduplicateMemories } from "./memoryUpgrades.js";
@@ -109,7 +110,7 @@ Output ONLY valid JSON.`,
       }
     } catch (error) {
       // Memory extraction is non-critical — log but don't rethrow
-      console.error('[MemoryManager]', error);
+      memoryLogger.error({ err: error }, "Memory extraction failed");
     }
   }
 

@@ -25,6 +25,8 @@
  */
 
 import { v4 as uuidv4 } from "uuid";
+import logger from "./logger.js";
+const nipLogger = logger.child({ module: "nip" });
 import { storage } from "./storage.js";
 import { EventEmitter } from "events";
 
@@ -687,11 +689,7 @@ export class NIPEngine extends EventEmitter {
       party.lastActivity = now;
     }
 
-    console.log(
-      `[NIP] Session created: ${sessionId} | ` +
-      `${instructorProfile.agentName} → ${executorProfile.agentName} | ` +
-      `Scope: ${mergedScope.objective}`
-    );
+    nipLogger.info({ sessionId, instructor: instructorProfile.agentName, executor: executorProfile.agentName, objective: mergedScope.objective }, "Session created");
 
     this.emit("session:created", session);
     return session;
@@ -804,7 +802,7 @@ export class NIPEngine extends EventEmitter {
     session.state = "active";
     session.updatedAt = Date.now();
 
-    console.log(`[NIP] Session ${sessionId} negotiation complete → active`);
+    nipLogger.info({ sessionId }, "Session negotiation complete → active");
     this.emit("session:negotiated", session);
     this.emit("session:active", session);
     return session;
@@ -992,7 +990,7 @@ export class NIPEngine extends EventEmitter {
       metadata: {},
     });
 
-    console.log(`[NIP] Session ${sessionId} paused: ${reason}`);
+    nipLogger.info({ sessionId, reason }, "Session paused");
     this.emit("session:paused", { session, reason });
     return session;
   }
@@ -1022,7 +1020,7 @@ export class NIPEngine extends EventEmitter {
       metadata: {},
     });
 
-    console.log(`[NIP] Session ${sessionId} resumed → active`);
+    nipLogger.info({ sessionId }, "Session resumed → active");
     this.emit("session:active", session);
     return session;
   }
@@ -1058,7 +1056,7 @@ export class NIPEngine extends EventEmitter {
       metadata: {},
     });
 
-    console.log(`[NIP] Session ${sessionId} terminated: ${reason}`);
+    nipLogger.info({ sessionId, reason }, "Session terminated");
     this.emit("session:terminated", { session, reason });
     return session;
   }
@@ -1093,7 +1091,7 @@ export class NIPEngine extends EventEmitter {
       metadata: {},
     });
 
-    console.log(`[NIP] Session ${sessionId} completed`);
+    nipLogger.info({ sessionId }, "Session completed");
     this.emit("session:completed", session);
 
     // Auto-generate report
@@ -1101,7 +1099,7 @@ export class NIPEngine extends EventEmitter {
       const report = this.generateReport(sessionId);
       this.emit("report:generated", report);
     } catch (reportErr) {
-      console.error(`[NIP] Failed to auto-generate report for ${sessionId}:`, reportErr);
+      nipLogger.error({ err: reportErr, sessionId }, "Failed to auto-generate report");
     }
 
     return session;
@@ -1360,27 +1358,27 @@ export class NIPEngine extends EventEmitter {
       if (severity === "lockdown") {
         session.state = "locked";
         session.updatedAt = Date.now();
-        console.error(`[NIP Monitor] LOCKDOWN: Session ${sessionId} — ${message}`);
+        nipLogger.error({ sessionId, message }, "LOCKDOWN");
         this.emit("session:locked", { session, alert });
       } else if (autoAction === "terminate") {
         if (session.state !== "terminated" && session.state !== "completed") {
           session.state = "terminated";
           session.terminatedReason = `Auto-terminated by monitor: ${message}`;
           session.updatedAt = Date.now();
-          console.error(`[NIP Monitor] Auto-terminated session ${sessionId}: ${message}`);
+          nipLogger.error({ sessionId, message }, "Auto-terminated session");
           this.emit("session:terminated", { session, reason: session.terminatedReason });
         }
       } else if (autoAction === "pause" || severity === "critical") {
         if (session.state === "active" || session.state === "negotiating") {
           session.state = "paused";
           session.updatedAt = Date.now();
-          console.warn(`[NIP Monitor] Auto-paused session ${sessionId}: ${message}`);
+          nipLogger.warn({ sessionId, message }, "Auto-paused session");
           this.emit("session:paused", { session, reason: message });
         }
       }
     }
 
-    console.warn(`[NIP Monitor] [${severity.toUpperCase()}] Session ${sessionId}: ${message}`);
+    nipLogger.warn({ sessionId, severity, message }, "Monitor alert");
     this.emit("monitor:alert", alert);
     return alert;
   }
@@ -1422,10 +1420,7 @@ export class NIPEngine extends EventEmitter {
     };
 
     trustedPartyStore.set(record.id, record);
-    console.log(
-      `[NIP] Trusted party registered: ${record.organizationName} (${record.accessTier}) — ` +
-      `approved: ${record.approved}`
-    );
+    nipLogger.info({ orgName: record.organizationName, accessTier: record.accessTier, approved: record.approved }, "Trusted party registered");
     return record;
   }
 
@@ -1442,7 +1437,7 @@ export class NIPEngine extends EventEmitter {
 
     party.approved = true;
     party.approvedBy = approvedBy;
-    console.log(`[NIP] Trusted party approved: ${party.organizationName} by ${approvedBy}`);
+    nipLogger.info({ orgName: party.organizationName, approvedBy }, "Trusted party approved");
     return party;
   }
 
@@ -1459,7 +1454,7 @@ export class NIPEngine extends EventEmitter {
     if (!party) throw new Error(`[NIP] Trusted party not found: ${partyId}`);
 
     trustedPartyStore.delete(partyId);
-    console.log(`[NIP] Trusted party revoked: ${party.organizationName}`);
+    nipLogger.info({ orgName: party.organizationName }, "Trusted party revoked");
   }
 
   /**
@@ -1651,7 +1646,7 @@ export class NIPEngine extends EventEmitter {
     session.reportGenerated = true;
     session.updatedAt = Date.now();
 
-    console.log(`[NIP] Report generated for session ${sessionId}: ${outcome}`);
+    nipLogger.info({ sessionId, outcome }, "Report generated");
     return report;
   }
 

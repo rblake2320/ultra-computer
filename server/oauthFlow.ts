@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import { authLogger } from "./logger.js";
 import crypto from "crypto";
 import { storage } from "./storage.js";
 
@@ -228,7 +229,7 @@ export function registerOAuthRoutes(app: Express): void {
 
       return res.redirect(`/#/connectors?oauth=success&connector=${encodeURIComponent(connector.name)}`);
     } catch (err: any) {
-      console.error("[oauthFlow] Token exchange error:", err);
+      authLogger.error({ err }, "Token exchange error");
       const msg = encodeURIComponent(err?.message || "Token exchange failed");
       return res.redirect(`/#/connectors?oauth=error&message=${msg}`);
     }

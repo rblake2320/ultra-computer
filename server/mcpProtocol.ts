@@ -14,6 +14,8 @@
  */
 
 import { v4 as uuidv4 } from "uuid";
+import logger from "./logger.js";
+const mcpLogger = logger.child({ module: "mcp" });
 import { storage } from "./storage.js";
 import { TOOL_SCHEMAS, executeTool } from "./tools.js";
 import crypto from "crypto";
@@ -304,7 +306,7 @@ async function buildResourceList(): Promise<MCPResource[]> {
       });
     }
   } catch (err) {
-    console.error("[mcpProtocol] Failed to build resource list:", err);
+    mcpLogger.error({ err }, "Failed to build resource list");
   }
 
   return resources;
@@ -816,7 +818,7 @@ export async function handleMCPRequest(
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[mcpProtocol] Unhandled error in method '${req.method}':`, err);
+    mcpLogger.error({ err, method: req.method }, "Unhandled error in method");
     return rpcError(id, RPC_ERRORS.INTERNAL_ERROR, message);
   }
 }
@@ -1006,19 +1008,16 @@ export async function connectToServer(config: MCPServerConfig): Promise<MCPServe
     try {
       conn.tools = await listRemoteTools(id);
     } catch (err) {
-      console.warn(`[mcpProtocol] Could not pre-fetch tools from '${config.name}':`, err);
+      mcpLogger.warn({ err, serverName: config.name }, "Could not pre-fetch tools");
     }
 
     try {
       conn.resources = await listRemoteResources(id);
     } catch (err) {
-      console.warn(`[mcpProtocol] Could not pre-fetch resources from '${config.name}':`, err);
+      mcpLogger.warn({ err, serverName: config.name }, "Could not pre-fetch resources");
     }
 
-    console.log(
-      `[mcpProtocol] Connected to MCP server '${config.name}' (${id}) ` +
-        `— ${conn.tools.length} tools, ${conn.resources.length} resources`
-    );
+    mcpLogger.info({ serverName: config.name, id, tools: conn.tools.length, resources: conn.resources.length }, "Connected to MCP server");
 
     return conn;
   } catch (err) {
@@ -1045,7 +1044,7 @@ export function disconnectServer(serverId: string): void {
   conn.status = "disconnected";
   serverRegistry.delete(serverId);
 
-  console.log(`[mcpProtocol] Disconnected from MCP server '${conn.name}' (${serverId})`);
+  mcpLogger.info({ serverName: conn.name, serverId }, "Disconnected from MCP server");
 }
 
 /**

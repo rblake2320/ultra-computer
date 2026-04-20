@@ -5,6 +5,9 @@
  * Works with any async function. Respects abort signals for timeout integration.
  */
 
+import logger from "./logger.js";
+const retryLogger = logger.child({ module: "retry" });
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -220,7 +223,7 @@ export async function fetchWithRetry(
     maxRetries: retryOpts.maxRetries ?? 2,
     initialDelayMs: retryOpts.initialDelayMs ?? 1000,
     onRetry: retryOpts.onRetry ?? ((n, err) => {
-      console.warn(`[fetchWithRetry] Retry ${n} for ${url}:`, (err as Error).message?.slice(0, 200));
+      retryLogger.warn({ retry: n, url, message: (err as Error).message?.slice(0, 200) }, "fetchWithRetry retrying");
     }),
     ...retryOpts,
   });

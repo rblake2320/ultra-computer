@@ -11,6 +11,8 @@
  */
 
 import type { Express } from "express";
+import logger from "./logger.js";
+const messagingRoutesLogger = logger.child({ module: "messaging" });
 import { messagingHub } from "./messagingHub.js";
 import { v4 as uuidv4 } from "uuid";
 
@@ -423,7 +425,7 @@ export function registerMessagingRoutes(app: Express): void {
    */
   app.post("/api/messaging/webhook/slack", async (req, res) => {
     // TODO: verify X-Slack-Signature header using SLACK_SIGNING_SECRET
-    console.warn("[messaging] Slack webhook signature verification is NOT implemented — TODO: add HMAC-SHA256 check");
+    messagingRoutesLogger.warn("Slack webhook signature verification is NOT implemented — TODO: add HMAC-SHA256 check");
     try {
       const payload = req.body ?? {};
 

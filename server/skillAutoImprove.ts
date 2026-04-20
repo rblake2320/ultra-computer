@@ -8,6 +8,7 @@
  */
 
 import fs from "fs";
+import { autonomyLogger } from "./logger.js";
 import path from "path";
 import crypto from "crypto";
 import { storage } from "./storage.js";
@@ -892,11 +893,9 @@ export function startAutoImproveLoop(
 ): NodeJS.Timeout {
   const runCycle = (): void => {
     try {
-      console.log("[SkillAutoImprove] Running auto-improve cycle…");
+      autonomyLogger.info("SkillAutoImprove: running auto-improve cycle");
       const newSuggestions = generateImprovements();
-      console.log(
-        `[SkillAutoImprove] Generated ${newSuggestions.length} new suggestions.`
-      );
+      autonomyLogger.info({ count: newSuggestions.length }, "SkillAutoImprove: generated new suggestions");
 
       // Auto-apply safe, high-confidence suggestions
       const autoApplyTypes: ImprovementSuggestion["type"][] = [
@@ -918,20 +917,14 @@ export function startAutoImproveLoop(
       }
 
       if (appliedCount > 0) {
-        console.log(
-          `[SkillAutoImprove] Auto-applied ${appliedCount} improvement(s).`
-        );
+        autonomyLogger.info({ appliedCount }, "SkillAutoImprove: auto-applied improvements");
       }
 
       // Log health summary
       const health = getSkillHealth();
-      console.log(
-        `[SkillAutoImprove] Health — total: ${health.totalSkills}, ` +
-          `healthy: ${health.healthyCount}, degraded: ${health.degradedCount}, ` +
-          `failing: ${health.failingCount}`
-      );
+      autonomyLogger.info({ total: health.totalSkills, healthy: health.healthyCount, degraded: health.degradedCount, failing: health.failingCount }, "SkillAutoImprove: health summary");
     } catch (err) {
-      console.error("[SkillAutoImprove] Error in auto-improve cycle:", err);
+      autonomyLogger.error({ err }, "SkillAutoImprove: error in auto-improve cycle");
     }
   };
 

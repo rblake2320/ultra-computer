@@ -19,6 +19,7 @@
  */
 
 import { exec, execSync, spawn } from "child_process";
+import { sandboxLogger } from "./logger.js";
 import { promisify } from "util";
 import path from "path";
 import fs from "fs";
@@ -170,12 +171,12 @@ export class DockerSandbox {
       });
       this.dockerAvailable = !!stdout.trim();
       if (this.dockerAvailable) {
-        console.log(`[DockerSandbox] Docker detected: v${stdout.trim()}`);
+        sandboxLogger.info({ version: stdout.trim() }, "Docker detected");
         this.startReaper();
       }
     } catch {
       this.dockerAvailable = false;
-      console.log("[DockerSandbox] Docker not available — using host fallback");
+      sandboxLogger.info("Docker not available — using host fallback");
     }
 
     return this.dockerAvailable;
@@ -343,7 +344,7 @@ export class DockerSandbox {
           .catch(() => {}); // best effort
       }
 
-      console.log(`[DockerSandbox] Container created: ${state.containerId.substring(0, 12)} for session ${sessionId.substring(0, 8)}`);
+      sandboxLogger.info({ containerId: state.containerId.substring(0, 12), sessionId: sessionId.substring(0, 8) }, "Container created");
       return state;
 
     } catch (err: any) {
@@ -431,7 +432,7 @@ export class DockerSandbox {
     } catch { /* already gone */ }
     state.status = "stopped";
     this.containers.delete(sessionId);
-    console.log(`[DockerSandbox] Container removed: ${state.containerId.substring(0, 12)}`);
+    sandboxLogger.info({ containerId: state.containerId.substring(0, 12) }, "Container removed");
   }
 
   /** Evict the oldest idle container. Returns true if one was evicted. */
@@ -459,7 +460,7 @@ export class DockerSandbox {
           state.status === "ready" &&
           now - state.lastUsedAt > this.config.idleTimeoutMs
         ) {
-          console.log(`[DockerSandbox] Reaping idle container: ${state.containerId.substring(0, 12)}`);
+          sandboxLogger.info({ containerId: state.containerId.substring(0, 12) }, "Reaping idle container");
           this.removeContainer(sessionId).catch(() => {});
         }
       }

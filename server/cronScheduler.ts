@@ -6,6 +6,7 @@
  */
 
 import * as fs from "fs";
+import { autonomyLogger } from "./logger.js";
 import * as path from "path";
 import crypto from "crypto";
 
@@ -437,10 +438,7 @@ export function recordExecution(
     // Auto-disable if consecutive failure threshold reached
     if (job.consecutiveFailures >= job.maxConsecutiveFailures) {
       job.enabled = false;
-      console.warn(
-        `[CronScheduler] Job "${job.name}" (${job.id}) auto-disabled after ` +
-          `${job.consecutiveFailures} consecutive failures.`
-      );
+      autonomyLogger.warn({ jobId: job.id, jobName: job.name, failures: job.consecutiveFailures }, "Job auto-disabled after consecutive failures");
     }
   } else if (status === "skipped") {
     // Do not increment run/failure counters for skipped
@@ -518,16 +516,11 @@ export async function detectMissedRuns(
 
     // If nextRunAt is in the past, the job was missed
     if (job.nextRunAt < now) {
-      console.log(
-        `[CronScheduler] Missed run detected for job "${job.name}" (${job.id}), ` +
-          `scheduled at ${new Date(job.nextRunAt).toISOString()}`
-      );
+      autonomyLogger.info({ jobId: job.id, jobName: job.name, scheduledAt: new Date(job.nextRunAt).toISOString() }, "Missed run detected");
 
       if (job.catchUp) {
         // Fire immediately (best-effort)
-        console.log(
-          `[CronScheduler] Catch-up: executing missed job "${job.name}" now.`
-        );
+        autonomyLogger.info({ jobId: job.id, jobName: job.name }, "Catch-up: executing missed job");
         _runningJobs.add(job.id);
         const start = Date.now();
         try {
@@ -581,9 +574,7 @@ export function startScheduler(
       try {
         matcher = parseCron(job.cronExpression);
       } catch (err) {
-        console.error(
-          `[CronScheduler] Invalid cron expression for job "${job.name}" (${job.id}): ${err}`
-        );
+        autonomyLogger.error({ err, jobId: job.id, jobName: job.name }, "Invalid cron expression");
         continue;
       }
 
@@ -595,9 +586,7 @@ export function startScheduler(
 
       // Concurrency guard — skip if previous run is still in progress
       if (_runningJobs.has(job.id)) {
-        console.warn(
-          `[CronScheduler] Job "${job.name}" (${job.id}) is still running — skipping this tick.`
-        );
+        autonomyLogger.warn({ jobId: job.id, jobName: job.name }, "Job still running — skipping this tick");
         continue;
       }
 
@@ -605,9 +594,7 @@ export function startScheduler(
       _runningJobs.add(job.id);
 
       const start = Date.now();
-      console.log(
-        `[CronScheduler] Firing job "${job.name}" (${job.id}) at ${currentMinute.toISOString()}`
-      );
+      autonomyLogger.info({ jobId: job.id, jobName: job.name, at: currentMinute.toISOString() }, "Firing job");
 
       // Execute asynchronously — don't await in the tick loop
       (async () => {
@@ -623,18 +610,14 @@ export function startScheduler(
             ),
           ]);
           const duration = Date.now() - start;
-          console.log(
-            `[CronScheduler] Job "${job.name}" (${job.id}) succeeded in ${duration}ms`
-          );
+          autonomyLogger.info({ jobId: job.id, jobName: job.name, duration }, "Job succeeded");
           recordExecution(job.id, "success", result, duration);
         } catch (err) {
           const duration = Date.now() - start;
           const msg = err instanceof Error ? err.message : String(err);
           const status: ExecutionStatus =
             msg === "Job execution timed out" ? "timeout" : "failure";
-          console.error(
-            `[CronScheduler] Job "${job.name}" (${job.id}) ${status}: ${msg}`
-          );
+          autonomyLogger.error({ jobId: job.id, jobName: job.name, status, msg }, "Job failed");
           recordExecution(job.id, status, msg, duration);
         } finally {
           _runningJobs.delete(job.id);
@@ -673,7 +656,7 @@ export function startScheduler(
     if (_tickTimer) origClear(_tickTimer);
     return 0;
   };
-  console.log("[CronScheduler] Scheduler started (tick every 30s, setTimeout recursion).");
+  autonomyLogger.info("Scheduler started (tick every 30s, setTimeout recursion)");
   return handle;
 }
 

@@ -6,6 +6,8 @@
  */
 
 import os from "os";
+import logger from "./logger.js";
+const setupLogger = logger.child({ module: "setup" });
 import fs from "fs";
 import net from "net";
 import { execSync } from "child_process";
@@ -73,13 +75,13 @@ export function markSetupComplete(): void {
   try {
     storage.setSetting(SETUP_COMPLETE_KEY, "true");
   } catch (err) {
-    console.error("[SetupWizard] Could not persist flag to DB:", err);
+    setupLogger.error({ err }, "Could not persist setup flag to DB");
   }
 
   try {
     fs.writeFileSync(SETUP_COMPLETE_FILE, new Date().toISOString(), "utf8");
   } catch (err) {
-    console.error("[SetupWizard] Could not write sentinel file:", err);
+    setupLogger.error({ err }, "Could not write sentinel file");
   }
 }
 

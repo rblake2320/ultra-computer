@@ -9,6 +9,7 @@
  */
 
 import { exec } from "child_process";
+import { toolsLogger } from "./logger.js";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
@@ -275,7 +276,7 @@ async function executeBashDocker(command: string, start: number, sessionId: stri
     };
   } catch (err: any) {
     // If Docker fails, fall back to host process for this command
-    console.warn(`[tools/bash] Docker exec failed, falling back to host: ${err.message}`);
+    toolsLogger.warn({ err }, "Docker exec failed, falling back to host");
     return executeBashHost(command, start);
   }
 }

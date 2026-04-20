@@ -14,6 +14,7 @@
  */
 
 import type { Express, Request, Response } from "express";
+import { routesLogger } from "./logger.js";
 import { v4 as uuidv4 } from "uuid";
 import * as nipEngine from "./nipEngine.js";
 
@@ -652,5 +653,5 @@ export function registerNIPRoutes(app: Express): void {
     });
   });
 
-  console.log("[nip] All NIP routes registered (sessions, conversation, control, alerts, reports, access, SSE)");
+  routesLogger.info("All NIP routes registered (sessions, conversation, control, alerts, reports, access, SSE)");
 }

@@ -1,0 +1,170 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  # ────────────────────────────────────────────────────────────
+  # Job 1: Build release artifacts
+  # ────────────────────────────────────────────────────────────
+  build:
+    name: Build Release Artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install system build tools (required by better-sqlite3)
+        run: sudo apt-get install -y python3 make g++
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify artifacts
+        run: |
+          [ -f dist/index.cjs ] || (echo "ERROR: dist/index.cjs not found!" && exit 1)
+          [ -f dist/public/index.html ] || (echo "ERROR: dist/public/index.html not found!" && exit 1)
+          echo "Build artifacts verified"
+
+      - name: Create release archive
+        run: |
+          tar -czf ultra-computer-${{ github.ref_name }}.tar.gz \
+            dist/ \
+            package.json \
+            package-lock.json \
+            README.md
+
+      - name: Upload release archive as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-archive-${{ github.ref_name }}
+          path: ultra-computer-${{ github.ref_name }}.tar.gz
+          retention-days: 90
+
+  # ────────────────────────────────────────────────────────────
+  # Job 2: Create GitHub Release
+  # ────────────────────────────────────────────────────────────
+  github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download release archive
+        uses: actions/download-artifact@v4
+        with:
+          name: release-archive-${{ github.ref_name }}
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          # Extract changelog between last two tags
+          PREV_TAG=$(git describe --abbrev=0 --tags HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            NOTES=$(git log --pretty=format:"- %s (%h)" "$PREV_TAG"..HEAD)
+          else
+            NOTES=$(git log --pretty=format:"- %s (%h)")
+          fi
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Ultra Computer ${{ github.ref_name }}
+          body: |
+            ## Ultra Computer ${{ github.ref_name }}
+
+            ### Changes
+            ${{ steps.release_notes.outputs.notes }}
+
+            ### Installation
+
+            ```bash
+            # Extract the release archive
+            tar -xzf ultra-computer-${{ github.ref_name }}.tar.gz
+
+            # Install production dependencies
+            npm ci --omit=dev
+
+            # Start the server
+            NODE_ENV=production node dist/index.cjs
+            ```
+
+            ### Docker
+
+            ```bash
+            docker pull ghcr.io/rblake2320/ultra-computer:${{ github.ref_name }}
+            docker run -d -p 5000:5000 ghcr.io/rblake2320/ultra-computer:${{ github.ref_name }}
+            ```
+          files: ultra-computer-${{ github.ref_name }}.tar.gz
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ────────────────────────────────────────────────────────────
+  # Job 3: Build & Push Docker image to GHCR
+  # ────────────────────────────────────────────────────────────
+  docker-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/rblake2320/ultra-computer
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64

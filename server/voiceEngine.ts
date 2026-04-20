@@ -28,6 +28,8 @@
  */
 
 import * as grpc from "@grpc/grpc-js";
+import logger from "./logger.js";
+const voiceLogger = logger.child({ module: "voice" });
 import * as protoLoader from "@grpc/proto-loader";
 import * as path from "path";
 import { fileURLToPath } from "url";
@@ -233,10 +235,10 @@ function getGRPCClients() {
       cloudEndpoint, sslCreds
     );
 
-    console.log("[VOICE] gRPC clients initialized for grpc.nvcf.nvidia.com:443");
+    voiceLogger.info("gRPC clients initialized for grpc.nvcf.nvidia.com:443");
     return { asr: grpcASRClient, tts: grpcTTSClient };
   } catch (err: any) {
-    console.error("[VOICE] Failed to initialize gRPC clients:", err.message);
+    voiceLogger.error({ err }, "Failed to initialize gRPC clients");
     return null;
   }
 }
@@ -272,7 +274,7 @@ export async function transcribeAudio(request: ASRRequest): Promise<ASRResult> {
       }
     } catch (err: any) {
       lastError = err.message;
-      console.warn(`[VOICE] ASR ${provider} failed, trying next:`, err.message);
+      voiceLogger.warn({ err, provider }, "ASR provider failed, trying next");
     }
   }
 
@@ -574,7 +576,7 @@ export async function synthesizeSpeech(request: TTSRequest): Promise<TTSResult> 
       }
     } catch (err: any) {
       lastError = err.message;
-      console.warn(`[VOICE] TTS ${provider} failed, trying next:`, err.message);
+      voiceLogger.warn({ err, provider }, "TTS provider failed, trying next");
     }
   }
 

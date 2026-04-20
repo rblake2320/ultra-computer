@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { Router, Switch, Route } from "wouter";
+import { Router, Switch, Route, Redirect } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { queryClient } from "./lib/queryClient";
 import { Toaster } from "./components/ui/toaster";
@@ -8,11 +8,13 @@ import { ThemeProvider } from "./components/ThemeProvider";
 import { Layout } from "./components/Layout";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { AuthProvider, useAuth } from "./lib/auth";
 
 // ─── Lazy-loaded pages (code splitting) ─────────────────────────────────────
 // Only WelcomePage is eagerly loaded (landing page). All others split into
 // separate chunks that load on-demand when the route is first visited.
 import { WelcomePage } from "./pages/WelcomePage";
+const LoginPage = lazy(() => import("./pages/LoginPage").then(m => ({ default: m.LoginPage })));
 
 const ChatPage = lazy(() => import("./pages/ChatPage").then(m => ({ default: m.ChatPage })));
 const ModelsPage = lazy(() => import("./pages/ModelsPage").then(m => ({ default: m.ModelsPage })));
@@ -79,13 +81,46 @@ function NotFound() {
   );
 }
 
+// ─── Auth guard ─────────────────────────────────────────────────────────────
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading, authEnabled } = useAuth();
+  const [location] = useHashLocation();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Auth disabled: pass through (preserve existing behavior)
+  if (!authEnabled) return <>{children}</>;
+
+  // Not authenticated and not already on login page
+  if (!isAuthenticated && location !== "/login") {
+    return <Redirect to="/login" />;
+  }
+
+  return <>{children}</>;
+}
+
 export default function App() {
   useKeyboardShortcuts();
   return (
     <QueryClientProvider client={queryClient}>
+      <AuthProvider>
       <ThemeProvider>
         <Router hook={useHashLocation}>
           <Switch>
+            <Route path="/login">
+              <Suspense fallback={<PageLoader />}>
+                <LoginPage />
+              </Suspense>
+            </Route>
+            <Route>
+              <AuthGuard>
+                <Switch>
             <Route path="/" component={WelcomePage} />
             <Route path="/chat/:id">
               {(params) => (
@@ -124,10 +159,14 @@ export default function App() {
               </Suspense>
             </Route>
             <Route component={NotFound} />
+                </Switch>
+              </AuthGuard>
+            </Route>
           </Switch>
         </Router>
         <Toaster />
       </ThemeProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

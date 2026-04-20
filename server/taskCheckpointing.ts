@@ -7,6 +7,7 @@
  */
 
 import fs from 'fs';
+import { autonomyLogger } from "./logger.js";
 import path from 'path';
 
 // ---------------------------------------------------------------------------
@@ -66,13 +67,13 @@ function readCheckpoint(taskId: string): TaskCheckpoint | null {
     raw = fs.readFileSync(filePath, 'utf8');
   } catch (err: any) {
     if (err.code === 'ENOENT') return null; // file simply doesn't exist
-    console.error(`[taskCheckpointing] readCheckpoint: failed to read ${filePath}:`, err.message);
+    autonomyLogger.error({ err, filePath }, "readCheckpoint: failed to read");
     return null;
   }
   try {
     return JSON.parse(raw) as TaskCheckpoint;
   } catch (err: any) {
-    console.error(`[taskCheckpointing] readCheckpoint: failed to parse ${filePath}:`, err.message);
+    autonomyLogger.error({ err, filePath }, "readCheckpoint: failed to parse");
     return null;
   }
 }
@@ -82,7 +83,7 @@ function writeCheckpoint(checkpoint: TaskCheckpoint): void {
   try {
     fs.writeFileSync(filePath, JSON.stringify(checkpoint, null, 2), 'utf8');
   } catch (err: any) {
-    console.error(`[taskCheckpointing] writeCheckpoint: failed to write ${filePath}:`, err.message);
+    autonomyLogger.error({ err, filePath }, "writeCheckpoint: failed to write");
     throw err;
   }
 }

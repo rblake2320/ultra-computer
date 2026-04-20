@@ -1,7 +1,9 @@
 import type { Express } from "express";
+import { routesLogger, autonomyLogger, cacheLogger } from "./logger.js";
 import { Server } from "http";
 import { v4 as uuidv4 } from "uuid";
 import { storage } from "./storage.js";
+import { encryptApiKey } from "./keyManager.js";
 import { runOrchestrator, subscribeToConversation, unsubscribeFromConversation } from "./orchestrator.js";
 import { testModelConnection, selectModelByRole } from "./modelRouter.js";
 import type { ModelRole } from "@shared/schema";
@@ -38,13 +40,22 @@ import { registerSwarmRoutes } from "./swarmRoutes.js";
 import { registerQualityGateRoutes } from "./qualityGateRoutes.js";
 import { registerVoiceRoutes } from "./voiceRoutes.js";
 import { registerSetupRoutes } from "./setupRoutes.js";
+import { registerSwaggerRoutes } from "./swaggerRoutes.js";
 import { swarmEngine } from "./swarmEngine.js";
+import { authMiddleware } from "./auth.js";
+import { registerAuthRoutes } from "./authRoutes.js";
 
 export async function registerRoutes(httpServer: Server, app: Express) {
   // ─── Seed on startup ──────────────────────────────────────────────────────
   seedConnectors();
   seedBuiltInSkills();
   knowledgeEngine.seedIfEmpty();
+
+  // ─── Register auth routes (public/protected logic handled internally) ───────
+  registerAuthRoutes(app);
+
+  // ─── Apply auth middleware globally (skips public routes via whitelist) ──────
+  app.use(authMiddleware);
 
   // ─── Register modular route groups ─────────────────────────────────────────
   registerFileRoutes(app);
@@ -62,19 +73,20 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   registerQualityGateRoutes(app);
   registerVoiceRoutes(app);
   registerSetupRoutes(app);
+  registerSwaggerRoutes(app);
 
   // ─── Restore persisted swarms from SQLite ──────────────────────────────────
   swarmEngine.restoreFromDB();
 
   // ─── Link identity engine to NIP for session authentication ────────────────
   setIdentityEngine(identityEngine);
-  console.log("[identity] Identity engine linked to NIP protocol for session auth");
+  routesLogger.info("Identity engine linked to NIP protocol for session auth");
 
   // ─── Initialize autonomy systems ────────────────────────────────────────────
   initWatchdog(httpServer);
   startCheckpointHeartbeats();
   startScheduler(async (job) => {
-    console.log(`[cron] Executing job: ${job.name}`);
+    autonomyLogger.info({ jobName: job.name }, "Executing cron job");
     if (job.taskType === "health_check") {
       return JSON.stringify(getHealthStatus());
     }
@@ -82,14 +94,14 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
   startLearningLoop();
   startAutoImproveLoop();
-  console.log("[autonomy] All autonomous systems initialized: watchdog, checkpointing, cron, learning, skill-improvement");
+  autonomyLogger.info("All autonomous systems initialized: watchdog, checkpointing, cron, learning, skill-improvement");
 
   // ─── Initialize task queue (non-blocking) ──────────────────────────────────
   taskQueue.initialize().then(available => {
-    if (available) console.log("[taskQueue] BullMQ connected to Redis");
-    else console.log("[taskQueue] Redis not available — queue disabled (graceful fallback)");
+    if (available) cacheLogger.info("BullMQ connected to Redis");
+    else cacheLogger.info("Redis not available — queue disabled (graceful fallback)");
   }).catch((err) => {
-    console.error("[taskQueue] Initialization error:", err);
+    cacheLogger.error({ err }, "Task queue initialization error");
   });
 
   // ─── Models ───────────────────────────────────────────────────────────────
@@ -202,7 +214,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
         provider,
         modelId,
         baseUrl: baseUrl || null,
-        apiKey: apiKey || null,
+        apiKey: apiKey ? encryptApiKey(apiKey) : null,
         enabled: true,
         capabilities: capabilities ? JSON.stringify(capabilities) : '["chat"]',
         contextWindow: contextWindow || 8192,
@@ -423,7 +435,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
         storage.updateConversation(convId, { title });
       }
     } catch (err: any) {
-      console.error("[routes] Storage error creating message:", err);
+      routesLogger.error({ err }, "Storage error creating message");
       return res.status(500).json({ error: "Failed to save message" });
     }
 
@@ -431,7 +443,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
     // Run orchestrator async (non-blocking)
     runOrchestrator(convId, content).catch(err => {
-      console.error("Orchestrator error:", err);
+      routesLogger.error({ err }, "Orchestrator error");
     });
   });
 

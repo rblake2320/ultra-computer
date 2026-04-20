@@ -7,6 +7,8 @@
  */
 
 import { storage } from "./storage.js";
+import logger from "./logger.js";
+const recoveryLogger = logger.child({ module: "errorRecovery" });
 import type { Model } from "@shared/schema";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -119,10 +121,7 @@ export function getFallbackModel(failedModelId: string): string | null {
   try {
     allModels = storage.getModels();
   } catch (err: any) {
-    console.error(
-      "[ErrorRecovery] getFallbackModel: could not read models from storage:",
-      err?.message ?? err
-    );
+    recoveryLogger.error({ err }, "getFallbackModel: could not read models from storage");
     return null;
   }
 
@@ -180,17 +179,11 @@ export async function withRetryAndFallback<T>(
       lastError = err instanceof Error ? err : new Error(String(err));
       const errClass = classifyError(lastError);
 
-      console.warn(
-        `[ErrorRecovery] Attempt ${attempts} failed for model ${modelId} ` +
-          `(${errClass}): ${lastError.message}`
-      );
+      recoveryLogger.warn({ modelId, attempt: attempts, errClass, message: lastError.message }, "Attempt failed");
 
       // Auth and model errors won't resolve with retries — skip straight to fallback.
       if (errClass === "auth" || errClass === "model_error") {
-        console.warn(
-          `[ErrorRecovery] Non-retryable error class "${errClass}" — ` +
-            "skipping remaining retries on primary model."
-        );
+        recoveryLogger.warn({ errClass }, "Non-retryable error class — skipping remaining retries on primary model");
         break;
       }
 
@@ -214,17 +207,12 @@ export async function withRetryAndFallback<T>(
     const fallbackModelId = getFallbackModel(modelId);
 
     if (fallbackModelId) {
-      console.log(
-        `[ErrorRecovery] Falling back from model ${modelId} → ${fallbackModelId}`
-      );
+      recoveryLogger.info({ from: modelId, to: fallbackModelId }, "Falling back to another model");
       attempts++;
 
       try {
         const result = await fn(fallbackModelId);
-        console.log(
-          `[ErrorRecovery] Fallback succeeded on model ${fallbackModelId} ` +
-            `after ${attempts} total attempts.`
-        );
+        recoveryLogger.info({ modelId: fallbackModelId, attempts }, "Fallback succeeded");
         return {
           result,
           usedModelId: fallbackModelId,
@@ -233,16 +221,11 @@ export async function withRetryAndFallback<T>(
         };
       } catch (err: any) {
         const fallbackErr = err instanceof Error ? err : new Error(String(err));
-        console.error(
-          `[ErrorRecovery] Fallback model ${fallbackModelId} also failed:`,
-          fallbackErr.message
-        );
+        recoveryLogger.error({ err: fallbackErr, modelId: fallbackModelId }, "Fallback model also failed");
         lastError = fallbackErr;
       }
     } else {
-      console.warn(
-        "[ErrorRecovery] No fallback model available — all models exhausted."
-      );
+      recoveryLogger.warn("No fallback model available — all models exhausted");
     }
   }
 

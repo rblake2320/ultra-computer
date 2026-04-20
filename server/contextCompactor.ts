@@ -11,6 +11,8 @@
  */
 
 import { chat, type ChatMessage } from "./modelRouter.js";
+import logger from "./logger.js";
+const compactorLogger = logger.child({ module: "contextCompactor" });
 
 // ─── Public Types ─────────────────────────────────────────────────────────────
 
@@ -115,7 +117,7 @@ async function summarizeOldMessages(
       content: `[Compressed earlier conversation summary]\n${response.content}`,
     };
   } catch (err) {
-    console.error('[contextCompactor] summarizeOldMessages failed:', err);
+    compactorLogger.error({ err }, "summarizeOldMessages failed");
     // Fallback: produce a minimal text summary without calling the LLM
     const fallback = oldMessages
       .map((m) => {

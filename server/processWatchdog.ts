@@ -15,6 +15,7 @@
  */
 
 import http from "http";
+import { autonomyLogger } from "./logger.js";
 import fs from "fs";
 import path from "path";
 
@@ -57,7 +58,7 @@ function writeState(state: WatchdogState): void {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf8");
   } catch (err) {
-    console.error("[watchdog] Failed to write state file:", err);
+    autonomyLogger.error({ err }, "Failed to write state file");
   }
 }
 
@@ -162,15 +163,13 @@ function runHeartbeat(): void {
     `heap=${(mem.heapUsed / 1024 / 1024).toFixed(1)}/${(mem.heapTotal / 1024 / 1024).toFixed(1)}MB ` +
     `conns=${_activeConnections}`;
 
+  const heartbeatData = { status, uptime: formatUptime(uptimeSec), lagMs: _eventLoopLag, rssMB: (mem.rss / 1024 / 1024).toFixed(1), heapMB: `${(mem.heapUsed / 1024 / 1024).toFixed(1)}/${(mem.heapTotal / 1024 / 1024).toFixed(1)}`, conns: _activeConnections };
   if (status === "unhealthy") {
-    console.error(logLine);
-    console.error(
-      `[watchdog] ⚠  Event-loop lag ${_eventLoopLag}ms exceeds ${LAG_UNHEALTHY_MS}ms — process may be hung`
-    );
+    autonomyLogger.error(heartbeatData, "Heartbeat: event-loop lag exceeds threshold — process may be hung");
   } else if (status === "degraded") {
-    console.warn(logLine);
+    autonomyLogger.warn(heartbeatData, "Heartbeat: degraded");
   } else {
-    console.log(logLine);
+    autonomyLogger.info(heartbeatData, "Heartbeat");
   }
 }
 
@@ -213,9 +212,7 @@ async function drainServer(timeoutMs: number): Promise<void> {
     // Force-close after timeout
     setTimeout(() => {
       if (!done) {
-        console.warn(
-          `[watchdog] Drain timeout (${timeoutMs}ms) exceeded — forcing close`
-        );
+        autonomyLogger.warn({ timeoutMs }, "Drain timeout exceeded — forcing close");
         finish();
       }
     }, timeoutMs);
@@ -226,7 +223,7 @@ export async function shutdownGracefully(): Promise<void> {
   if (_isShuttingDown) return;
   _isShuttingDown = true;
 
-  console.log("[watchdog] Graceful shutdown initiated…");
+  autonomyLogger.info("Graceful shutdown initiated");
 
   // Stop heartbeat timer
   if (_heartbeatTimer) {
@@ -242,7 +239,7 @@ export async function shutdownGracefully(): Promise<void> {
   // Drain HTTP server (stop new connections, wait for in-flight)
   await drainServer(DRAIN_TIMEOUT_MS);
 
-  console.log("[watchdog] All connections drained. Exiting cleanly.");
+  autonomyLogger.info("All connections drained. Exiting cleanly.");
   process.exit(0);
 }
 
@@ -256,8 +253,7 @@ async function handleFatalError(
   if (_isShuttingDown) return; // Avoid double-shutdown
   _isShuttingDown = true;
 
-  console.error(`[watchdog] ${type} detected — initiating restart sequence`);
-  console.error(err);
+  autonomyLogger.error({ err, type }, "Fatal error detected — initiating restart sequence");
 
   // Stop timers
   if (_heartbeatTimer) clearInterval(_heartbeatTimer);
@@ -284,10 +280,7 @@ async function handleFatalError(
     // ignore
   }
 
-  console.error(
-    `[watchdog] Exiting with code 1 after ${RESTART_DELAY_MS}ms grace period. ` +
-      "Expecting process manager (pm2/systemd) to restart."
-  );
+  autonomyLogger.error({ gracePeriodMs: RESTART_DELAY_MS }, "Exiting with code 1. Expecting process manager (pm2/systemd) to restart.");
   process.exit(1);
 }
 
@@ -301,7 +294,7 @@ async function handleFatalError(
  */
 export function initWatchdog(server: http.Server): void {
   if (_heartbeatTimer) {
-    console.warn("[watchdog] initWatchdog called more than once — ignoring");
+    autonomyLogger.warn("initWatchdog called more than once — ignoring");
     return;
   }
 
@@ -328,9 +321,9 @@ export function initWatchdog(server: http.Server): void {
   // Signal handlers
   // -------------------------------------------------------------------
   const onSignal = (signal: string) => {
-    console.log(`[watchdog] Received ${signal} — shutting down gracefully`);
+    autonomyLogger.info({ signal }, "Received signal — shutting down gracefully");
     shutdownGracefully().catch((err) => {
-      console.error("[watchdog] Error during graceful shutdown:", err);
+      autonomyLogger.error({ err }, "Error during graceful shutdown");
       process.exit(1);
     });
   };
@@ -349,10 +342,7 @@ export function initWatchdog(server: http.Server): void {
     handleFatalError("unhandledRejection", reason).catch(() => process.exit(1));
   });
 
-  console.log(
-    `[watchdog] Initialised. restartCount=${_restartCount} ` +
-      `heartbeatInterval=${HEARTBEAT_INTERVAL_MS}ms`
-  );
+  autonomyLogger.info({ restartCount: _restartCount, heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS }, "Watchdog initialised");
 }
 
 /**

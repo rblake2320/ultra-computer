@@ -4,6 +4,8 @@
  */
 
 import type { Express } from "express";
+import logger from "./logger.js";
+const marketplaceLogger = logger.child({ module: "marketplace" });
 import { v4 as uuidv4 } from "uuid";
 import { storage } from "./storage.js";
 import { runScoringPipeline, scoreSkillById, getScoringConfig } from "./marketplaceScoring.js";
@@ -162,7 +164,7 @@ export function registerMarketplaceRoutes(app: Express) {
     storage.updateMarketplaceSkill(skill.id, { currentVersion: version } as any);
 
     // Re-score after new version published
-    try { scoreSkillById(skill.id); } catch (scoreErr) { console.error('[marketplace] Scoring error for skill', skill.id, scoreErr); }
+    try { scoreSkillById(skill.id); } catch (scoreErr) { marketplaceLogger.error({ err: scoreErr, skillId: skill.id }, "Scoring error for skill"); }
 
     res.json(ver);
   });
@@ -235,7 +237,7 @@ export function registerMarketplaceRoutes(app: Express) {
     storage.incrementMarketplaceInstallCount(skill.id);
 
     // Re-score this skill after install count changed
-    try { scoreSkillById(skill.id); } catch (scoreErr) { console.error('[marketplace] Scoring error for skill', skill.id, scoreErr); }
+    try { scoreSkillById(skill.id); } catch (scoreErr) { marketplaceLogger.error({ err: scoreErr, skillId: skill.id }, "Scoring error for skill"); }
 
     res.json(install);
   });
@@ -323,7 +325,7 @@ export function registerMarketplaceRoutes(app: Express) {
     try {
       scoreSkillById(source.id);
       scoreSkillById(forkId);
-    } catch (scoreErr) { console.error('[marketplace] Scoring error on fork', source.id, forkId, scoreErr); }
+    } catch (scoreErr) { marketplaceLogger.error({ err: scoreErr, sourceId: source.id, forkId }, "Scoring error on fork"); }
 
     res.json(fork);
   });
@@ -347,7 +349,7 @@ export function registerMarketplaceRoutes(app: Express) {
       storage.updateMarketplaceRatingRecord(existing.id, { rating: ratingNum, review: review || existing.review });
       storage.updateMarketplaceRating(skill.id, ratingNum - oldRating, 0);
       // Re-score after rating update
-      try { scoreSkillById(skill.id); } catch (scoreErr) { console.error('[marketplace] Scoring error for skill', skill.id, scoreErr); }
+      try { scoreSkillById(skill.id); } catch (scoreErr) { marketplaceLogger.error({ err: scoreErr, skillId: skill.id }, "Scoring error for skill"); }
       const updated = storage.getMarketplaceRatingByUser(skill.id, userId);
       return res.json(updated);
     }
@@ -364,7 +366,7 @@ export function registerMarketplaceRoutes(app: Express) {
     storage.updateMarketplaceRating(skill.id, ratingNum, 1);
 
     // Re-score after new rating
-    try { scoreSkillById(skill.id); } catch (scoreErr) { console.error('[marketplace] Scoring error for skill', skill.id, scoreErr); }
+    try { scoreSkillById(skill.id); } catch (scoreErr) { marketplaceLogger.error({ err: scoreErr, skillId: skill.id }, "Scoring error for skill"); }
 
     res.json(ratingRecord);
   });

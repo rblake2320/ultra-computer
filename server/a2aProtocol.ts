@@ -10,6 +10,8 @@
  */
 
 import { v4 as uuidv4 } from "uuid";
+import logger from "./logger.js";
+const a2aLogger = logger.child({ module: "a2a" });
 import { storage } from "./storage.js";
 import { runOrchestrator, subscribeToConversation, unsubscribeFromConversation } from "./orchestrator.js";
 
@@ -344,7 +346,7 @@ export async function getAgentCard(baseUrl: string = process.env.BASE_URL ?? "ht
         outputModes: ["text/plain", "application/json"],
       }));
   } catch (err) {
-    console.error("[A2A] Failed to load skills from DB:", err);
+    a2aLogger.error({ err }, "Failed to load skills from DB");
   }
 
   return {
@@ -471,7 +473,7 @@ async function handleMessageSend(
       clearTimeout(orchTimeout);
     } catch (orchErr) {
       // If orchestrator import/execution fails, produce a best-effort echo
-      console.error("[A2A] Orchestrator error, using fallback:", orchErr);
+      a2aLogger.error({ err: orchErr }, "Orchestrator error, using fallback");
       const truncated = userText.slice(0, 500);
       responseText = `Received your message: "${truncated}". (Orchestrator unavailable — raw echo.)`;
     }
@@ -587,7 +589,7 @@ export async function* handleMessageStream(
         }
       }
     } catch (orchErr) {
-      console.error("[A2A] Orchestrator stream error, using fallback:", orchErr);
+      a2aLogger.error({ err: orchErr }, "Orchestrator stream error, using fallback");
       const fallback = `Received: "${userText}". (Orchestrator unavailable.)`;
       chunks.push(fallback);
       yield `event: token\ndata: ${JSON.stringify({ taskId: task.taskId, delta: fallback })}\n\n`;
@@ -779,7 +781,7 @@ export async function discoverAgent(baseUrl: string): Promise<AgentCard> {
   // Register in the local registry
   agentRegistry.set(normalizedBase, card);
   evictIfNeeded(agentRegistry, MAX_REGISTRY_SIZE);
-  console.log(`[A2A Client] Discovered and registered agent: ${card.name} at ${normalizedBase}`);
+  a2aLogger.info({ name: card.name, url: normalizedBase }, "Discovered and registered agent");
 
   return card;
 }
@@ -1035,7 +1037,7 @@ export function registerAgent(baseUrl: string, agentCard: AgentCard): void {
   const normalized = baseUrl.replace(/\/$/, "");
   agentRegistry.set(normalized, agentCard);
   evictIfNeeded(agentRegistry, MAX_REGISTRY_SIZE);
-  console.log(`[A2A Registry] Registered agent: ${agentCard.name} at ${normalized}`);
+  a2aLogger.info({ name: agentCard.name, url: normalized }, "Registered agent");
 }
 
 /**
@@ -1049,7 +1051,7 @@ export function unregisterAgent(baseUrl: string): boolean {
   const existed = agentRegistry.has(normalized);
   agentRegistry.delete(normalized);
   if (existed) {
-    console.log(`[A2A Registry] Unregistered agent at ${normalized}`);
+    a2aLogger.info({ url: normalized }, "Unregistered agent");
   }
   return existed;
 }

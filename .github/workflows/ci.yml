@@ -1,0 +1,281 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ────────────────────────────────────────────────────────────
+  # Job 1: Lint & TypeCheck
+  # ────────────────────────────────────────────────────────────
+  lint-and-typecheck:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+      - name: ESLint (if configured)
+        run: |
+          if [ -f ".eslintrc.js" ] || [ -f ".eslintrc.cjs" ] || [ -f ".eslintrc.json" ] || [ -f "eslint.config.js" ] || [ -f "eslint.config.mjs" ]; then
+            echo "ESLint config found — running linter"
+            npx eslint server/ --ext .ts || true
+          else
+            echo "No ESLint config found — skipping"
+          fi
+
+  # ────────────────────────────────────────────────────────────
+  # Job 2: Build
+  # ────────────────────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install system build tools (required by better-sqlite3)
+        run: sudo apt-get install -y python3 make g++
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify dist/index.cjs exists
+        run: |
+          if [ ! -f dist/index.cjs ]; then
+            echo "ERROR: dist/index.cjs not found!"
+            exit 1
+          fi
+          echo "✓ dist/index.cjs exists ($(du -sh dist/index.cjs | cut -f1))"
+
+      - name: Verify dist/public/index.html exists
+        run: |
+          if [ ! -f dist/public/index.html ]; then
+            echo "ERROR: dist/public/index.html not found!"
+            exit 1
+          fi
+          echo "✓ dist/public/index.html exists"
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ github.sha }}
+          path: dist/
+          retention-days: 7
+
+  # ────────────────────────────────────────────────────────────
+  # Job 3: Integration / Smoke Tests
+  # ────────────────────────────────────────────────────────────
+  test:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install system build tools (required by better-sqlite3)
+        run: sudo apt-get install -y python3 make g++
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Start server in background
+        run: NODE_ENV=production node dist/index.cjs &
+        env:
+          NODE_ENV: production
+          PORT: 5000
+
+      - name: Wait for server to be ready
+        run: npx wait-on http://localhost:5000/api/health --timeout 30000
+
+      - name: Run smoke tests — GET /api/health
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/api/health)
+          [ "$STATUS" = "200" ] && echo "PASS GET /api/health → $STATUS" || (echo "FAIL GET /api/health → $STATUS" && exit 1)
+
+      - name: Run smoke tests — GET /api/models
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/api/models)
+          [ "$STATUS" = "200" ] && echo "PASS GET /api/models → $STATUS" || (echo "FAIL GET /api/models → $STATUS" && exit 1)
+
+      - name: Run smoke tests — GET /api/skills
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/api/skills)
+          [ "$STATUS" = "200" ] && echo "PASS GET /api/skills → $STATUS" || (echo "FAIL GET /api/skills → $STATUS" && exit 1)
+
+      - name: Run smoke tests — GET /api/memory
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/api/memory)
+          [ "$STATUS" = "200" ] && echo "PASS GET /api/memory → $STATUS" || (echo "FAIL GET /api/memory → $STATUS" && exit 1)
+
+      - name: Run smoke tests — GET /api/connectors
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/api/connectors)
+          [ "$STATUS" = "200" ] && echo "PASS GET /api/connectors → $STATUS" || (echo "FAIL GET /api/connectors → $STATUS" && exit 1)
+
+      - name: Run smoke tests — GET /api/conversations
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/api/conversations)
+          [ "$STATUS" = "200" ] && echo "PASS GET /api/conversations → $STATUS" || (echo "FAIL GET /api/conversations → $STATUS" && exit 1)
+
+      - name: Run smoke tests — GET /api/settings
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/api/settings)
+          [ "$STATUS" = "200" ] && echo "PASS GET /api/settings → $STATUS" || (echo "FAIL GET /api/settings → $STATUS" && exit 1)
+
+      - name: Run smoke tests — GET /api/setup/status (body contains "firstRun")
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" http://localhost:5000/api/setup/status)
+          STATUS=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          [ "$STATUS" = "200" ] || (echo "FAIL GET /api/setup/status → $STATUS" && exit 1)
+          echo "$BODY" | grep -q "firstRun" || (echo "FAIL GET /api/setup/status — body missing 'firstRun'" && echo "Body: $BODY" && exit 1)
+          echo "PASS GET /api/setup/status → $STATUS (body contains 'firstRun')"
+
+      - name: Run smoke tests — GET /api/setup/detect (body contains "os")
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" http://localhost:5000/api/setup/detect)
+          STATUS=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          [ "$STATUS" = "200" ] || (echo "FAIL GET /api/setup/detect → $STATUS" && exit 1)
+          echo "$BODY" | grep -q "os" || (echo "FAIL GET /api/setup/detect — body missing 'os'" && echo "Body: $BODY" && exit 1)
+          echo "PASS GET /api/setup/detect → $STATUS (body contains 'os')"
+
+      - name: Run smoke tests — GET /api/swarm/sessions
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/api/swarm/sessions)
+          [ "$STATUS" = "200" ] && echo "PASS GET /api/swarm/sessions → $STATUS" || (echo "FAIL GET /api/swarm/sessions → $STATUS" && exit 1)
+
+      - name: Run smoke tests — POST /api/conversations
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:5000/api/conversations \
+            -H "Content-Type: application/json" -d '{}')
+          [ "$STATUS" = "201" ] && echo "PASS POST /api/conversations → $STATUS" || (echo "FAIL POST /api/conversations → $STATUS" && exit 1)
+
+      - name: Run smoke tests — GET /api/autonomy/health
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5000/api/autonomy/health)
+          [ "$STATUS" = "200" ] && echo "PASS GET /api/autonomy/health → $STATUS" || (echo "FAIL GET /api/autonomy/health → $STATUS" && exit 1)
+
+      - name: Kill server
+        if: always()
+        run: pkill -f "node dist/index.cjs" || true
+
+  # ────────────────────────────────────────────────────────────
+  # Job 4: Security Scan
+  # ────────────────────────────────────────────────────────────
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit (production, high severity)
+        run: npm audit --production --audit-level=high
+
+      - name: ESLint security scan (if configured)
+        run: |
+          if [ -f ".eslintrc.js" ] || [ -f ".eslintrc.cjs" ] || [ -f ".eslintrc.json" ] || [ -f "eslint.config.js" ] || [ -f "eslint.config.mjs" ]; then
+            echo "ESLint config found — running security scan"
+            npx eslint server/ --ext .ts
+          else
+            echo "No ESLint config found — skipping ESLint security scan"
+          fi
+
+  # ────────────────────────────────────────────────────────────
+  # Job 5: Docker Build & Test
+  # ────────────────────────────────────────────────────────────
+  docker-build:
+    name: Docker Build & Test
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: docker build -t ultra-computer:test .
+
+      - name: Run container
+        run: docker run -d -p 5001:5000 --name uc-test ultra-computer:test
+
+      - name: Wait for container health check
+        run: |
+          echo "Waiting for container to become healthy..."
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5001/api/health 2>/dev/null || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "Container is healthy after ${i}s"
+              break
+            fi
+            echo "Attempt $i: status=$STATUS — waiting..."
+            sleep 2
+          done
+
+      - name: Verify GET /api/health returns 200
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5001/api/health)
+          [ "$STATUS" = "200" ] && echo "PASS Docker GET /api/health → $STATUS" || (echo "FAIL Docker GET /api/health → $STATUS" && docker logs uc-test && exit 1)
+
+      - name: Stop and remove container
+        if: always()
+        run: |
+          docker stop uc-test || true
+          docker rm uc-test || true

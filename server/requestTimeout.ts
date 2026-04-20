@@ -10,6 +10,7 @@
  */
 
 import { type Request, type Response, type NextFunction } from "express";
+import { routesLogger } from "./logger.js";
 
 export interface TimeoutOptions {
   /** Timeout in milliseconds (default: 30000 = 30s) */
@@ -39,9 +40,7 @@ export function requestTimeout(options: TimeoutOptions = {}) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const timer = setTimeout(() => {
       if (!res.headersSent) {
-        console.warn(
-          `[timeout] ${req.method} ${req.path} exceeded ${timeoutMs}ms`
-        );
+        routesLogger.warn({ method: req.method, path: req.path, timeoutMs }, "Request timeout exceeded");
         res.status(504).json({
           error: {
             code: "REQUEST_TIMEOUT",

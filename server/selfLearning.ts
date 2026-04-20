@@ -11,6 +11,7 @@
  */
 
 import fs from "fs";
+import { autonomyLogger } from "./logger.js";
 import path from "path";
 import crypto from "crypto";
 
@@ -965,18 +966,15 @@ export function startLearningLoop(
   try {
     runAnalysis();
   } catch (err) {
-    console.error("[SelfLearning] Initial analysis failed:", err);
+    autonomyLogger.error({ err }, "SelfLearning: initial analysis failed");
   }
 
   const handle = setInterval(() => {
     try {
       const result = runAnalysis();
-      console.log(
-        `[SelfLearning] Analysis complete — ${result.newRules.length} rules, ` +
-          `failure rate: ${(result.failureReport.failureRate * 100).toFixed(1)}%`
-      );
+      autonomyLogger.info({ newRules: result.newRules.length, failureRate: (result.failureReport.failureRate * 100).toFixed(1) }, "SelfLearning: analysis complete");
     } catch (err) {
-      console.error("[SelfLearning] Scheduled analysis failed:", err);
+      autonomyLogger.error({ err }, "SelfLearning: scheduled analysis failed");
     }
   }, intervalMs);
 

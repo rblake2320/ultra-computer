@@ -12,6 +12,7 @@
  */
 
 import { v4 as uuidv4 } from "uuid";
+import { orchestratorLogger } from "./logger.js";
 import fs from "fs";
 import path from "path";
 import { storage } from "./storage.js";
@@ -37,7 +38,7 @@ const IPC_DIR = path.join(process.cwd(), "ipc");
 try {
   if (!fs.existsSync(IPC_DIR)) fs.mkdirSync(IPC_DIR, { recursive: true });
 } catch (err) {
-  console.error("[orchestrator] Failed to create IPC directory:", err);
+  orchestratorLogger.error({ err }, "Failed to create IPC directory");
 }
 
 // SSE event emitter — wires to Express SSE endpoints
@@ -133,7 +134,7 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
       (userMessage.toLowerCase().includes("use swarm") && userMessage.toLowerCase().includes("agents"));
 
     if (isSwarmMode) {
-      console.log(`[orchestrator] Swarm mode detected for conversation ${conversationId}`);
+      orchestratorLogger.info({ conversationId }, "Swarm mode detected");
       emit(conversationId, { type: "status", status: "running", message: "Running in swarm mode..." });
 
       // Strip the swarm: prefix if present
@@ -228,7 +229,7 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
     const skillList = storage.getSkills();
     const detectedChain = detectChain(userMessage, skillList);
     if (detectedChain) {
-      console.log(`[orchestrator] Skill chain detected: ${detectedChain.name}`);
+      orchestratorLogger.info({ chainName: detectedChain.name }, "Skill chain detected");
       const chainTasks = buildChainPlan(detectedChain, userMessage);
       // Cast taskType from string to TaskType since the chain uses string literals that
       // match valid TaskType values (research, code, write, analyze, general).
@@ -267,7 +268,7 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
         const complexity = analyzeTaskComplexity(pt.description, pt.taskType);
         const routing = routeToOptimalModel(complexity, allModels);
         assignedModelId = routing.modelId;
-        console.log(`[orchestrator] Task "${pt.title}" → model ${routing.modelId}: ${routing.reason}`);
+        orchestratorLogger.info({ taskTitle: pt.title, modelId: routing.modelId, reason: routing.reason }, "Task routed to model");
       } catch {
         // Fall back to default model selection
         assignedModelId = selectModelForTask(pt.taskType as TaskType)?.id || orchModel.id;
@@ -349,7 +350,7 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
     // DEBUGGER: Auto-diagnose the failure
     try {
       const diag = diagnose({ taskId: conversationId, error: err.message || "Unknown", context: { conversationId } });
-      console.log(`[debugger] Diagnosis: ${diag.errorCategory} — ${diag.rootCause}`);
+      orchestratorLogger.info({ errorCategory: diag.errorCategory, rootCause: diag.rootCause }, "Debugger diagnosis");
     } catch {}
 
     endSpan(rootSpan.spanId, { error: { message: err.message || "Unknown error" } });
@@ -548,7 +549,7 @@ async function runWorkerAgent(
         const routedModel = storage.getModel(routingDecision.modelId);
         if (routedModel) {
           model = routedModel;
-          console.log(`[orchestrator] Task '${task.title}' routed to ${routedModel.name} — ${routingDecision.reason}`);
+          orchestratorLogger.info({ taskTitle: task.title, modelName: routedModel.name, reason: routingDecision.reason }, "Task routed to model");
         }
       } catch { /* fallback to selectModelForTask result */ }
     }
@@ -561,7 +562,7 @@ async function runWorkerAgent(
   const contextWindow = model.contextWindow || 8192;
   const kbResult = knowledgeEngine.buildContext(speedTier, contextWindow, task.description);
   if (kbResult.includedEntries.length > 0) {
-    console.log(`[orchestrator] KB injected ${kbResult.includedEntries.length} entries (~${kbResult.tokenEstimate} tokens) for ${model.name} [${speedTier}]`);
+    orchestratorLogger.info({ entries: kbResult.includedEntries.length, tokenEstimate: kbResult.tokenEstimate, modelName: model.name, speedTier }, "KB injected");
   }
 
   // Sandbox policy: check sandbox_auto_enable setting to decide execution mode
@@ -586,7 +587,7 @@ async function runWorkerAgent(
     status: "running",
   });
 
-  console.log(`[orchestrator] Agent ${agentRunId.slice(0,8)} | task=${task.taskType} | sandbox=${useSandbox ? "docker" : "host"} | tools=${getToolsForTask(task.taskType || "general").length} | workspace=${sessionSandboxDir}`);
+  orchestratorLogger.info({ agentRunId: agentRunId.slice(0, 8), taskType: task.taskType, sandbox: useSandbox ? "docker" : "host", toolCount: getToolsForTask(task.taskType || "general").length, workspace: sessionSandboxDir }, "Agent starting");
 
   const agentRunStart = Date.now();
 
@@ -598,7 +599,7 @@ async function runWorkerAgent(
     toolCalls: [],
     status: "started",
     startedAt: agentRunStart,
-  })).catch(err => console.error("[orchestrator] IPC write error:", err));
+  })).catch(err => orchestratorLogger.error({ err }, "IPC write error"));
 
   // Build the conversation history for the tool-calling loop
   const messages: ChatMessage[] = [
@@ -723,7 +724,7 @@ async function runWorkerAgent(
         const compacted = await compactContext(messages, 12_000, model.id);
         messages.length = 0;
         messages.push(...compacted.compactedMessages);
-        console.log(`[orchestrator] Context compacted: ${compacted.originalTokenEstimate} → ${compacted.compactedTokenEstimate} tokens (${(compacted.compressionRatio * 100).toFixed(0)}%)`);
+        orchestratorLogger.info({ originalTokens: compacted.originalTokenEstimate, compactedTokens: compacted.compactedTokenEstimate, ratio: compacted.compressionRatio }, "Context compacted");
       } catch (compactErr) {
         // Non-critical — continue without compaction
       }
@@ -744,7 +745,7 @@ async function runWorkerAgent(
     toolCalls: toolCallLog,
     status: "complete",
     completedAt: Date.now(),
-  })).catch(err => console.error("[orchestrator] IPC write error:", err));
+  })).catch(err => orchestratorLogger.error({ err }, "IPC write error"));
 
   const totalTokens = totalPromptTokens + totalCompletionTokens;
   const tokenUsageJson = JSON.stringify({
