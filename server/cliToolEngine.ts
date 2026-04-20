@@ -555,6 +555,7 @@ const BLOCKED_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   },
   { pattern: /rm\s+-rf\s+\//, reason: "rm -rf / is not allowed" },
   { pattern: /dd\s+if=/, reason: "dd with input file is not allowed" },
+  { pattern: /\bshred\b/, reason: "shred (secure disk overwrite) is not allowed" },
   { pattern: /mkfs/, reason: "Filesystem formatting commands are not allowed" },
   {
     pattern: /:\(\)\s*\{\s*:\|:&\s*\};:/,
@@ -569,11 +570,64 @@ const BLOCKED_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
     reason: "Writing directly to block devices is not allowed",
   },
   {
-    pattern: /chmod\s+.*777\s+\//,
-    reason: "Changing permissions on root paths is not allowed",
+    pattern: /chmod\s+.*777/,
+    reason: "chmod 777 (world-writable permissions) is not allowed",
+  },
+  {
+    pattern: /\bchown\b/,
+    reason: "chown (ownership changes) is not allowed in sandboxed execution",
   },
   { pattern: /\bsudo\b/, reason: "sudo is not allowed in sandboxed execution" },
   { pattern: /\bsu\s+-/, reason: "User switching is not allowed" },
+  // ── Network exfiltration ───────────────────────────────────────────────────
+  {
+    pattern: /\bcurl\b/,
+    reason: "curl (network access) is not allowed in sandboxed execution",
+  },
+  {
+    pattern: /\bwget\b/,
+    reason: "wget (network access) is not allowed in sandboxed execution",
+  },
+  {
+    pattern: /\bnc\b|\bnetcat\b/,
+    reason: "netcat (raw network access) is not allowed in sandboxed execution",
+  },
+  {
+    pattern: /\bnmap\b/,
+    reason: "nmap (network scanning) is not allowed in sandboxed execution",
+  },
+  {
+    pattern: /\btelnet\b/,
+    reason: "telnet (cleartext remote access) is not allowed in sandboxed execution",
+  },
+  // ── Code execution bypasses ────────────────────────────────────────────────
+  {
+    pattern: /\bbase64\b.*-d\b|--decode\b/,
+    reason: "base64 decode piped to execution is a common bypass pattern — not allowed",
+  },
+  {
+    pattern: /\bpython[23]?\s+-c\b/,
+    reason: "python -c (inline code execution) is not allowed in sandboxed execution",
+  },
+  {
+    pattern: /\bperl\s+-e\b/,
+    reason: "perl -e (inline code execution) is not allowed in sandboxed execution",
+  },
+  {
+    pattern: /\bruby\s+-e\b/,
+    reason: "ruby -e (inline code execution) is not allowed in sandboxed execution",
+  },
+  // ── Persistence mechanisms ─────────────────────────────────────────────────
+  {
+    pattern: /\bcrontab\b/,
+    reason: "crontab (scheduled persistence) is not allowed in sandboxed execution",
+  },
+  // ── Lateral movement / remote operations ──────────────────────────────────
+  {
+    // Block ssh/scp/rsync to remote hosts (pattern: command followed by user@host or -h host)
+    pattern: /\bssh\b.*@|\bscp\b.*@|\brsync\b.*@/,
+    reason: "SSH/SCP/rsync to remote hosts (lateral movement) is not allowed",
+  },
 ];
 
 /** Default allowlist — commands that bypass pattern checks. Extend as needed. */
@@ -608,6 +662,8 @@ export function validateCommand(
   const allBlocked = [...BLOCKED_PATTERNS, ...customBlocklist, ...blocklist];
   for (const entry of allBlocked) {
     if (entry.pattern.test(cmd)) {
+      // Audit log: record every blocked command for security review.
+      console.warn(`[cliToolEngine] BLOCKED command | rule: ${entry.pattern.source} | reason: ${entry.reason} | cmd: ${cmd.slice(0, 200)}`);
       return { safe: false, reason: entry.reason, matchedRule: entry.pattern.source };
     }
   }
