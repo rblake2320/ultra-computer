@@ -124,7 +124,8 @@ export function registerAutonomyRoutes(app: Express) {
       const rawMs = (req.body ?? {}).maxStaleMs;
       // Fix parseInt("0") || undefined issue: use ternary check instead of || operator
       const parsed = parseInt(rawMs);
-      const maxStaleMs = !isNaN(parsed) && parsed > 0 ? parsed : undefined;
+      // Upper bound: cap at 24 hours (86400000 ms) to prevent absurdly large values.
+      const maxStaleMs = !isNaN(parsed) && parsed > 0 && parsed <= 86_400_000 ? parsed : undefined;
       const abandoned = abandonStaleTasks(maxStaleMs);
       res.json({ abandoned: abandoned.length, tasks: abandoned });
     } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to abandon stale tasks" }); }
