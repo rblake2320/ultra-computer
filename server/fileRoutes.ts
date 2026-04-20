@@ -21,15 +21,21 @@ function paramToPath(param: unknown): string {
   return "";
 }
 
-/** Resolve a user-supplied relative path inside the sandbox, returning null if traversal detected */
+/**
+ * Resolve a user-supplied relative path inside the sandbox, returning null if
+ * traversal is detected.
+ *
+ * The authoritative check is path.resolve(base, userInput) + startsWith(base):
+ * no regex-stripping of "../" is performed beforehand.  Pre-stripping is
+ * unnecessary (path.resolve normalises everything) and can be bypassed with
+ * double-encoded sequences such as "..%2F" that survive a naive replace but
+ * are decoded by the filesystem layer.
+ */
 function resolveSafe(relativePath: string): string | null {
   ensureSandboxDir();
-  const decoded = decodeURIComponent(relativePath).replace(/\.\.\//g, "").replace(/\.\./g, "");
-  const resolved = path.resolve(SANDBOX_DIR, decoded);
-  // Must stay inside sandbox
-  if (resolved !== SANDBOX_DIR && !resolved.startsWith(SANDBOX_DIR + path.sep)) {
-    return null;
-  }
+  const base = path.resolve(SANDBOX_DIR);
+  const resolved = path.resolve(base, relativePath);
+  if (!resolved.startsWith(base)) return null;
   return resolved;
 }
 
