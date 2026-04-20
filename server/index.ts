@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
+import { createAuthMiddleware } from "./authMiddleware";
 
 // ─── Process-level error handlers (must be first) ────────────────────────────
 process.on("uncaughtException", (err) => {
@@ -28,13 +29,16 @@ declare module "http" {
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (!origin) return next();
-  const allowedOrigin = process.env.ALLOWED_ORIGIN || "*";
+  const allowedOrigin = process.env.ALLOWED_ORIGIN || (process.env.NODE_ENV === "production" ? "http://localhost:5000" : "*");
   res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
+
+// ─── API Key Authentication ───────────────────────────────────────────────
+app.use(createAuthMiddleware());
 
 app.use(
   express.json({
