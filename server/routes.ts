@@ -325,6 +325,9 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   // ─── SSE Stream ───────────────────────────────────────────────────────────
+  const SSE_MAX_DURATION_MS = 30 * 60 * 1000; // 30 minutes
+  const SSE_MAX_EVENTS = 10_000;
+
   app.get("/api/conversations/:id/stream", (req, res) => {
     const convId = req.params.id;
     res.setHeader("Content-Type", "text/event-stream");
@@ -333,12 +336,27 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders();
 
+    let eventCount = 0;
+
+    const cleanup = () => {
+      clearInterval(ping);
+      clearTimeout(maxDurationTimer);
+      unsubscribeFromConversation(convId, send);
+    };
+
     const send = (event: any) => {
       try {
         res.write(`data: ${JSON.stringify(event)}\n\n`);
+        eventCount++;
+        if (eventCount >= SSE_MAX_EVENTS) {
+          // Gracefully close the stream after hitting the event cap.
+          res.write(`data: ${JSON.stringify({ type: "stream_limit", reason: "Max events reached" })}\n\n`);
+          cleanup();
+          res.end();
+        }
       } catch {
         // Client disconnected — unsubscribe on next tick
-        unsubscribeFromConversation(convId, send);
+        cleanup();
       }
     };
 
@@ -349,14 +367,21 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       try {
         res.write(`: ping\n\n`);
       } catch {
-        clearInterval(ping);
-        unsubscribeFromConversation(convId, send);
+        cleanup();
       }
     }, 15000);
 
+    // Hard cap: close the stream after 30 minutes of inactivity or wall-clock time.
+    const maxDurationTimer = setTimeout(() => {
+      try {
+        res.write(`data: ${JSON.stringify({ type: "stream_timeout", reason: "Stream closed after 30 minutes" })}\n\n`);
+      } catch { /* ignore write errors on timeout */ }
+      cleanup();
+      res.end();
+    }, SSE_MAX_DURATION_MS);
+
     req.on("close", () => {
-      clearInterval(ping);
-      unsubscribeFromConversation(convId, send);
+      cleanup();
     });
   });
 
