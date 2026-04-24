@@ -16,7 +16,7 @@
  */
 
 import type { Request, Response, NextFunction } from "express";
-import crypto from "crypto";
+import { verifyApiKey, extractApiKey } from "./auth.js";
 
 // Routes that must remain publicly accessible regardless of auth config.
 const EXEMPT_ROUTES: Array<{ method: string; path: string }> = [
@@ -59,22 +59,16 @@ export function createAuthMiddleware() {
 
     // Extract key from Authorization header or X-API-Key header.
     const authHeader = req.headers["authorization"];
-    const xApiKey = req.headers["x-api-key"];
+    const rawXApiKey = req.headers["x-api-key"];
+    const xApiKey = typeof rawXApiKey === "string" ? rawXApiKey : undefined;
 
-    let suppliedKey: string | undefined;
-
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      suppliedKey = authHeader.slice("Bearer ".length).trim();
-    } else if (typeof xApiKey === "string") {
-      suppliedKey = xApiKey.trim();
-    }
+    const suppliedKey = extractApiKey(authHeader, xApiKey);
 
     if (!suppliedKey) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    const keyBuf = Buffer.from(apiKey, "utf-8");
-    const suppliedBuf = Buffer.from(suppliedKey, "utf-8");
-    if (keyBuf.length !== suppliedBuf.length || !crypto.timingSafeEqual(keyBuf, suppliedBuf)) {
+
+    if (!verifyApiKey(suppliedKey)) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
