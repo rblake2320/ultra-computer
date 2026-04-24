@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { eq, desc, and, sql } from "drizzle-orm";
+import { encrypt, decrypt } from "./encryption.js";
 import {
   models, conversations, messages, tasks, agentRuns, skills, connectors, memory, settings,
   skillScripts, skillScriptVersions,
@@ -520,11 +521,33 @@ export interface IStorage {
 }
 
 export class SQLiteStorage implements IStorage {
-  getModels(): Model[] { return db.select().from(models).orderBy(desc(models.createdAt)).all(); }
-  getModel(id: string): Model | undefined { return db.select().from(models).where(eq(models.id, id)).get(); }
-  createModel(data: InsertModel): Model { return db.insert(models).values({ ...data, createdAt: Date.now() }).returning().get(); }
+  private _decryptModel(model: Model): Model {
+    if (model.apiKey) model = { ...model, apiKey: decrypt(model.apiKey) };
+    if (model.oauthTokens) model = { ...model, oauthTokens: decrypt(model.oauthTokens) };
+    return model;
+  }
+
+  private _encryptModelInput<T extends Partial<InsertModel>>(input: T): T {
+    if (input.apiKey) input = { ...input, apiKey: encrypt(input.apiKey) };
+    if (input.oauthTokens) input = { ...input, oauthTokens: encrypt(input.oauthTokens) };
+    return input;
+  }
+
+  getModels(): Model[] {
+    return db.select().from(models).orderBy(desc(models.createdAt)).all().map(m => this._decryptModel(m));
+  }
+  getModel(id: string): Model | undefined {
+    const m = db.select().from(models).where(eq(models.id, id)).get();
+    return m ? this._decryptModel(m) : undefined;
+  }
+  createModel(data: InsertModel): Model {
+    const encrypted = this._encryptModelInput(data);
+    return this._decryptModel(db.insert(models).values({ ...encrypted, createdAt: Date.now() }).returning().get());
+  }
   updateModel(id: string, data: Partial<InsertModel>): Model | undefined {
-    return db.update(models).set(data).where(eq(models.id, id)).returning().get();
+    const encrypted = this._encryptModelInput(data);
+    const m = db.update(models).set(encrypted).where(eq(models.id, id)).returning().get();
+    return m ? this._decryptModel(m) : undefined;
   }
   deleteModel(id: string): void { db.delete(models).where(eq(models.id, id)).run(); }
   getDefaultModel(): Model | undefined { return db.select().from(models).where(and(eq(models.isDefault, true), eq(models.enabled, true))).get(); }

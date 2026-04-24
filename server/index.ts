@@ -204,6 +204,7 @@ app.use((req, res, next) => {
     if (!process.env.ULTRA_API_KEY) missing.push("ULTRA_API_KEY");
     if (!process.env.SLACK_SIGNING_SECRET) missing.push("SLACK_SIGNING_SECRET");
     if (!process.env.GITHUB_WEBHOOK_SECRET) missing.push("GITHUB_WEBHOOK_SECRET");
+    if (!process.env.ENCRYPTION_KEY) missing.push("ENCRYPTION_KEY");
     if (missing.length > 0) {
       console.error(`[FATAL] Production mode requires: ${missing.join(", ")}`);
       process.exit(1);
