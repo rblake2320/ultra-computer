@@ -5,6 +5,7 @@ import { createServer } from "http";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { createAuthMiddleware } from "./authMiddleware";
+import { createYogaMiddleware } from "./graphql/yoga.js";
 
 // ─── Process-level error handlers (must be first) ────────────────────────────
 process.on("uncaughtException", (err) => {
@@ -61,6 +62,13 @@ app.use(helmet({
   contentSecurityPolicy: false, // Managed by the SPA
   crossOriginEmbedderPolicy: false, // Allow iframe embedding
 }));
+
+// ─── GraphQL (graphql-yoga) ───────────────────────────────────────────────
+// Mounted before rate limiting so yoga's own streaming/WebSocket handling
+// is not subject to the express-rate-limit middleware (yoga handles its own
+// limits internally). Auth is already enforced by createAuthMiddleware() above.
+const yoga = createYogaMiddleware();
+app.use("/api/graphql", yoga);
 
 // ─── Rate limiting ────────────────────────────────────────────────────────
 // General API rate limit: 500 requests per minute per IP
