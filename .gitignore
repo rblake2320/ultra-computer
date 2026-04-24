@@ -7,8 +7,10 @@ node_modules/
 dist/
 *.cjs
 
-# Database
+# SQLite runtime files
 *.db
+*.db-shm
+*.db-wal
 *.db-journal
 
 # Environment
