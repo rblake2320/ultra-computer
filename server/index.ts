@@ -6,6 +6,7 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { createAuthMiddleware } from "./authMiddleware";
 import { createYogaMiddleware } from "./graphql/yoga.js";
+import { startGrpcServer } from "./grpc/server.js";
 
 // ─── Process-level error handlers (must be first) ────────────────────────────
 process.on("uncaughtException", (err) => {
@@ -207,6 +208,12 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
+
+  // Start gRPC server on a separate port (default 5001)
+  const grpcPort = parseInt(process.env.GRPC_PORT || "5001", 10);
+  startGrpcServer(grpcPort).catch((err) => {
+    console.error("[gRPC] Failed to start:", err);
+  });
   } catch (err) {
     console.error("[fatal] Failed to start server:", err);
     process.exit(1);
