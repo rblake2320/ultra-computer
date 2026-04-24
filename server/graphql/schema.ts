@@ -293,10 +293,31 @@ const MutationType = new GraphQLObjectType({
   },
 });
 
+// ─── Subscription ─────────────────────────────────────────────────────────────
+
+const SubscriptionType = new GraphQLObjectType({
+  name: "Subscription",
+  fields: {
+    conversationStream: {
+      type: new GraphQLNonNull(StreamEventType),
+      description:
+        "Stream orchestrator events for a conversation. " +
+        "graphql-yoga delivers these via SSE (multipart HTTP) or WebSocket.",
+      args: { id: { type: new GraphQLNonNull(GraphQLID) } },
+      // subscribe returns an AsyncGenerator that yoga will consume
+      subscribe: (_root: any, args: any) =>
+        conversationService.subscribe(args.id as string),
+      // The generator yields OrchestratorEvent objects, which match StreamEventType
+      resolve: (event: any) => event,
+    },
+  },
+});
+
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
 export const schema = new GraphQLSchema({
   query: QueryType,
   mutation: MutationType,
+  subscription: SubscriptionType,
   types: [ConversationType, MessageType, ModelType, KnowledgeEntryType, StreamEventType],
 });
