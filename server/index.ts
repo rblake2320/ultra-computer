@@ -7,6 +7,7 @@ import helmet from "helmet";
 import { createAuthMiddleware } from "./authMiddleware";
 import { createYogaMiddleware } from "./graphql/yoga.js";
 import { startGrpcServer } from "./grpc/server.js";
+import { createGrpcWebBridge } from "./grpcWebBridge.js";
 
 // ─── Process-level error handlers (must be first) ────────────────────────────
 process.on("uncaughtException", (err) => {
@@ -70,6 +71,11 @@ app.use(helmet({
 // limits internally). Auth is already enforced by createAuthMiddleware() above.
 const yoga = createYogaMiddleware();
 app.use("/api/graphql", yoga);
+
+// ─── gRPC-Web bridge ─────────────────────────────────────────────────────────
+// Exposes gRPC service implementations over plain HTTP/JSON for browser clients.
+// Auth is already enforced by createAuthMiddleware() above.
+app.use("/api/grpc", createGrpcWebBridge());
 
 // ─── Rate limiting ────────────────────────────────────────────────────────
 // General API rate limit: 500 requests per minute per IP
