@@ -1,10 +1,13 @@
 import type { Express } from "express";
 import { Server } from "http";
 import { v4 as uuidv4 } from "uuid";
+import { z } from "zod";
 import { storage } from "./storage.js";
 import { conversationService } from "./services/conversationService.js";
 import { modelService } from "./services/modelService.js";
 import { knowledgeService } from "./services/knowledgeService.js";
+import { validate } from "./validateRequest.js";
+import { insertConversationSchema, insertModelSchema } from "@shared/schema";
 import { runOrchestrator, subscribeToConversation, unsubscribeFromConversation } from "./orchestrator.js";
 import { testModelConnection } from "./modelRouter.js";
 import { connectModel, disconnectModel, testConnection, quickAdd, discoverEnvVars, getProviderCatalog, PROVIDER_REGISTRY } from "./modelConnections.js";
@@ -38,6 +41,21 @@ import { swarmEngine } from "./swarmEngine.js";
 
 const sseConnectionsPerIp = new Map<string, number>();
 const MAX_SSE_PER_IP = 5;
+
+// ─── Validation schemas for knowledge endpoints ───────────────────────────────
+// (KnowledgeEntry has no Zod insert schema exported from shared/schema.ts,
+//  so we define a targeted one here with explicit length limits.)
+const insertKnowledgeEntrySchema = z.object({
+  name: z.string().min(1).max(500),
+  description: z.string().max(10_000).optional(),
+  content: z.string().min(1).max(500_000),
+  contentType: z.string().max(100).optional(),
+  category: z.string().max(100).optional(),
+  tags: z.union([z.string(), z.array(z.string())]).optional(),
+  enabled: z.boolean().optional(),
+  priority: z.number().int().min(0).max(100).optional(),
+  tierPolicy: z.string().max(50).optional(),
+});
 
 export async function registerRoutes(httpServer: Server, app: Express) {
   // ─── Seed on startup ──────────────────────────────────────────────────────
@@ -126,15 +144,18 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.post("/api/models", (req, res) => {
-    const { id, name, provider, modelId, baseUrl, apiKey, capabilities, contextWindow,
-            isDefault, isOrchestrator, speedTier, notes, authMethod, envVarName } = req.body;
-    if (!name || !provider || !modelId) return res.status(400).json({ error: "name, provider, modelId required" });
-    if (typeof name !== "string" || name.length > 200) return res.status(400).json({ error: "name must be a string (max 200 chars)" });
-    if (typeof modelId !== "string" || modelId.length > 500) return res.status(400).json({ error: "modelId must be a string (max 500 chars)" });
-    const parsedCtxWindow = Number(contextWindow);
-    if (contextWindow !== undefined && (isNaN(parsedCtxWindow) || parsedCtxWindow < 1 || parsedCtxWindow > 10_000_000)) {
-      return res.status(400).json({ error: "contextWindow must be a positive integer" });
+    let input: any;
+    try {
+      input = validate(insertModelSchema, req.body);
+    } catch (e: any) {
+      return res.status(e.statusCode ?? 400).json({ error: e.message });
     }
+
+    const { id, name, provider, modelId, baseUrl, apiKey, capabilities, contextWindow,
+            isDefault, isOrchestrator, speedTier, notes, authMethod, envVarName } = input;
+    if (!name || !provider || !modelId) return res.status(400).json({ error: "name, provider, modelId required" });
+    if (typeof name !== "string" || name.length > 500) return res.status(400).json({ error: "name must be a string (max 500 chars)" });
+    if (typeof modelId !== "string" || modelId.length > 500) return res.status(400).json({ error: "modelId must be a string (max 500 chars)" });
 
     // If setting as default, unset others
     if (isDefault) {
@@ -194,11 +215,18 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.patch("/api/models/:id", (req, res) => {
-    const { isDefault, isOrchestrator } = req.body;
+    let input: any;
+    try {
+      input = validate(insertModelSchema.partial(), req.body);
+    } catch (e: any) {
+      return res.status(e.statusCode ?? 400).json({ error: e.message });
+    }
+
+    const { isDefault, isOrchestrator } = input;
     if (isDefault) storage.getModels().forEach(m => storage.updateModel(m.id, { isDefault: false }));
     if (isOrchestrator) storage.getModels().forEach(m => storage.updateModel(m.id, { isOrchestrator: false }));
     // Whitelist allowed fields to prevent mass assignment
-    const { name, enabled, speedTier, notes, isDefault: _isDefault, isOrchestrator: _isOrch, contextWindow, capabilities } = req.body;
+    const { name, enabled, speedTier, notes, isDefault: _isDefault, isOrchestrator: _isOrch, contextWindow, capabilities } = input;
     const allowedUpdate: Record<string, any> = {};
     if (name !== undefined) allowedUpdate.name = name;
     if (enabled !== undefined) allowedUpdate.enabled = enabled;
@@ -268,30 +296,35 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.post("/api/conversations", (req, res) => {
-    const rawTitle = req.body.title || "New Session";
-    const title = typeof rawTitle === "string" ? rawTitle.slice(0, 200) : "New Session";
-    const conv = conversationService.create({
-      id: uuidv4(),
-      title,
-      status: "idle",
-      orchestratorModelId: req.body.orchestratorModelId || null,
-      activeSkillIds: "[]",
-    });
-    res.status(201).json(conv);
+    try {
+      const input = validate(insertConversationSchema.partial(), req.body);
+      const rawTitle = input.title || "New Session";
+      const title = typeof rawTitle === "string" ? rawTitle.slice(0, 500) : "New Session";
+      const conv = conversationService.create({
+        id: uuidv4(),
+        title,
+        status: input.status ?? "idle",
+        orchestratorModelId: input.orchestratorModelId ?? null,
+        activeSkillIds: input.activeSkillIds ?? "[]",
+      });
+      res.status(201).json(conv);
+    } catch (e: any) {
+      res.status(e.statusCode ?? 500).json({ error: e.message });
+    }
   });
 
   app.patch("/api/conversations/:id", (req, res) => {
-    // Whitelist allowed fields to prevent mass assignment
-    const { title, status, orchestratorModelId, activeSkillIds } = req.body;
-    const allowedUpdate: Record<string, any> = {};
-    if (title !== undefined) allowedUpdate.title = title;
-    if (status !== undefined) allowedUpdate.status = status;
-    if (orchestratorModelId !== undefined) allowedUpdate.orchestratorModelId = orchestratorModelId;
-    if (activeSkillIds !== undefined) allowedUpdate.activeSkillIds = activeSkillIds;
     try {
+      const input = validate(insertConversationSchema.partial(), req.body);
+      // Whitelist allowed fields to prevent mass assignment
+      const allowedUpdate: Record<string, any> = {};
+      if (input.title !== undefined) allowedUpdate.title = input.title;
+      if (input.status !== undefined) allowedUpdate.status = input.status;
+      if (input.orchestratorModelId !== undefined) allowedUpdate.orchestratorModelId = input.orchestratorModelId;
+      if (input.activeSkillIds !== undefined) allowedUpdate.activeSkillIds = input.activeSkillIds;
       res.json(conversationService.update(req.params.id, allowedUpdate));
-    } catch {
-      res.status(404).json({ error: "Not found" });
+    } catch (e: any) {
+      res.status(e.statusCode ?? 404).json({ error: e.message });
     }
   });
 
@@ -1007,10 +1040,15 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.post("/api/knowledge", async (req, res) => {
+    let input: any;
     try {
-      const { name, description, content, contentType, category, tags, priority, tierPolicy } = req.body;
-      if (!name || !content) return res.status(400).json({ error: "name and content are required" });
+      input = validate(insertKnowledgeEntrySchema, req.body);
+    } catch (e: any) {
+      return res.status(e.statusCode ?? 400).json({ error: e.message });
+    }
 
+    try {
+      const { name, description, content, contentType, category, tags, priority, tierPolicy } = input;
       const entry = await knowledgeService.create({
         name,
         description,
@@ -1028,10 +1066,17 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.patch("/api/knowledge/:id", (req, res) => {
+    let input: any;
+    try {
+      input = validate(insertKnowledgeEntrySchema.partial(), req.body);
+    } catch (e: any) {
+      return res.status(e.statusCode ?? 400).json({ error: e.message });
+    }
+
     const updates: Record<string, any> = {};
-    const allowedFields = ["name", "description", "content", "summary", "contentType", "category", "tags", "enabled", "priority", "tierPolicy"];
+    const allowedFields = ["name", "description", "content", "contentType", "category", "tags", "enabled", "priority", "tierPolicy"] as const;
     for (const field of allowedFields) {
-      if (req.body[field] !== undefined) updates[field] = req.body[field];
+      if (input[field] !== undefined) updates[field] = input[field];
     }
     // Recalculate size/tokens if content changed
     if (updates.content) {
