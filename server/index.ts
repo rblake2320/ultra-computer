@@ -8,7 +8,8 @@ import { createAuthMiddleware } from "./authMiddleware";
 import { createYogaMiddleware } from "./graphql/yoga.js";
 import { startGrpcServer, shutdownGrpcServer } from "./grpc/server.js";
 import { createGrpcWebBridge } from "./grpcWebBridge.js";
-import { sqlite } from "./storage.js";
+import { sqlite, db } from "./storage.js";
+import { sql } from "drizzle-orm";
 
 const app = express();
 const httpServer = createServer(app);
@@ -93,17 +94,36 @@ app.use("/api/conversations/:id/messages", chatLimiter);
 
 // ─── Health check (no auth, no rate limit) ────────────────────────────────
 app.get("/api/health", (_req, res) => {
-  res.json({
-    status: "ok",
+  const start = Date.now();
+  const checks: Record<string, { ok: boolean; detail?: string }> = {};
+
+  // Check SQLite — run a trivial synchronous query
+  try {
+    db.run(sql`SELECT 1`);
+    checks.database = { ok: true };
+  } catch (e: any) {
+    checks.database = { ok: false, detail: e.message };
+  }
+
+  // gRPC port liveness (passive check — just report configured port)
+  checks.grpc = { ok: true, detail: `port ${process.env.GRPC_PORT || 5001}` };
+
+  const allOk = Object.values(checks).every((c) => c.ok);
+  const mem = process.memoryUsage();
+
+  res.status(allOk ? 200 : 503).json({
+    status: allOk ? "ok" : "degraded",
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     version: "1.0.0",
     nodeVersion: process.version,
-    memoryUsage: {
-      rss: Math.round(process.memoryUsage().rss / 1024 / 1024),
-      heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-      heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+    checks,
+    memory: {
+      heapUsed: Math.round(mem.heapUsed / 1024 / 1024) + "MB",
+      heapTotal: Math.round(mem.heapTotal / 1024 / 1024) + "MB",
+      rss: Math.round(mem.rss / 1024 / 1024) + "MB",
     },
+    latencyMs: Date.now() - start,
   });
 });
 
