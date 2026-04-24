@@ -10,6 +10,7 @@ import { startGrpcServer, shutdownGrpcServer } from "./grpc/server.js";
 import { createGrpcWebBridge } from "./grpcWebBridge.js";
 import { sqlite, db } from "./storage.js";
 import { sql } from "drizzle-orm";
+import { logger, httpLogger } from "./logger.js";
 
 const app = express();
 const httpServer = createServer(app);
@@ -139,28 +140,26 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-
-  console.log(`${formattedTime} [${source}] ${message}`);
+  logger.info({ module: source }, message);
 }
 
+// Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
-  const path = req.path;
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
+    if (req.path.startsWith("/api")) {
       // Do not log response bodies — they may contain sensitive data (API keys, tokens, etc.)
-      const logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      log(logLine);
+      const level = res.statusCode >= 500 ? "error" : res.statusCode >= 400 ? "warn" : "info";
+      httpLogger[level]({
+        method: req.method,
+        path: req.path,
+        status: res.statusCode,
+        duration,
+        ip: req.ip,
+      });
     }
   });
-
   next();
 });
 
@@ -172,7 +171,7 @@ app.use((req, res, next) => {
     const status = err.status || err.statusCode || 500;
 
     // Log the real error server-side for debugging
-    console.error("[server] Error:", err);
+    logger.error({ err }, "[server] Error");
 
     if (res.headersSent) {
       return next(err);
@@ -223,64 +222,64 @@ app.use((req, res, next) => {
       reusePort: true,
     },
     () => {
-      log(`serving on port ${port}`);
+      logger.info(`serving on port ${port}`);
     },
   );
 
   // Start gRPC server on a separate port (default 5001)
   const grpcPort = parseInt(process.env.GRPC_PORT || "5001", 10);
   startGrpcServer(grpcPort).catch((err) => {
-    console.error("[gRPC] Failed to start:", err);
+    logger.error({ err }, "[gRPC] Failed to start");
   });
 
   // ─── Graceful Shutdown ──────────────────────────────────────────────────────
   const shutdown = async (signal: string) => {
-    console.log(`[shutdown] Received ${signal}, starting graceful shutdown...`);
+    logger.info(`[shutdown] Received ${signal}, starting graceful shutdown...`);
 
     // 1. Stop accepting new HTTP connections
     httpServer.close((err) => {
-      if (err) console.error("[shutdown] HTTP server close error:", err);
-      else console.log("[shutdown] HTTP server closed");
+      if (err) logger.error({ err }, "[shutdown] HTTP server close error");
+      else logger.info("[shutdown] HTTP server closed");
     });
 
     // 2. Shut down gRPC server
     try {
       await shutdownGrpcServer();
-      console.log("[shutdown] gRPC server closed");
+      logger.info("[shutdown] gRPC server closed");
     } catch (e) {
-      console.error("[shutdown] gRPC shutdown error:", e);
+      logger.error({ err: e }, "[shutdown] gRPC shutdown error");
     }
 
     // 3. Close SQLite connection
     try {
       sqlite.close();
-      console.log("[shutdown] SQLite closed");
+      logger.info("[shutdown] SQLite closed");
     } catch (e) {
-      console.error("[shutdown] SQLite close error:", e);
+      logger.error({ err: e }, "[shutdown] SQLite close error");
     }
 
     // 4. Force-exit after 10 seconds if something hangs
     setTimeout(() => {
-      console.error("[shutdown] Forced exit after timeout");
+      logger.error("[shutdown] Forced exit after timeout");
       process.exit(1);
     }, 10_000).unref();
 
-    console.log("[shutdown] Graceful shutdown complete");
+    logger.info("[shutdown] Graceful shutdown complete");
     process.exit(0);
   };
 
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("uncaughtException", (err) => {
-    console.error("[uncaughtException]", err);
+    logger.error({ err }, "[uncaughtException]");
     shutdown("uncaughtException");
   });
   process.on("unhandledRejection", (reason) => {
-    console.error("[unhandledRejection]", reason);
+    logger.error({ reason }, "[unhandledRejection]");
   });
 
   } catch (err) {
-    console.error("[fatal] Failed to start server:", err);
+    logger.error({ err }, "[fatal] Failed to start server");
     process.exit(1);
   }
 })();

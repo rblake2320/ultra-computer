@@ -17,6 +17,7 @@
 
 import type { Request, Response, NextFunction } from "express";
 import { verifyApiKey, extractApiKey } from "./auth.js";
+import { authLogger } from "./logger.js";
 
 // Routes that must remain publicly accessible regardless of auth config.
 const EXEMPT_ROUTES: Array<{ method: string; path: string }> = [
@@ -40,15 +41,15 @@ export function createAuthMiddleware() {
   const apiKey = process.env.ULTRA_API_KEY;
 
   if (!apiKey) {
-    console.warn(
-      "[auth] WARNING: ULTRA_API_KEY is not set — API is open to all traffic. " +
+    authLogger.warn(
+      "ULTRA_API_KEY is not set — API is open to all traffic. " +
         "Set this variable in production to restrict access."
     );
     // Pass-through: no authentication enforced.
     return (_req: Request, _res: Response, next: NextFunction) => next();
   }
 
-  console.log("[auth] API key authentication enabled (ULTRA_API_KEY is set).");
+  authLogger.info("API key authentication enabled (ULTRA_API_KEY is set).");
 
   return (req: Request, res: Response, next: NextFunction) => {
     // Only guard /api/* routes.

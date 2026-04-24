@@ -7,6 +7,7 @@ import { modelGrpcHandlers } from "./services/models.js";
 import { knowledgeGrpcHandlers } from "./services/knowledge.js";
 import { authInterceptor } from "./auth-interceptor.js";
 import { rateLimitInterceptor } from "./rate-limit-interceptor.js";
+import { grpcLogger } from "../logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,7 +33,7 @@ export function shutdownGrpcServer(): Promise<void> {
     if (!_grpcServer) return resolve();
     _grpcServer.tryShutdown((err) => {
       if (err) {
-        console.error("[gRPC] Graceful shutdown failed, forcing:", err);
+        grpcLogger.error({ err }, "Graceful shutdown failed, forcing");
         _grpcServer?.forceShutdown();
       }
       _grpcServer = null;
@@ -40,6 +41,7 @@ export function shutdownGrpcServer(): Promise<void> {
     });
   });
 }
+
 
 export async function startGrpcServer(port = 5001): Promise<Server> {
   // Load all proto files
@@ -74,7 +76,7 @@ export async function startGrpcServer(port = 5001): Promise<Server> {
       streamConversation: conversationGrpcHandlers.streamConversation,
     });
   } else {
-    console.warn("[gRPC] ConversationService not found in proto definitions");
+    grpcLogger.warn("ConversationService not found in proto definitions");
   }
 
   // Register ModelService
@@ -87,7 +89,7 @@ export async function startGrpcServer(port = 5001): Promise<Server> {
       testModel: modelGrpcHandlers.testModel,
     });
   } else {
-    console.warn("[gRPC] ModelService not found in proto definitions");
+    grpcLogger.warn("ModelService not found in proto definitions");
   }
 
   // Register KnowledgeService
@@ -100,7 +102,7 @@ export async function startGrpcServer(port = 5001): Promise<Server> {
       searchKnowledge: knowledgeGrpcHandlers.searchKnowledge,
     });
   } else {
-    console.warn("[gRPC] KnowledgeService not found in proto definitions");
+    grpcLogger.warn("KnowledgeService not found in proto definitions");
   }
 
   await new Promise<void>((resolve, reject) => {
@@ -109,7 +111,7 @@ export async function startGrpcServer(port = 5001): Promise<Server> {
         reject(err);
         return;
       }
-      console.log(`[gRPC] Server listening on port ${boundPort}`);
+      grpcLogger.info(`Server listening on port ${boundPort}`);
       resolve();
     });
   });

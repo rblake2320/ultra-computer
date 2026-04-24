@@ -7,6 +7,7 @@ import {
 } from "@grpc/grpc-js";
 import { Metadata, status as grpcStatus } from "@grpc/grpc-js";
 import { verifyApiKey, extractApiKey } from "../auth.js";
+import { authLogger } from "../logger.js";
 
 /**
  * gRPC server interceptor that validates the Bearer token / x-api-key metadata
@@ -30,6 +31,7 @@ export const authInterceptor: ServerInterceptor = (
               const xApiKey = (xKeyValues[0] as string) ?? "";
               const supplied = extractApiKey(authHeader, xApiKey);
               if (!verifyApiKey(supplied)) {
+                authLogger.warn("gRPC call rejected — invalid or missing API key");
                 call.sendStatus({
                   code: grpcStatus.UNAUTHENTICATED,
                   details: "Invalid or missing API key",
