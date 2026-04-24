@@ -2,6 +2,9 @@ import type { Express } from "express";
 import { Server } from "http";
 import { v4 as uuidv4 } from "uuid";
 import { storage } from "./storage.js";
+import { conversationService } from "./services/conversationService.js";
+import { modelService } from "./services/modelService.js";
+import { knowledgeService } from "./services/knowledgeService.js";
 import { runOrchestrator, subscribeToConversation, unsubscribeFromConversation } from "./orchestrator.js";
 import { testModelConnection } from "./modelRouter.js";
 import { connectModel, disconnectModel, testConnection, quickAdd, discoverEnvVars, getProviderCatalog, PROVIDER_REGISTRY } from "./modelConnections.js";
@@ -92,18 +95,13 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   // ─── Models ───────────────────────────────────────────────────────────────
   app.get("/api/models", (req, res) => {
-    // Strip apiKey and oauthTokens from response for security
-    const models = storage.getModels().map(m => ({
-      ...m,
-      apiKey: m.apiKey ? "***" : null,
-      oauthTokens: m.oauthTokens ? "***" : null,
-    }));
-    res.json(models);
+    // modelService.list() already strips apiKey and oauthTokens
+    res.json(modelService.list());
   });
 
   // Provider catalog — frontend uses this to render auth options per provider
   app.get("/api/models/providers", (_req, res) => {
-    res.json(getProviderCatalog());
+    res.json(modelService.getProviders());
   });
 
   // Discover environment variables already set on the server.
@@ -116,13 +114,15 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   // requires authentication in production.  In dev mode (no ULTRA_API_KEY) the
   // middleware is a pass-through, which is intentional and documented.
   app.get("/api/models/env-vars", (_req, res) => {
-    res.json(discoverEnvVars());
+    res.json(modelService.discoverEnvVars());
   });
 
   app.get("/api/models/:id", (req, res) => {
-    const model = storage.getModel(req.params.id);
-    if (!model) return res.status(404).json({ error: "Model not found" });
-    res.json({ ...model, apiKey: model.apiKey ? "***" : null, oauthTokens: model.oauthTokens ? "***" : null });
+    try {
+      res.json(modelService.get(req.params.id));
+    } catch {
+      res.status(404).json({ error: "Model not found" });
+    }
   });
 
   app.post("/api/models", (req, res) => {
@@ -146,7 +146,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
     let model;
     try {
-      model = storage.createModel({
+      model = modelService.create({
         id: id || uuidv4(),
         name,
         provider,
@@ -183,7 +183,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       const envVarName = req.body.envVarName || credentials?.envVarName;
       const baseUrl = req.body.baseUrl || credentials?.baseUrl;
       if (!provider || !presetModelId) return res.status(400).json({ error: "provider and presetModelId required" });
-      const result = await quickAdd(provider, presetModelId, authMethod || "api_key", {
+      const result = await modelService.quickAdd(provider, presetModelId, authMethod || "api_key", {
         apiKey, envVarName, baseUrl,
       });
       if (!result.model) return res.status(400).json({ error: "Invalid provider or preset model" });
@@ -208,23 +208,27 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (_isOrch !== undefined) allowedUpdate.isOrchestrator = _isOrch;
     if (contextWindow !== undefined) allowedUpdate.contextWindow = contextWindow;
     if (capabilities !== undefined) allowedUpdate.capabilities = capabilities;
-    const updated = storage.updateModel(req.params.id, allowedUpdate);
-    if (!updated) return res.status(404).json({ error: "Model not found" });
-    res.json(updated);
+    try {
+      res.json(modelService.update(req.params.id, allowedUpdate));
+    } catch {
+      res.status(404).json({ error: "Model not found" });
+    }
   });
 
   app.delete("/api/models/:id", (req, res) => {
-    const existing = storage.getModel(req.params.id);
-    if (!existing) return res.status(404).json({ error: "Model not found" });
-    storage.deleteModel(req.params.id);
-    res.json({ ok: true });
+    try {
+      modelService.delete(req.params.id);
+      res.json({ ok: true });
+    } catch {
+      res.status(404).json({ error: "Model not found" });
+    }
   });
 
   // Connect a model with specific auth method and credentials
   app.post("/api/models/:id/connect", async (req, res) => {
     try {
       const { authMethod, apiKey, envVarName, baseUrl } = req.body;
-      const result = await connectModel(req.params.id, authMethod || "api_key", {
+      const result = await modelService.connect(req.params.id, authMethod || "api_key", {
         apiKey, envVarName, baseUrl,
       });
       res.json(result);
@@ -235,7 +239,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   // Disconnect — clears credentials, resets status
   app.post("/api/models/:id/disconnect", (req, res) => {
-    const ok = disconnectModel(req.params.id);
+    const ok = modelService.disconnect(req.params.id);
     if (!ok) return res.status(404).json({ error: "Model not found" });
     res.json({ ok: true });
   });
@@ -243,7 +247,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   // Test connection (also updates DB status)
   app.post("/api/models/:id/test", async (req, res) => {
     try {
-      const result = await testConnection(req.params.id);
+      const result = await modelService.test(req.params.id);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message });
@@ -252,19 +256,21 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   // ─── Conversations ────────────────────────────────────────────────────────
   app.get("/api/conversations", (req, res) => {
-    res.json(storage.getConversations());
+    res.json(conversationService.list());
   });
 
   app.get("/api/conversations/:id", (req, res) => {
-    const conv = storage.getConversation(req.params.id);
-    if (!conv) return res.status(404).json({ error: "Not found" });
-    res.json(conv);
+    try {
+      res.json(conversationService.get(req.params.id));
+    } catch {
+      res.status(404).json({ error: "Not found" });
+    }
   });
 
   app.post("/api/conversations", (req, res) => {
     const rawTitle = req.body.title || "New Session";
     const title = typeof rawTitle === "string" ? rawTitle.slice(0, 200) : "New Session";
-    const conv = storage.createConversation({
+    const conv = conversationService.create({
       id: uuidv4(),
       title,
       status: "idle",
@@ -282,21 +288,26 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (status !== undefined) allowedUpdate.status = status;
     if (orchestratorModelId !== undefined) allowedUpdate.orchestratorModelId = orchestratorModelId;
     if (activeSkillIds !== undefined) allowedUpdate.activeSkillIds = activeSkillIds;
-    const updated = storage.updateConversation(req.params.id, allowedUpdate);
-    if (!updated) return res.status(404).json({ error: "Not found" });
-    res.json(updated);
+    try {
+      res.json(conversationService.update(req.params.id, allowedUpdate));
+    } catch {
+      res.status(404).json({ error: "Not found" });
+    }
   });
 
   app.delete("/api/conversations/:id", (req, res) => {
-    const existing = storage.getConversation(req.params.id);
-    if (!existing) return res.status(404).json({ error: "Not found" });
-    storage.deleteConversation(req.params.id);
-    res.json({ ok: true });
+    try {
+      conversationService.get(req.params.id); // throws if not found
+      conversationService.delete(req.params.id);
+      res.json({ ok: true });
+    } catch {
+      res.status(404).json({ error: "Not found" });
+    }
   });
 
   // ─── Messages ─────────────────────────────────────────────────────────────
   app.get("/api/conversations/:id/messages", (req, res) => {
-    res.json(storage.getMessages(req.params.id));
+    res.json(conversationService.getMessages(req.params.id));
   });
 
   app.post("/api/conversations/:id/messages", async (req, res) => {
@@ -975,24 +986,24 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   // ═══════════════════════════════════════════════════════════════════════════
 
   app.get("/api/knowledge", (_req, res) => {
-    const entries = storage.getKnowledgeEntries();
-    res.json(entries);
+    res.json(knowledgeService.list());
   });
 
   app.get("/api/knowledge/stats", (_req, res) => {
-    res.json(knowledgeEngine.getStats());
+    res.json(knowledgeService.getStats());
   });
 
   app.get("/api/knowledge/search", (req, res) => {
     const q = (req.query.q as string) || "";
-    const results = storage.searchKnowledge(q);
-    res.json(results);
+    res.json(knowledgeService.search(q));
   });
 
   app.get("/api/knowledge/:id", (req, res) => {
-    const entry = storage.getKnowledgeEntry(req.params.id);
-    if (!entry) return res.status(404).json({ error: "Not found" });
-    res.json(entry);
+    try {
+      res.json(knowledgeService.get(req.params.id));
+    } catch {
+      res.status(404).json({ error: "Not found" });
+    }
   });
 
   app.post("/api/knowledge", async (req, res) => {
@@ -1000,26 +1011,15 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       const { name, description, content, contentType, category, tags, priority, tierPolicy } = req.body;
       if (!name || !content) return res.status(400).json({ error: "name and content are required" });
 
-      const sizeBytes = Buffer.byteLength(content);
-      const tokenEstimate = Math.ceil(content.length / 4);
-
-      // Auto-generate summary if not provided
-      const summary = await knowledgeEngine.generateSummary(content);
-
-      const entry = storage.createKnowledgeEntry({
-        id: uuidv4(),
+      const entry = await knowledgeService.create({
         name,
-        description: description || null,
+        description,
         content,
-        summary,
-        contentType: contentType || "text",
-        category: category || "custom",
-        tags: tags ? (typeof tags === "string" ? tags : JSON.stringify(tags)) : null,
-        sizeBytes,
-        tokenEstimate,
-        enabled: true,
-        priority: priority ?? 50,
-        tierPolicy: tierPolicy || "auto",
+        contentType,
+        category,
+        tags: tags ? (typeof tags === "string" ? tags : JSON.stringify(tags)) : undefined,
+        priority,
+        tierPolicy,
       });
       res.status(201).json(entry);
     } catch (e: any) {
@@ -1041,29 +1041,26 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (updates.tags && typeof updates.tags !== "string") {
       updates.tags = JSON.stringify(updates.tags);
     }
-    const entry = storage.updateKnowledgeEntry(req.params.id, updates);
-    if (!entry) return res.status(404).json({ error: "Not found" });
-    res.json(entry);
+    try {
+      res.json(knowledgeService.update(req.params.id, updates));
+    } catch {
+      res.status(404).json({ error: "Not found" });
+    }
   });
 
   app.delete("/api/knowledge/:id", (req, res) => {
-    const existing = storage.getKnowledgeEntry(req.params.id);
-    if (!existing) return res.status(404).json({ error: "Not found" });
-    storage.deleteKnowledgeEntry(req.params.id);
-    res.json({ ok: true });
+    try {
+      knowledgeService.delete(req.params.id);
+      res.json({ ok: true });
+    } catch {
+      res.status(404).json({ error: "Not found" });
+    }
   });
 
   // Reseed system references (useful after model updates)
   app.post("/api/knowledge/reseed", (_req, res) => {
-    // Delete system-reference entries and reseed
-    const existing = storage.getKnowledgeEntries();
-    for (const entry of existing) {
-      if (entry.contentType === "system-reference" || entry.category === "models" || entry.category === "architecture" || entry.category === "tools") {
-        storage.deleteKnowledgeEntry(entry.id);
-      }
-    }
-    knowledgeEngine.seedIfEmpty();
-    res.json({ ok: true, entries: storage.getKnowledgeEntries().length });
+    const result = knowledgeService.reseed();
+    res.json(result);
   });
 
   // Preview what would be injected for a given tier
@@ -1074,7 +1071,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     }
     const contextWindow = parseInt(req.query.contextWindow as string) || 128000;
     const query = req.query.q as string | undefined;
-    const result = knowledgeEngine.buildContext(tier, contextWindow, query);
+    const result = knowledgeService.preview(tier, contextWindow, query);
     res.json(result);
   });
 }
