@@ -52,7 +52,10 @@ async function getBrowser(): Promise<any> {
   if (!_browser || !_browser.isConnected()) {
     _browser = await pw.chromium.launch({
       headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+      args: [
+        "--disable-dev-shm-usage", // Avoid /dev/shm exhaustion in constrained environments
+        "--disable-gpu",           // No GPU needed in headless mode
+      ],
     });
   }
   return _browser;
