@@ -6,6 +6,7 @@ import { conversationGrpcHandlers } from "./services/conversations.js";
 import { modelGrpcHandlers } from "./services/models.js";
 import { knowledgeGrpcHandlers } from "./services/knowledge.js";
 import { authInterceptor } from "./auth-interceptor.js";
+import { rateLimitInterceptor } from "./rate-limit-interceptor.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -58,7 +59,7 @@ export async function startGrpcServer(port = 5001): Promise<Server> {
   const ultraKnowledge = grpcObj?.ultra?.knowledge;
 
   const server = new Server({
-    interceptors: [authInterceptor],
+    interceptors: [rateLimitInterceptor, authInterceptor], // rate limit BEFORE auth
   });
 
   // Register ConversationService
