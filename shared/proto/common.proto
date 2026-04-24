@@ -1,0 +1,13 @@
+syntax = "proto3";
+package ultra.common;
+option js_import_style = "commonjs";
+
+message Empty {}
+
+message IdRequest {
+  string id = 1;
+}
+
+message DeleteResponse {
+  bool success = 1;
+}

@@ -1,0 +1,66 @@
+syntax = "proto3";
+package ultra.conversations;
+import "common.proto";
+
+message Conversation {
+  string id = 1;
+  string title = 2;
+  string status = 3;
+  string orchestrator_model_id = 4;
+  string active_skill_ids = 5;
+  int64 created_at = 6;
+  int64 updated_at = 7;
+}
+
+message ConversationList {
+  repeated Conversation conversations = 1;
+}
+
+message Message {
+  string id = 1;
+  string conversation_id = 2;
+  string role = 3;
+  string content = 4;
+  string model_id = 5;
+  string agent_id = 6;
+  string task_id = 7;
+  string metadata = 8;
+  int64 created_at = 9;
+}
+
+message MessageList {
+  repeated Message messages = 1;
+}
+
+message CreateConversationRequest {
+  string title = 1;
+  string orchestrator_model_id = 2;
+}
+
+message UpdateConversationRequest {
+  string id = 1;
+  string title = 2;
+  string status = 3;
+  string orchestrator_model_id = 4;
+}
+
+message SendMessageRequest {
+  string conversation_id = 1;
+  string content = 2;
+}
+
+message StreamEvent {
+  string type = 1;
+  string payload = 2;
+}
+
+service ConversationService {
+  rpc ListConversations(ultra.common.Empty) returns (ConversationList);
+  rpc GetConversation(ultra.common.IdRequest) returns (Conversation);
+  rpc CreateConversation(CreateConversationRequest) returns (Conversation);
+  rpc UpdateConversation(UpdateConversationRequest) returns (Conversation);
+  rpc DeleteConversation(ultra.common.IdRequest) returns (ultra.common.DeleteResponse);
+  rpc GetMessages(ultra.common.IdRequest) returns (MessageList);
+  rpc SendMessage(SendMessageRequest) returns (Message);
+  rpc StreamConversation(ultra.common.IdRequest) returns (stream StreamEvent);
+}

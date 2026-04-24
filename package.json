@@ -8,7 +8,8 @@
     "build": "tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "proto:gen": "npx pbjs -t static-module -w es6 --es6 -o shared/generated/proto-bundle.js shared/proto/common.proto shared/proto/conversations.proto shared/proto/models.proto shared/proto/knowledge.proto && npx pbts -o shared/generated/proto-bundle.d.ts shared/generated/proto-bundle.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.87.0",
@@ -109,7 +110,9 @@
     "drizzle-kit": "^0.31.8",
     "esbuild": "^0.25.0",
     "postcss": "^8.4.47",
+    "protobufjs-cli": "^2.0.1",
     "tailwindcss": "^3.4.17",
+    "ts-proto": "^2.11.6",
     "tsx": "^4.20.5",
     "typescript": "5.6.3",
     "vite": "^7.3.0"

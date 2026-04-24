@@ -1,0 +1,54 @@
+syntax = "proto3";
+package ultra.models;
+import "common.proto";
+
+message Model {
+  string id = 1;
+  string name = 2;
+  string provider = 3;
+  string model_id = 4;
+  string base_url = 5;
+  bool enabled = 6;
+  string capabilities = 7;
+  int32 context_window = 8;
+  bool is_default = 9;
+  bool is_orchestrator = 10;
+  string speed_tier = 11;
+  string notes = 12;
+  string auth_method = 13;
+  string connection_status = 14;
+  string connection_error = 15;
+  int64 last_tested_at = 16;
+  int32 last_test_latency = 17;
+  int64 created_at = 18;
+}
+
+message ModelList {
+  repeated Model models = 1;
+}
+
+message CreateModelRequest {
+  string name = 1;
+  string provider = 2;
+  string model_id = 3;
+  string base_url = 4;
+  string auth_method = 5;
+  string speed_tier = 6;
+  string notes = 7;
+  int32 context_window = 8;
+}
+
+message TestModelResponse {
+  bool ok = 1;
+  int32 latency = 2;
+  string status = 3;
+  string error = 4;
+}
+
+service ModelService {
+  rpc ListModels(ultra.common.Empty) returns (ModelList);
+  rpc GetModel(ultra.common.IdRequest) returns (Model);
+  rpc CreateModel(CreateModelRequest) returns (Model);
+  rpc DeleteModel(ultra.common.IdRequest) returns (ultra.common.DeleteResponse);
+  rpc TestModel(ultra.common.IdRequest) returns (TestModelResponse);
+}
