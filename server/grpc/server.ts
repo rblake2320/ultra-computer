@@ -22,6 +22,24 @@ const LOADER_OPTIONS: protoLoader.Options = {
   includeDirs: [PROTO_ROOT],
 };
 
+// Holds the running gRPC server instance for graceful shutdown
+let _grpcServer: Server | null = null;
+
+/** Gracefully shut down the gRPC server (waits for in-flight calls to finish) */
+export function shutdownGrpcServer(): Promise<void> {
+  return new Promise((resolve) => {
+    if (!_grpcServer) return resolve();
+    _grpcServer.tryShutdown((err) => {
+      if (err) {
+        console.error("[gRPC] Graceful shutdown failed, forcing:", err);
+        _grpcServer?.forceShutdown();
+      }
+      _grpcServer = null;
+      resolve();
+    });
+  });
+}
+
 export async function startGrpcServer(port = 5001): Promise<Server> {
   // Load all proto files
   const packageDef = await protoLoader.load(
@@ -95,5 +113,6 @@ export async function startGrpcServer(port = 5001): Promise<Server> {
     });
   });
 
+  _grpcServer = server;
   return server;
 }

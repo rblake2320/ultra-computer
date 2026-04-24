@@ -6,18 +6,9 @@ import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { createAuthMiddleware } from "./authMiddleware";
 import { createYogaMiddleware } from "./graphql/yoga.js";
-import { startGrpcServer } from "./grpc/server.js";
+import { startGrpcServer, shutdownGrpcServer } from "./grpc/server.js";
 import { createGrpcWebBridge } from "./grpcWebBridge.js";
-
-// ─── Process-level error handlers (must be first) ────────────────────────────
-process.on("uncaughtException", (err) => {
-  console.error("[fatal] Uncaught exception:", err);
-  process.exit(1);
-});
-process.on("unhandledRejection", (reason) => {
-  console.error("[fatal] Unhandled promise rejection:", reason);
-  process.exit(1);
-});
+import { sqlite } from "./storage.js";
 
 const app = express();
 const httpServer = createServer(app);
@@ -220,6 +211,53 @@ app.use((req, res, next) => {
   startGrpcServer(grpcPort).catch((err) => {
     console.error("[gRPC] Failed to start:", err);
   });
+
+  // ─── Graceful Shutdown ──────────────────────────────────────────────────────
+  const shutdown = async (signal: string) => {
+    console.log(`[shutdown] Received ${signal}, starting graceful shutdown...`);
+
+    // 1. Stop accepting new HTTP connections
+    httpServer.close((err) => {
+      if (err) console.error("[shutdown] HTTP server close error:", err);
+      else console.log("[shutdown] HTTP server closed");
+    });
+
+    // 2. Shut down gRPC server
+    try {
+      await shutdownGrpcServer();
+      console.log("[shutdown] gRPC server closed");
+    } catch (e) {
+      console.error("[shutdown] gRPC shutdown error:", e);
+    }
+
+    // 3. Close SQLite connection
+    try {
+      sqlite.close();
+      console.log("[shutdown] SQLite closed");
+    } catch (e) {
+      console.error("[shutdown] SQLite close error:", e);
+    }
+
+    // 4. Force-exit after 10 seconds if something hangs
+    setTimeout(() => {
+      console.error("[shutdown] Forced exit after timeout");
+      process.exit(1);
+    }, 10_000).unref();
+
+    console.log("[shutdown] Graceful shutdown complete");
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+  process.on("uncaughtException", (err) => {
+    console.error("[uncaughtException]", err);
+    shutdown("uncaughtException");
+  });
+  process.on("unhandledRejection", (reason) => {
+    console.error("[unhandledRejection]", reason);
+  });
+
   } catch (err) {
     console.error("[fatal] Failed to start server:", err);
     process.exit(1);

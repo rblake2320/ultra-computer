@@ -28,7 +28,7 @@ import {
   swarmTasks, type SwarmTask as SwarmTaskRow, type InsertSwarmTask,
 } from "@shared/schema";
 
-const sqlite = new Database("ultra_computer.db");
+export const sqlite = new Database("ultra_computer.db");
 export const db = drizzle(sqlite);
 
 // Enable WAL mode for better concurrency and durability
