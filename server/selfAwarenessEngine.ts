@@ -668,7 +668,7 @@ export function getSystemState(): SystemState {
   const systemCapabilities = {
     canChat: enabledModels.length > 0,
     canGenerateCode: enabledModels.length > 0 && (allModelCaps.has("code") || allModelCaps.has("chat")),
-    canGenerateImages: allModelCaps.has("image") || enabledModels.some(m => m.modelId.includes("dall-e")),
+    canGenerateImages: true,  // Always true — Pollinations.ai (free, no key) is always available as fallback; DALL-E/NVIDIA are premium options
     canAnalyzeImages: allModelCaps.has("vision"),
     canSearchWeb: toolNames.has("search_web"),
     canBrowseWeb: toolNames.has("browse_url") || toolNames.has("browser_action"),
@@ -773,7 +773,7 @@ export function buildSelfAwarenessBlock(modelId?: string): string {
   const sc = state.systemCapabilities;
   lines.push(`- Text/Chat: ${sc.canChat ? "✅" : "❌"}`);
   lines.push(`- Code Generation: ${sc.canGenerateCode ? "✅" : "❌"}`);
-  lines.push(`- Image Generation: ${sc.canGenerateImages ? "✅ (via DALL-E tool)" : "❌ Not configured — will auto-configure on first request"}`);
+  lines.push(`- Image Generation: ✅ (via generate_image tool — uses Pollinations.ai by default, DALL-E 3 if OpenAI key configured, NVIDIA if NVIDIA_API_KEY set)`);
   lines.push(`- Image Analysis/Vision: ${sc.canAnalyzeImages ? "✅" : "❌"}`);
   lines.push(`- Web Search: ${sc.canSearchWeb ? "✅ (DuckDuckGo)" : "❌"}`);
   lines.push(`- Web Browsing: ${sc.canBrowseWeb ? "✅ (Headless Playwright)" : "❌"}`);
@@ -887,7 +887,7 @@ export function assessModelForTask(
     if (!profile.canGenerateImages) {
       confidence -= 0.4;
       reasons.push(`${profile.displayName} cannot generate images — needs DALL-E tool`);
-      alternatives.push("Use generate_image tool with DALL-E model");
+      alternatives.push("Use generate_image tool (Pollinations.ai is always available, no API key needed)");
     }
   }
 

@@ -15,7 +15,7 @@ import { v4 as uuidv4 } from "uuid";
 import fs from "fs";
 import path from "path";
 import { storage } from "./storage.js";
-import { chat, chatStream, selectModelForTask, type ChatMessage, type TaskType } from "./modelRouter.js";
+import { chat, chatStream, chatWithTools, selectModelForTask, type ChatMessage, type TaskType, type NativeToolCall } from "./modelRouter.js";
 import { skillMatcher } from "./skillSystem.js";
 import { memoryManager } from "./memoryManager.js";
 import { TOOL_SCHEMAS, executeTool, dockerSandbox, type ToolResult } from "./tools.js";
@@ -353,6 +353,13 @@ Rules:
 5. Maximum 8 tasks for a single request
 6. Output ONLY valid JSON, no markdown fences
 
+CRITICAL TOOL-FIRST RULES:
+- For image generation requests ("generate image", "create picture", "draw", "make an image", etc.):
+  Create a SINGLE task with type "code" and description "Use the generate_image tool to create: [prompt]". Do NOT write Python scripts or code to generate images. The generate_image tool handles everything automatically.
+- For math/calculation requests: Use the calculator tool directly.
+- For web research: Use search_web or fetch_url tools directly.
+- NEVER decompose a simple tool-call task into multiple sub-tasks like "research how to do X" + "write code to do X". Just DO X with the tool.
+
 Output format:
 {
   "thinking": "brief reasoning about decomposition",
@@ -373,7 +380,7 @@ ${memories ? `\nUser memory context:\n${memories}` : ""}
 ${skillContext ? `\nActive skills:\n${skillContext}` : ""}
 
 ${buildCompactSelfAwareness()}
-IMPORTANT: When decomposing tasks, consider the system's actual capabilities listed above. If a capability is missing, include a task to handle the limitation honestly.`;
+IMPORTANT: When decomposing tasks, consider the system's actual capabilities listed above. Image generation IS available via the generate_image tool (uses Pollinations.ai, always works). For image requests, create ONE task that uses generate_image directly — do NOT create tasks to write code or scripts for image generation.`;
 
   const msgs: ChatMessage[] = [
     { role: "system", content: systemPrompt },
@@ -597,52 +604,94 @@ async function runWorkerAgent(
       } catch { /* use original messages if compaction fails */ }
     }
 
-    // Call LLM with error recovery (retry + model fallback)
+    // Call LLM — try native function calling first, fall back to streaming + XML parsing
     let llmResponse = "";
     let usedModelId = model.id;
-    try {
-      const streamResult = await withRetryAndFallback(
-        async (mid) => {
-          let resp = "";
-          for await (const token of chatStream(workingMessages, {
-            modelId: mid,
-            taskType: task.taskType as TaskType,
-            maxTokens: 4096,
-          })) {
-            resp += token;
-            emit(conversationId, { type: "agent_token", taskId: task.id, token, agentRunId });
-          }
-          return resp;
-        },
-        model.id
-      );
-      llmResponse = streamResult.result;
-      usedModelId = streamResult.usedModelId;
-      // Estimate token usage for this iteration (approx 4 chars per token)
-      const promptChars = workingMessages.reduce((s, m) => s + m.content.length, 0);
-      totalPromptTokens += Math.ceil(promptChars / 4);
-      totalCompletionTokens += Math.ceil(llmResponse.length / 4);
-    } catch (llmErr: any) {
-      // All retries + fallbacks exhausted — try self-healing
-      try {
-        const llmGap = detectGapFromError(llmErr.message || "Unknown LLM error", `llm_call for model ${model.id}`);
-        if (llmGap) {
-          console.log(`[orchestrator] LLM error gap detected: ${llmGap.capability}`);
-          const healResult = await healGap(llmGap);
-          if (healResult.success) {
-            console.log(`[orchestrator] Auto-healed LLM error: ${healResult.message}`);
-            // Don't break — let the loop retry with healed state
-            llmResponse = `[Self-healing applied: ${healResult.message}. Retrying...]`;
-            continue;
-          }
-        }
-      } catch { /* non-critical */ }
-      llmResponse = `[LLM call failed after retries: ${llmErr.message}]`;
-      break;
-    }
+    let parsedCalls: ParsedToolCall[] = [];
 
-    // Parse tool calls from the response
-    const parsedCalls = parseToolCalls(llmResponse);
+    try {
+      // Attempt 1: Native function calling via chatWithTools
+      const toolSchemas = TOOL_SCHEMAS.map(t => ({
+        name: t.name,
+        description: t.description,
+        parameters: t.parameters as Record<string, any>,
+      }));
+
+      const nativeResult = await chatWithTools(workingMessages, toolSchemas, {
+        modelId: model.id,
+        taskType: task.taskType as TaskType,
+        maxTokens: 4096,
+      });
+
+      llmResponse = nativeResult.content;
+      usedModelId = nativeResult.modelId;
+
+      // Emit the text content as tokens for the UI
+      if (llmResponse) {
+        emit(conversationId, { type: "agent_token", taskId: task.id, token: llmResponse, agentRunId });
+      }
+
+      // Check for native tool calls from the API
+      if (nativeResult.toolCalls && nativeResult.toolCalls.length > 0) {
+        console.log(`[orchestrator] Native tool calls received: ${nativeResult.toolCalls.map(tc => tc.name).join(", ")}`);
+        parsedCalls = nativeResult.toolCalls.map(tc => ({ name: tc.name, args: tc.args }));
+      } else {
+        // No native tool calls — try parsing XML/text-based tool calls from the response
+        parsedCalls = parseToolCalls(llmResponse);
+      }
+
+      // Estimate token usage
+      if (nativeResult.usage) {
+        totalPromptTokens += nativeResult.usage.prompt;
+        totalCompletionTokens += nativeResult.usage.completion;
+      } else {
+        const promptChars = workingMessages.reduce((s, m) => s + m.content.length, 0);
+        totalPromptTokens += Math.ceil(promptChars / 4);
+        totalCompletionTokens += Math.ceil(llmResponse.length / 4);
+      }
+    } catch (nativeErr: any) {
+      // Attempt 2: Fall back to streaming + XML parsing
+      console.warn(`[orchestrator] Native tool calling failed, falling back to streaming: ${nativeErr.message}`);
+      try {
+        const streamResult = await withRetryAndFallback(
+          async (mid) => {
+            let resp = "";
+            for await (const token of chatStream(workingMessages, {
+              modelId: mid,
+              taskType: task.taskType as TaskType,
+              maxTokens: 4096,
+            })) {
+              resp += token;
+              emit(conversationId, { type: "agent_token", taskId: task.id, token, agentRunId });
+            }
+            return resp;
+          },
+          model.id
+        );
+        llmResponse = streamResult.result;
+        usedModelId = streamResult.usedModelId;
+        parsedCalls = parseToolCalls(llmResponse);
+        const promptChars = workingMessages.reduce((s, m) => s + m.content.length, 0);
+        totalPromptTokens += Math.ceil(promptChars / 4);
+        totalCompletionTokens += Math.ceil(llmResponse.length / 4);
+      } catch (llmErr: any) {
+        // All retries + fallbacks exhausted — try self-healing
+        try {
+          const llmGap = detectGapFromError(llmErr.message || "Unknown LLM error", `llm_call for model ${model.id}`);
+          if (llmGap) {
+            console.log(`[orchestrator] LLM error gap detected: ${llmGap.capability}`);
+            const healResult = await healGap(llmGap);
+            if (healResult.success) {
+              console.log(`[orchestrator] Auto-healed LLM error: ${healResult.message}`);
+              llmResponse = `[Self-healing applied: ${healResult.message}. Retrying...]`;
+              continue;
+            }
+          }
+        } catch { /* non-critical */ }
+        llmResponse = `[LLM call failed after retries: ${llmErr.message}]`;
+        break;
+      }
+    }
 
     if (parsedCalls.length === 0) {
       // No tool calls detected — this is the final answer
@@ -935,7 +984,7 @@ Complete this task fully. Use the available tools whenever they would produce a 
 - **fetch_url**: read a specific URL (HTML, JSON, etc.)
 - **search_web**: search the web for current information via DuckDuckGo
 - **browse_url** / **browser_action**: headless browser for JS-rendered pages and interactions
-- **generate_image**: create images from text prompts (requires image model)
+- **generate_image**: create images from text prompts — ALWAYS USE THIS for image generation. It works automatically with Pollinations.ai (free, no API key needed). Just call it with a prompt. Do NOT write Python code to generate images.
 - **calculator**: evaluate math expressions safely
 
 Write code and run it. Fetch real data. Produce a complete, standalone result.`;

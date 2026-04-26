@@ -40,6 +40,16 @@ export interface LLMResponse {
   usage?: { prompt: number; completion: number; total: number };
 }
 
+export interface NativeToolCall {
+  id: string;
+  name: string;
+  args: Record<string, string>;
+}
+
+export interface ToolCallResponse extends LLMResponse {
+  toolCalls: NativeToolCall[];
+}
+
 // ─── Task → Speed Tier Mapping ───────────────────────────────────────────────
 const TASK_TIER_MAP: Record<TaskType, string> = {
   research: "powerful",
@@ -438,6 +448,84 @@ async function* streamGoogle(
 }
 
 // ─── Test connectivity ────────────────────────────────────────────────────────
+/**
+ * Chat with native OpenAI function calling (tools parameter).
+ * Returns structured tool calls instead of relying on XML tag parsing.
+ * Falls back to text-based tool call parsing if native tools not supported.
+ */
+export async function chatWithTools(
+  messages: ChatMessage[],
+  tools: { name: string; description: string; parameters: Record<string, any> }[],
+  options: RouterOptions = {}
+): Promise<ToolCallResponse> {
+  const taskType = options.taskType || "general";
+  const model = selectModelForTask(taskType, options.modelId);
+  if (!model) throw new Error("No models configured.");
+
+  const maxTokens = options.maxTokens ?? 4096;
+  const temperature = options.temperature ?? 0.7;
+
+  // Convert tool schemas to OpenAI format
+  const openaiTools: OpenAI.Chat.Completions.ChatCompletionTool[] = tools.map(t => ({
+    type: "function" as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    },
+  }));
+
+  // Only OpenAI-compatible providers support native tools
+  const supportsNativeTools = [
+    "openai", "openai_compat", "groq", "together", "deepseek",
+    "xai", "openrouter", "fireworks", "mistral", "cerebras",
+  ].includes(model.provider);
+
+  if (supportsNativeTools) {
+    try {
+      const client = makeOpenAIClient(model);
+      const res = await client.chat.completions.create({
+        model: model.modelId,
+        messages: messages as any,
+        max_tokens: maxTokens,
+        temperature,
+        tools: openaiTools,
+      });
+
+      const choice = res.choices?.[0];
+      if (!choice) throw new Error("No response from model");
+
+      const nativeToolCalls: NativeToolCall[] = (choice.message?.tool_calls || []).map((tc: any) => ({
+        id: tc.id || "",
+        name: tc.function?.name || tc.name || "",
+        args: (() => { try { return JSON.parse(tc.function?.arguments || tc.arguments || "{}"); } catch { return {}; } })(),
+      }));
+
+      return {
+        content: choice.message?.content || "",
+        model: model.name,
+        modelId: model.id,
+        usage: res.usage ? {
+          prompt: res.usage.prompt_tokens,
+          completion: res.usage.completion_tokens,
+          total: res.usage.total_tokens,
+        } : undefined,
+        toolCalls: nativeToolCalls,
+      };
+    } catch (err: any) {
+      // If native tools fail (e.g., proxy doesn't support it), fall through to text-based
+      console.warn(`[modelRouter] Native tool calling failed for ${model.name}: ${err.message}. Falling back to text-based.`);
+    }
+  }
+
+  // Fallback: use regular chat (text-based tool calling via system prompt)
+  const result = await chat(messages, options);
+  return {
+    ...result,
+    toolCalls: [],
+  };
+}
+
 export async function testModelConnection(modelId: string): Promise<{ ok: boolean; error?: string; latencyMs?: number }> {
   const model = storage.getModel(modelId);
   if (!model) return { ok: false, error: "Model not found" };

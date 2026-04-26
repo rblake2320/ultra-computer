@@ -155,26 +155,30 @@ async function healImageGeneration(gap: CapabilityGap): Promise<HealingResult> {
       return { success: true, action, message: action.result, modelId: disabledImageModel.id };
     }
 
-    // Step 2: Find an API key to use — check existing OpenAI models first
+    // Step 2: Find an API key to use
+    // PRIORITY: Use OPENAI_API_KEY from environment first (most reliable)
+    // Existing model keys may be masked/redacted in the database
     let apiKey: string | null = null;
-    let baseUrl: string | null = null;
 
-    const existingOpenAI = allModels.find(m =>
-      m.provider === "openai" && m.enabled && m.apiKey
-    );
-
-    if (existingOpenAI?.apiKey) {
-      apiKey = existingOpenAI.apiKey;
-      baseUrl = existingOpenAI.baseUrl || null;
+    // First: check environment variable (always has the real key)
+    const envKey = process.env.OPENAI_API_KEY;
+    if (envKey && envKey.length > 10) {
+      apiKey = envKey;
     }
 
-    // Fallback: check environment variable
+    // Fallback: check existing OpenAI models (but skip masked keys like '***')
     if (!apiKey) {
-      const envKey = process.env.OPENAI_API_KEY;
-      if (envKey) {
-        apiKey = envKey;
+      const existingOpenAI = allModels.find(m =>
+        m.provider === "openai" && m.enabled && m.apiKey && m.apiKey.length > 10
+      );
+      if (existingOpenAI?.apiKey) {
+        apiKey = existingOpenAI.apiKey;
       }
     }
+
+    // DALL-E 3 requires the real OpenAI API endpoint, NOT a chat proxy
+    // Chat proxies (like llm-proxy) don't support the /images/generations endpoint
+    const baseUrl: string | null = null; // Use OpenAI default: https://api.openai.com/v1
 
     if (!apiKey) {
       action.status = "failed";
@@ -204,9 +208,9 @@ async function healImageGeneration(gap: CapabilityGap): Promise<HealingResult> {
       isOrchestrator: false,
       speedTier: "medium",
       notes: "Auto-configured by Self-Healing Engine for image generation",
-      authMethod: existingOpenAI?.authMethod || "api_key",
+      authMethod: "api_key",
       oauthTokens: null as any,
-      envVarName: existingOpenAI?.envVarName || null,
+      envVarName: envKey ? "OPENAI_API_KEY" : null,
       connectionStatus: "connected",
       connectionError: null as any,
       lastTestedAt: Date.now() as any,

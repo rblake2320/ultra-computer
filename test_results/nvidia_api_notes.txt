@@ -1,0 +1,21 @@
+NVIDIA Build API for Stable Diffusion 3.5 Large
+================================================
+
+This is a SELF-HOSTED deployment option (Docker + GPU), NOT a cloud API.
+- Requires NGC_API_KEY and HF_TOKEN
+- Requires Docker with NVIDIA runtime and GPU
+- Runs locally on port 8000
+- Endpoint: POST http://localhost:8000/v1/infer
+- Request format: {"prompt": "...", "mode": "base", "seed": 0, "steps": 30}
+- Response: JSON with artifacts[0].base64 (base64-encoded image)
+
+This is NOT suitable for our use case because:
+1. We don't have Docker or GPU in the sandbox
+2. It requires self-hosting infrastructure
+3. We need a CLOUD API endpoint
+
+The Model Card page shows this is for self-hosting only.
+Need to look at the NVIDIA cloud API (build.nvidia.com) playground instead,
+which has a hosted API endpoint.
+
+Let me check if NVIDIA has a hosted cloud API endpoint for image generation.
