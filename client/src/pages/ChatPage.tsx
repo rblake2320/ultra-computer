@@ -191,6 +191,7 @@ const TASK_TYPE_BADGE: Record<string, string> = {
 export function ChatPage({ conversationId }: { conversationId: string }) {
   const qc = useQueryClient();
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");

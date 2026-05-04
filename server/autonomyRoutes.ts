@@ -60,7 +60,7 @@ export function registerAutonomyRoutes(app: Express) {
 
   app.get("/api/autonomy/checkpoints", (req, res) => {
     try {
-      const status = req.query.status as string | undefined;
+      const status = req.query.status as "running" | "paused" | "completed" | "failed" | "abandoned" | undefined;
       res.json(getAllCheckpoints(status));
     } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to list checkpoints" }); }
   });

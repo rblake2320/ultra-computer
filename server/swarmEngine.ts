@@ -312,7 +312,7 @@ class SwarmEngine {
               spawnDepth: a.spawnDepth ?? 0,
               status: (a.status as any) || "idle",
               currentTaskId: a.currentTaskId || null,
-              tokenUsage: a.tokenUsage ? JSON.parse(a.tokenUsage as string) : { prompt: 0, completion: 0, total: 0 },
+              tokenUsage: { prompt: 0, completion: 0, total: a.tokensUsed || 0 },
               messagesProcessed: a.messagesProcessed ?? 0,
               handoffsMade: a.handoffsMade ?? 0,
               capabilityProfile: a.capabilityProfile ? JSON.parse(a.capabilityProfile as string) : { speed: 0.5, accuracy: 0.5, cost: 0.5, specialties: [] },

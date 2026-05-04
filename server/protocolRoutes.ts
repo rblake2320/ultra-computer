@@ -160,7 +160,7 @@ export function registerProtocolRoutes(app: Express) {
    * :id must be the registered agent base URL.
    */
   app.post("/api/protocols/a2a/agents/:id/send", async (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     // Verify id is a registered agent URL to prevent SSRF via arbitrary URLs
     const registeredAgent = a2aProtocol.getAgent(id);
     if (!registeredAgent) {
@@ -184,7 +184,7 @@ export function registerProtocolRoutes(app: Express) {
    * Unregister a remote agent.
    */
   app.delete("/api/protocols/a2a/agents/:id", async (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     try {
             await a2aProtocol.unregisterAgent(id);
       res.json({ ok: true });
@@ -270,7 +270,7 @@ export function registerProtocolRoutes(app: Express) {
    * Disconnect / remove an MCP server connection.
    */
   app.delete("/api/protocols/mcp/servers/:id", async (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     try {
             await mcpProtocol.disconnectServer(id);
       res.json({ ok: true });
@@ -284,7 +284,7 @@ export function registerProtocolRoutes(app: Express) {
    * List tools from a connected MCP server.
    */
   app.get("/api/protocols/mcp/servers/:id/tools", async (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     try {
             const tools = await mcpProtocol.listRemoteTools(id);
       res.json(tools);
@@ -298,7 +298,7 @@ export function registerProtocolRoutes(app: Express) {
    * Call a specific tool on a connected MCP server.
    */
   app.post("/api/protocols/mcp/servers/:id/tools/:toolName/call", async (req: Request, res: Response) => {
-    const { id, toolName } = req.params;
+    const { id, toolName } = req.params as Record<string, string>;
     try {
             const result = await mcpProtocol.callRemoteTool(id, toolName, req.body);
       res.json(result);
@@ -312,7 +312,7 @@ export function registerProtocolRoutes(app: Express) {
    * List resources from a connected MCP server.
    */
   app.get("/api/protocols/mcp/servers/:id/resources", async (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     try {
             const resources = await mcpProtocol.listRemoteResources(id);
       res.json(resources);
@@ -326,7 +326,7 @@ export function registerProtocolRoutes(app: Express) {
    * List prompts from a connected MCP server.
    */
   app.get("/api/protocols/mcp/servers/:id/prompts", async (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     try {
             const prompts = await mcpProtocol.listRemotePrompts(id);
       res.json(prompts);
@@ -532,7 +532,7 @@ export function registerProtocolRoutes(app: Express) {
    * Unregister a webhook.
    */
   app.delete("/api/protocols/webhooks/:id", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     if (!webhookRegistry.has(id)) {
       return res.status(404).json({ error: "Webhook not found" });
     }
@@ -546,7 +546,7 @@ export function registerProtocolRoutes(app: Express) {
    * Incoming webhook handler — proxies payload to registered handler.
    */
   app.post("/api/webhooks/:id", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     const entry = webhookRegistry.get(id);
     if (!entry) {
       return res.status(404).json({ error: "Webhook not registered" });
@@ -589,7 +589,7 @@ export function registerProtocolRoutes(app: Express) {
       return res.status(400).json({ error: "code too long (max 100,000 chars)" });
     }
     try {
-      const result = await cliToolEngine.executeCodeInterpreter(code, language);
+      const result = await cliToolEngine.executeCodeInterpreter(code, language as import("./cliToolEngine.js").SupportedLanguage);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -612,7 +612,7 @@ export function registerProtocolRoutes(app: Express) {
       return res.status(400).json({ error: "transformType (string) is required" });
     }
     try {
-            const result = await cliToolEngine.executeFileTransform(inputPath, outputPath, transformType, options || {});
+            const result = await cliToolEngine.executeFileTransform(inputPath, outputPath, transformType as import("./cliToolEngine.js").TransformType, options || {});
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message });

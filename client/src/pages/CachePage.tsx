@@ -152,7 +152,7 @@ function TierCard({
             <div className="space-y-1">
               <p className="text-[10px] text-muted-foreground">Est. Hits Generated</p>
               <p className="text-lg font-bold text-emerald-400">
-                {(stats.estimatedHits ?? (stats as Record<string, number>).estimatedHitsGenerated ?? 0).toLocaleString()}
+                {(stats.estimatedHits ?? (stats as unknown as Record<string, number>).estimatedHitsGenerated ?? 0).toLocaleString()}
               </p>
             </div>
             <div className="space-y-1">
@@ -645,7 +645,7 @@ export function CachePage() {
         </div>
 
         {/* Memory */}
-        <MemorySection memory={memory} />
+        <MemorySection memory={memory as unknown as Record<string, unknown>} />
 
         {/* Model Breakdown + Actions */}
         <div className="grid grid-cols-3 gap-4">

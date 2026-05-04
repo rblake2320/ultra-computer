@@ -211,7 +211,7 @@ export function registerNIPRoutes(app: Express): void {
    * Get a single session by ID.
    */
   app.get("/api/nip/sessions/:id", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     try {
       const session = nipEngine.nipEngine.getSession(id);
       if (!session) return res.status(404).json({ error: "Session not found" });
@@ -226,7 +226,7 @@ export function registerNIPRoutes(app: Express): void {
    * Negotiate and activate a session.
    */
   app.post("/api/nip/sessions/:id/negotiate", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     try {
       const session = nipEngine.nipEngine.negotiateSession(id);
       res.json(session);
@@ -246,7 +246,7 @@ export function registerNIPRoutes(app: Express): void {
    * Body: { role, type, content, metadata? }
    */
   app.post("/api/nip/sessions/:id/messages", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     const { role, type, content, metadata } = req.body;
 
     const roleErr = requireEnum(role, "role", VALID_ROLES);
@@ -282,7 +282,7 @@ export function registerNIPRoutes(app: Express): void {
    * Get the full conversation for a session.
    */
   app.get("/api/nip/sessions/:id/messages", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     try {
       const session = nipEngine.nipEngine.getSession(id);
       if (!session) return res.status(404).json({ error: "Session not found" });
@@ -304,7 +304,7 @@ export function registerNIPRoutes(app: Express): void {
    * Body: { reason }
    */
   app.post("/api/nip/sessions/:id/pause", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     const { reason } = req.body ?? {};
 
     const reasonErr = requireString(reason, "reason", 1000);
@@ -324,7 +324,7 @@ export function registerNIPRoutes(app: Express): void {
    * Resume a paused session.
    */
   app.post("/api/nip/sessions/:id/resume", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     try {
       const session = nipEngine.nipEngine.resumeSession(id);
       res.json(session);
@@ -340,7 +340,7 @@ export function registerNIPRoutes(app: Express): void {
    * Body: { reason }
    */
   app.post("/api/nip/sessions/:id/terminate", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     const { reason } = req.body ?? {};
 
     const reasonErr = requireString(reason, "reason", 1000);
@@ -360,7 +360,7 @@ export function registerNIPRoutes(app: Express): void {
    * Mark a session as successfully completed.
    */
   app.post("/api/nip/sessions/:id/complete", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     try {
       const session = nipEngine.nipEngine.completeSession(id);
       res.json(session);
@@ -394,7 +394,7 @@ export function registerNIPRoutes(app: Express): void {
    * Get alerts for a specific session.
    */
   app.get("/api/nip/sessions/:id/alerts", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     try {
       const session = nipEngine.nipEngine.getSession(id);
       if (!session) return res.status(404).json({ error: "Session not found" });
@@ -415,7 +415,7 @@ export function registerNIPRoutes(app: Express): void {
    * Generate a report for a session.
    */
   app.post("/api/nip/sessions/:id/report", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     try {
       const session = nipEngine.nipEngine.getSession(id);
       if (!session) return res.status(404).json({ error: "Session not found" });
@@ -433,7 +433,7 @@ export function registerNIPRoutes(app: Express): void {
    * Get an existing report for a session.
    */
   app.get("/api/nip/sessions/:id/report", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     try {
       const session = nipEngine.nipEngine.getSession(id);
       if (!session) return res.status(404).json({ error: "Session not found" });
@@ -512,7 +512,7 @@ export function registerNIPRoutes(app: Express): void {
    * Body: { approvedBy }
    */
   app.post("/api/nip/trusted-parties/:id/approve", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     const { approvedBy } = req.body;
 
     const approvedByErr = requireString(approvedBy, "approvedBy");
@@ -532,7 +532,7 @@ export function registerNIPRoutes(app: Express): void {
    * Revoke access for a trusted party.
    */
   app.post("/api/nip/trusted-parties/:id/revoke", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
     try {
       nipEngine.nipEngine.revokeTrustedParty(id);
       res.json({ ok: true });
@@ -612,7 +612,7 @@ export function registerNIPRoutes(app: Express): void {
    * Per-session SSE stream — only emits events for the specified session.
    */
   app.get("/api/nip/sessions/:id/stream", (req: Request, res: Response) => {
-    const { id } = req.params;
+    const { id } = req.params as Record<string, string>;
 
     // Verify session exists before opening a stream
     try {
