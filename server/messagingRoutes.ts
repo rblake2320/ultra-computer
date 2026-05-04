@@ -163,7 +163,7 @@ export function registerMessagingRoutes(app: Express): void {
    */
   app.patch("/api/messaging/channels/:id", (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as Record<string, string>;
       const { name, config } = req.body ?? {};
 
       const channel = messagingHub.getChannel(id);
@@ -195,7 +195,7 @@ export function registerMessagingRoutes(app: Express): void {
    */
   app.delete("/api/messaging/channels/:id", (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as Record<string, string>;
       const channel = messagingHub.getChannel(id);
       if (!channel) return res.status(404).json({ error: "Channel not found" });
 
@@ -212,7 +212,7 @@ export function registerMessagingRoutes(app: Express): void {
    */
   app.post("/api/messaging/channels/:id/test", async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as Record<string, string>;
       const channel = messagingHub.getChannel(id);
       if (!channel) return res.status(404).json({ error: "Channel not found" });
 
@@ -229,7 +229,7 @@ export function registerMessagingRoutes(app: Express): void {
    */
   app.post("/api/messaging/channels/:id/connect", async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as Record<string, string>;
       const { credentials, config } = req.body ?? {};
 
       const channel = messagingHub.getChannel(id);
@@ -256,7 +256,7 @@ export function registerMessagingRoutes(app: Express): void {
    */
   app.post("/api/messaging/channels/:id/disconnect", async (req, res) => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as Record<string, string>;
       const channel = messagingHub.getChannel(id);
       if (!channel) return res.status(404).json({ error: "Channel not found" });
 
@@ -324,7 +324,7 @@ export function registerMessagingRoutes(app: Express): void {
         ts: Date.now(),
       });
 
-      res.json({ ok: true, messageId, ...result });
+      res.json({ messageId, ...result, ok: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to send message" });
     }
@@ -676,7 +676,7 @@ export function registerMessagingRoutes(app: Express): void {
    */
   app.post("/api/messaging/webhook/:channelId", async (req, res) => {
     try {
-      const { channelId } = req.params;
+      const { channelId } = req.params as Record<string, string>;
       const channel = messagingHub.getChannel(channelId);
       if (!channel) return res.status(404).json({ error: "Channel not found" });
 
@@ -770,7 +770,7 @@ export function registerMessagingRoutes(app: Express): void {
    */
   app.delete("/api/messaging/subscriptions/:channelId/:conversationId", (req, res) => {
     try {
-      const { channelId, conversationId } = req.params;
+      const { channelId, conversationId } = req.params as Record<string, string>;
 
       const removed = messagingHub.removeSubscription(channelId, conversationId);
       if (!removed) return res.status(404).json({ error: "Subscription not found" });
@@ -828,7 +828,7 @@ export function registerMessagingRoutes(app: Express): void {
    */
   app.get("/api/messaging/delivery/:messageId", (req, res) => {
     try {
-      const { messageId } = req.params;
+      const { messageId } = req.params as Record<string, string>;
 
       const status = messagingHub.getDeliveryStatus(messageId);
       if (!status) return res.status(404).json({ error: "Message not found" });

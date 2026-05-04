@@ -207,7 +207,7 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
     // 4. Decompose into task graph (check for skill chain shortcut first)
     let plan;
     const skillList = storage.getSkills();
-    const detectedChain = detectChain(userMessage, skillList);
+    const detectedChain = detectChain(userMessage);
     if (detectedChain) {
       console.log(`[orchestrator] Skill chain detected: ${detectedChain.name}`);
       const chainTasks = buildChainPlan(detectedChain, userMessage);

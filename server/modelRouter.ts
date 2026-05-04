@@ -127,7 +127,7 @@ export async function chat(
 
   // ─── Cache: optimize prompt ordering for provider-side prefix caching ─
   const optimized = cacheEngine.optimizePrompt(cacheMessages, model.provider);
-  const optimizedMsgs: ChatMessage[] = optimized.map(m => ({ role: m.role, content: m.content }));
+  const optimizedMsgs: ChatMessage[] = optimized.map(m => ({ role: m.role as ChatMessage["role"], content: m.content }));
 
   switch (model.provider) {
     case "openai":
