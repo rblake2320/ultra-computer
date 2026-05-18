@@ -74,6 +74,16 @@ function formatViewport(w?: number, h?: number) {
   return `${w} × ${h}`;
 }
 
+function unwrapSessions(
+  raw: { sessions: BrowserSession[] } | BrowserSession[] | undefined,
+): BrowserSession[] {
+  return Array.isArray(raw)
+    ? raw
+    : Array.isArray((raw as any)?.sessions)
+      ? (raw as any).sessions
+      : [];
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function BrowserPage() {
@@ -127,11 +137,7 @@ export function BrowserPage() {
     refetchInterval: 5000,
   });
   // Backend returns { sessions: [...] } — unwrap it, with fallback for safety
-  const sessions: BrowserSession[] = Array.isArray(rawSessions)
-    ? rawSessions
-    : Array.isArray((rawSessions as any)?.sessions)
-      ? (rawSessions as any).sessions
-      : [];
+  const sessions: BrowserSession[] = unwrapSessions(rawSessions);
 
   // Auto-select first available session
   useEffect(() => {
@@ -143,13 +149,16 @@ export function BrowserPage() {
     }
   }, [sessions, activeSession]);
 
+  // Sync URL only when active session changes (not on every 5s poll)
+  useEffect(() => {
+    const s = sessions.find((s) => s.id === activeSession);
+    if (s?.url) setUrlInput(s.url);
+  }, [activeSession]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Sync viewport from active session
   useEffect(() => {
     const s = sessions.find((s) => s.id === activeSession);
-    if (s) {
-      setViewport({ w: s.width, h: s.height });
-      if (s.url) setUrlInput(s.url);
-    }
+    if (s) setViewport({ w: s.width, h: s.height });
   }, [activeSession, sessions]);
 
   // ─── Screenshot refresh ───────────────────────────────────────────────────
@@ -190,6 +199,10 @@ export function BrowserPage() {
         result: data?.url || urlInput,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/browser/sessions"] });
+      refetchSessions().then((result) => {
+        const s = unwrapSessions(result.data)[0];
+        if (s) setActiveSession(s.id);
+      });
       setTimeout(refreshScreenshot, 300);
     },
     onError: (err: Error) => {

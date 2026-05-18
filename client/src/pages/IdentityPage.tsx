@@ -1407,7 +1407,9 @@ function AuditLogTab({ cryptoId }: { cryptoId: string | null }) {
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export function IdentityPage() {
-  const [cryptoId, setCryptoId] = useState<string | null>(null);
+  const [cryptoId, setCryptoId] = useState<string | null>(
+    () => localStorage.getItem('uc_identity_cryptoId')
+  );
   const [activeTab, setActiveTab] = useState("identity");
 
   return (
@@ -1462,7 +1464,7 @@ export function IdentityPage() {
             <TabsContent value="identity" className="mt-0 p-6 h-full">
               <MyIdentityTab
                 cryptoId={cryptoId}
-                onRegistered={(id) => { setCryptoId(id); setActiveTab("identity"); }}
+                onRegistered={(id) => { localStorage.setItem('uc_identity_cryptoId', id); setCryptoId(id); setActiveTab("identity"); }}
               />
             </TabsContent>
 

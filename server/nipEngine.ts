@@ -738,18 +738,18 @@ export class NIPEngine extends EventEmitter {
     });
 
     // --- Capability Response (executor → instructor) ---
-    const toolOverlap = instructorProfile.supportedTools.filter((t) =>
-      executorProfile.supportedTools.includes(t)
+    const toolOverlap = (instructorProfile.supportedTools ?? []).filter((t) =>
+      (executorProfile.supportedTools ?? []).includes(t)
     );
-    const relevantSpecializations = executorProfile.specializations.join(", ") || "general purpose";
+    const relevantSpecializations = (executorProfile.specializations ?? []).join(", ") || "general purpose";
     const capResponseContent =
       `Understood, ${instructorProfile.agentName}. Here is my capability summary for this session. ` +
       `Supported tools (overlap with requested): ${toolOverlap.length > 0 ? toolOverlap.join(", ") : "none from the requested list, but I can adapt"}. ` +
-      `Full tool list: ${executorProfile.supportedTools.join(", ") || "none declared"}. ` +
-      `Context window: ${executorProfile.maxContextWindow.toLocaleString()} tokens. ` +
+      `Full tool list: ${(executorProfile.supportedTools ?? []).join(", ") || "none declared"}. ` +
+      `Context window: ${(executorProfile.maxContextWindow ?? 0).toLocaleString()} tokens. ` +
       `Model: ${executorProfile.modelProvider}/${executorProfile.modelId} (${executorProfile.modelTier} tier). ` +
       `Specialisations: ${relevantSpecializations}. ` +
-      `Languages: ${executorProfile.languages.join(", ") || "English"}. ` +
+      `Languages: ${(executorProfile.languages ?? []).join(", ") || "English"}. ` +
       `Trust score: ${executorProfile.trustScore}/100. ` +
       `I prefer receiving instructions with clear success criteria and explicit scope boundaries. ` +
       `I will ask questions when requirements are ambiguous. Ready to proceed.`;
@@ -1866,8 +1866,8 @@ export class NIPEngine extends EventEmitter {
     }
 
     // Adapt to language
-    const sharedLanguages = instructor.languages.filter((l) =>
-      executor.languages.includes(l)
+    const sharedLanguages = (instructor.languages ?? []).filter((l) =>
+      (executor.languages ?? []).includes(l)
     );
     if (sharedLanguages.length === 0) {
       notes.push(
@@ -1876,14 +1876,14 @@ export class NIPEngine extends EventEmitter {
     }
 
     // Adapt to specialisation gap
-    const executorSpecializations = executor.specializations.join(", ").toLowerCase();
+    const executorSpecializations = (executor.specializations ?? []).join(", ").toLowerCase();
     if (
       executorSpecializations &&
       !executorSpecializations.includes("general") &&
-      instructor.specializations.length > 0
+      (instructor.specializations ?? []).length > 0
     ) {
       notes.push(
-        `Executor specialises in: ${executor.specializations.join(", ")}. I will frame instructions to align with these strengths.`
+        `Executor specialises in: ${(executor.specializations ?? []).join(", ")}. I will frame instructions to align with these strengths.`
       );
     }
 
