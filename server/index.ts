@@ -33,6 +33,33 @@ app.use((req, res, next) => {
   next();
 });
 
+// ─── Path Traversal Protection ──────────────────────────────────────────────
+// Defense-in-depth: block requests containing path traversal sequences at the
+// middleware layer before any routing occurs. This prevents directory traversal
+// attacks even if downstream handlers have bugs.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const rawUrl = req.originalUrl || req.url || "";
+  // Decode URL-encoded sequences before checking
+  let decoded = rawUrl;
+  try { decoded = decodeURIComponent(rawUrl); } catch { /* keep raw */ }
+  // Double-decode for %252e%252e style double-encoding attacks
+  let doubleDecoded = decoded;
+  try { doubleDecoded = decodeURIComponent(decoded); } catch { /* keep single-decoded */ }
+  const traversalPatterns: RegExp[] = [
+    /\.\.\//, /\.\.%2f/i, /\.\.%5c/i, /%2e%2e/i, /%252e%252e/i,
+    /\.\.\\/,  // Windows-style backslash traversal
+    /\x00/,    // Null byte injection
+  ];
+  const hasTraversal = traversalPatterns.some(
+    p => p.test(rawUrl) || p.test(decoded) || p.test(doubleDecoded)
+  );
+  if (hasTraversal) {
+    res.status(400).json({ error: "Path traversal detected" });
+    return;
+  }
+  next();
+});
+
 // ─── API Key Authentication ───────────────────────────────────────────────
 app.use(createAuthMiddleware());
 
@@ -72,13 +99,20 @@ app.use("/api/grpc", createGrpcWebBridge());
 
 // ─── Rate limiting ────────────────────────────────────────────────────────
 // General API rate limit: 500 requests per minute per IP
+const normalizeIp = (req: Request): string => {
+  const raw = req.ip || req.socket?.remoteAddress || "unknown";
+  // Normalize IPv6-mapped IPv4 (::ffff:1.2.3.4 → 1.2.3.4)
+  return raw.startsWith("::ffff:") ? raw.slice(7) : raw;
+};
 const apiLimiter = rateLimit({
   windowMs: 60_000,
   max: 500,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later" },
-  skip: (req) => !req.path.startsWith("/api"),
+  // Skip health check and webhook endpoints from rate limiting
+  skip: (req) => !req.path.startsWith("/api") || req.path === "/api/health" || req.path.startsWith("/api/messaging/webhook/"),
+  keyGenerator: normalizeIp,
 });
 app.use(apiLimiter);
 
@@ -89,7 +123,7 @@ const chatLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Chat rate limit exceeded. Please wait before sending more messages." },
-  keyGenerator: (req) => req.ip || req.socket.remoteAddress || "unknown",
+  keyGenerator: normalizeIp,
 });
 app.use("/api/conversations/:id/messages", chatLimiter);
 

@@ -383,6 +383,51 @@ ${skillContext ? `\nActive skills:\n${skillContext}` : ""}`;
 }
 
 // ─── Step 2: DAG Executor ─────────────────────────────────────────────────────
+/**
+ * Detect cycles in the DAG using DFS. Returns the cycle path if found, or null.
+ * Prevents infinite loops when LLM produces circular task dependencies.
+ */
+function detectDAGCycles(tasks: Task[]): string[] | null {
+  const adjMap = new Map<string, string[]>();
+  for (const t of tasks) {
+    let deps: string[] = [];
+    try { deps = JSON.parse(t.dependsOn) as string[]; } catch { deps = []; }
+    adjMap.set(t.id, deps);
+  }
+  const WHITE = 0, GRAY = 1, BLACK = 2;
+  const color = new Map<string, number>();
+  const parent = new Map<string, string | null>();
+  for (const t of tasks) { color.set(t.id, WHITE); parent.set(t.id, null); }
+  function dfs(node: string): string[] | null {
+    color.set(node, GRAY);
+    for (const dep of (adjMap.get(node) || [])) {
+      if (!color.has(dep)) continue; // dep not in task set — skip
+      if (color.get(dep) === GRAY) {
+        // Found cycle — reconstruct path
+        const cycle = [dep, node];
+        let cur: string | null | undefined = parent.get(node);
+        while (cur && cur !== dep) { cycle.unshift(cur); cur = parent.get(cur); }
+        cycle.unshift(dep);
+        return cycle;
+      }
+      if (color.get(dep) === WHITE) {
+        parent.set(dep, node);
+        const result = dfs(dep);
+        if (result) return result;
+      }
+    }
+    color.set(node, BLACK);
+    return null;
+  }
+  for (const t of tasks) {
+    if (color.get(t.id) === WHITE) {
+      const cycle = dfs(t.id);
+      if (cycle) return cycle;
+    }
+  }
+  return null;
+}
+
 async function executeDAG(
   allTasks: Task[],
   conversationId: string,
@@ -396,6 +441,20 @@ async function executeDAG(
 
   const maxIterationsConfig = storage.getSetting("max_dag_iterations");
   const maxIterations = maxIterationsConfig ? parseInt(maxIterationsConfig, 10) || 20 : 20;
+
+  // ── Cycle detection: fail fast instead of deadlocking ──────────────────────
+  const cycle = detectDAGCycles(allTasks);
+  if (cycle) {
+    const msg = `DAG has a circular dependency: ${cycle.join(" → ")}. Aborting execution to prevent deadlock.`;
+    console.error(`[orchestrator] ${msg}`);
+    emit(conversationId, { type: "error", error: msg });
+    for (const t of allTasks) {
+      storage.updateTask(t.id, { status: "failed", error: msg, completedAt: Date.now() });
+      results.set(t.id, `[FAILED: ${msg}]`);
+    }
+    return results;
+  }
+
   let iter = 0;
 
   while (pending.size > 0 && iter < maxIterations) {

@@ -340,6 +340,149 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     envVarNames: [],
     models: [],
   },
+
+  // ─── NVIDIA NIM (Inference Microservices) ────────────────────────────────────────────────────────────
+  // OpenAI-compatible API at integrate.api.nvidia.com/v1
+  // Scout has a 10,000,000 token context window — ideal for massive MCP/CLI/SDK context injection
+  nvidia: {
+    id: "nvidia",
+    name: "NVIDIA NIM",
+    icon: "Cpu",
+    supportedAuth: ["api_key", "env_var"],
+    defaultAuth: "api_key",
+    apiKeyUrl: "https://build.nvidia.com/",
+    envVarNames: ["NVIDIA_API_KEY", "NIM_API_KEY"],
+    defaultBaseUrl: "https://integrate.api.nvidia.com/v1",
+    models: [
+      // ── Llama 4 Scout — 10M token context (flagship for MCP/tool/SDK injection) ──
+      {
+        name: "Llama 4 Scout (NVIDIA NIM)",
+        modelId: "meta/llama-4-scout-17b-16e-instruct",
+        speedTier: "fast",
+        capabilities: ["chat", "code", "vision", "analyze"],
+        contextWindow: 10000000,
+        description: "10M token context — ideal for massive MCP/CLI/SDK context injection. 17B active params, 16 experts.",
+        recommended: true,
+      },
+      // ── Llama 4 Maverick — 1M context, 128 experts, multimodal ──
+      {
+        name: "Llama 4 Maverick (NVIDIA NIM)",
+        modelId: "meta/llama-4-maverick-17b-128e-instruct",
+        speedTier: "powerful",
+        capabilities: ["chat", "code", "vision", "analyze"],
+        contextWindow: 1048576,
+        description: "1M context, 128 experts, multimodal. Best for complex agentic tasks.",
+      },
+      // ── Nemotron Ultra 253B — NVIDIA flagship reasoning ──
+      {
+        name: "Nemotron Ultra 253B (NVIDIA NIM)",
+        modelId: "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+        speedTier: "powerful",
+        capabilities: ["chat", "code", "analyze"],
+        contextWindow: 131072,
+        description: "NVIDIA's most capable reasoning model. 253B params, top-tier coding & math.",
+      },
+      // ── Nemotron Super 49B ──
+      {
+        name: "Nemotron Super 49B (NVIDIA NIM)",
+        modelId: "nvidia/llama-3.3-nemotron-super-49b-v1",
+        speedTier: "powerful",
+        capabilities: ["chat", "code", "analyze"],
+        contextWindow: 131072,
+        description: "NVIDIA Nemotron Super — strong reasoning and coding, 49B.",
+      },
+      // ── Nemotron Nano 8B — fastest NVIDIA model ──
+      {
+        name: "Nemotron Nano 8B (NVIDIA NIM)",
+        modelId: "nvidia/llama-3.1-nemotron-nano-8b-v1",
+        speedTier: "fast",
+        capabilities: ["chat", "code"],
+        contextWindow: 131072,
+        description: "Ultra-fast 8B Nemotron. Best for high-throughput agentic tasks.",
+      },
+      // ── DeepSeek R1 via NIM ──
+      {
+        name: "DeepSeek R1 (NVIDIA NIM)",
+        modelId: "deepseek-ai/deepseek-r1",
+        speedTier: "powerful",
+        capabilities: ["chat", "code", "analyze"],
+        contextWindow: 163840,
+        description: "Full DeepSeek R1 chain-of-thought reasoning via NVIDIA NIM infrastructure.",
+      },
+      // ── DeepSeek R1 Distill Llama 70B via NIM ──
+      {
+        name: "DeepSeek R1 Distill Llama 70B (NVIDIA NIM)",
+        modelId: "deepseek-ai/deepseek-r1-distill-llama-70b",
+        speedTier: "powerful",
+        capabilities: ["chat", "code", "analyze"],
+        contextWindow: 131072,
+        description: "DeepSeek R1 reasoning distilled into Llama 70B via NIM.",
+      },
+      // ── Mistral Large via NIM ──
+      {
+        name: "Mistral Large (NVIDIA NIM)",
+        modelId: "mistralai/mistral-large-2-instruct",
+        speedTier: "powerful",
+        capabilities: ["chat", "code", "analyze"],
+        contextWindow: 131072,
+        description: "Mistral Large 2 via NVIDIA NIM infrastructure.",
+      },
+      // ── Mistral NeMo 12B via NIM ──
+      {
+        name: "Mistral NeMo 12B (NVIDIA NIM)",
+        modelId: "mistralai/mistral-nemo-12b-instruct",
+        speedTier: "fast",
+        capabilities: ["chat", "code"],
+        contextWindow: 131072,
+        description: "12B Mistral NeMo — fast and capable via NIM.",
+      },
+      // ── Qwen 3 235B A22B via NIM ──
+      {
+        name: "Qwen 3 235B A22B (NVIDIA NIM)",
+        modelId: "qwen/qwen3-235b-a22b",
+        speedTier: "powerful",
+        capabilities: ["chat", "code", "analyze"],
+        contextWindow: 131072,
+        description: "Qwen 3 MoE 235B with 22B active params via NVIDIA NIM.",
+      },
+      // ── Qwen 3 32B via NIM ──
+      {
+        name: "Qwen 3 32B (NVIDIA NIM)",
+        modelId: "qwen/qwen3-32b",
+        speedTier: "medium",
+        capabilities: ["chat", "code", "analyze"],
+        contextWindow: 131072,
+        description: "Dense 32B Qwen 3 via NVIDIA NIM.",
+      },
+      // ── Llama 3.3 70B via NIM ──
+      {
+        name: "Llama 3.3 70B (NVIDIA NIM)",
+        modelId: "meta/llama-3.3-70b-instruct",
+        speedTier: "fast",
+        capabilities: ["chat", "code"],
+        contextWindow: 131072,
+        description: "Meta Llama 3.3 70B via NVIDIA NIM.",
+      },
+      // ── Llama 3.1 405B via NIM ──
+      {
+        name: "Llama 3.1 405B (NVIDIA NIM)",
+        modelId: "meta/llama-3.1-405b-instruct",
+        speedTier: "powerful",
+        capabilities: ["chat", "code", "analyze"],
+        contextWindow: 131072,
+        description: "Meta's largest open model via NVIDIA NIM infrastructure.",
+      },
+      // ── Phi-4 via NIM ──
+      {
+        name: "Phi-4 (NVIDIA NIM)",
+        modelId: "microsoft/phi-4",
+        speedTier: "fast",
+        capabilities: ["chat", "code"],
+        contextWindow: 16384,
+        description: "Microsoft Phi-4 14B via NVIDIA NIM.",
+      },
+    ],
+  },
 };
 
 

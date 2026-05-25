@@ -2,7 +2,7 @@
  * Multi-Model Router
  * Routes tasks to the optimal model based on task type, capability, and speed tier.
  * Supports: OpenAI, Anthropic, Google Gemini, Mistral, Groq, Together, DeepSeek, xAI,
- * Cohere, Ollama, any OpenAI-compatible endpoint.
+ * Cohere, Ollama, NVIDIA NIM (Scout 10M ctx, Maverick, Nemotron, etc.), any OpenAI-compatible endpoint.
  * All providers are normalized to a single streaming interface.
  * 
  * Credential resolution is delegated to modelConnections.ts — supports API key,
@@ -145,7 +145,8 @@ export async function chat(
     case "fireworks":
     case "cerebras":
     case "perplexity":
-    case "lmstudio": {
+    case "lmstudio":
+    case "nvidia": {
       const result = await chatOpenAICompat(model, optimizedMsgs, maxTokens, temperature);
       cacheEngine.set(cacheReq, { content: result.content, tokensIn: result.usage?.prompt || 0, tokensOut: result.usage?.completion || 0, modelId: model.id });
       return result;
@@ -200,6 +201,7 @@ export async function* chatStream(
     case "cerebras":
     case "perplexity":
     case "lmstudio":
+    case "nvidia":
       yield* streamOpenAICompat(model, messages, maxTokens, temperature);
       break;
     case "anthropic":

@@ -59,12 +59,25 @@ export interface KBStats {
 class KnowledgeBaseEngine {
   /** Max % of model context window to use for KB content */
   private readonly TOKEN_BUDGET_PERCENT = 0.15; // 15% of context window
-  private readonly MAX_TOKENS_ABSOLUTE = 50000; // Hard cap regardless of context window
+  /**
+   * Absolute cap scales with context window:
+   *   - Standard models (≤200K ctx):  50K tokens
+   *   - Large context (≤1M ctx):     200K tokens
+   *   - Scout/ultra (>1M ctx):     1,000K tokens (1M)
+   * This lets Scout's 10M window inject massive MCP/CLI/SDK context.
+   */
+  private getMaxTokensAbsolute(contextWindowTokens: number): number {
+    if (contextWindowTokens > 1_000_000) return 1_000_000;  // Scout 10M, Maverick 1M
+    if (contextWindowTokens > 200_000) return 200_000;       // Large context models
+    return 50_000;                                            // Standard models
+  }
   private readonly MIN_TOKENS_FOR_KB = 2000; // Don't bother if context window too small
 
   /**
    * Build the knowledge context block for a given model tier and optional query.
    * This is the main entry point called by the orchestrator/model router.
+   * Scout's 10M token context window enables injecting full MCP tool outputs,
+   * CLI results, SDK documentation, and knowledge base entries at scale.
    */
   buildContext(
     speedTier: SpeedTier,
@@ -80,10 +93,11 @@ class KnowledgeBaseEngine {
       return { contextBlock: "", includedEntries: [], tokenEstimate: 0, isStablePrefix: true };
     }
 
-    // Calculate token budget
+    // Calculate token budget — scales with context window size
+    const maxAbsolute = this.getMaxTokensAbsolute(contextWindowTokens);
     const tokenBudget = Math.min(
       Math.floor(contextWindowTokens * this.TOKEN_BUDGET_PERCENT),
-      this.MAX_TOKENS_ABSOLUTE,
+      maxAbsolute,
     );
 
     if (tokenBudget < this.MIN_TOKENS_FOR_KB) {

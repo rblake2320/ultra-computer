@@ -11,7 +11,7 @@ import { insertConversationSchema, insertModelSchema } from "@shared/schema";
 import { runOrchestrator, subscribeToConversation, unsubscribeFromConversation } from "./orchestrator.js";
 import { testModelConnection } from "./modelRouter.js";
 import { connectModel, disconnectModel, testConnection, quickAdd, discoverEnvVars, getProviderCatalog, PROVIDER_REGISTRY } from "./modelConnections.js";
-import { seedConnectors, connectWithApiKey, callMCPTool } from "./connectorRegistry.js";
+import { seedConnectors, connectWithApiKey, callMCPTool, validateConnectorKey, getConnectorDef, BUILT_IN_CONNECTORS } from "./connectorRegistry.js";
 import { seedBuiltInSkills } from "./skillSystem.js";
 import { memoryManager } from "./memoryManager.js";
 import { dockerSandbox } from "./tools.js";
@@ -520,6 +520,23 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   // ─── Connectors ───────────────────────────────────────────────────────────
+  // Connector definitions (field schemas, OAuth URLs, etc.) — no sensitive data
+  app.get("/api/connectors/defs", (_req, res) => {
+    res.json(BUILT_IN_CONNECTORS.map(d => ({
+      id: d.id,
+      name: d.name,
+      type: d.type,
+      category: d.category,
+      description: d.description,
+      logoUrl: d.logoUrl || null,
+      fields: d.fields || [],
+      scopes: d.scopes || [],
+      mcpServerUrl: d.mcpServerUrl || null,
+      oauthAuthUrl: d.oauthAuthUrl || null,
+      validateUrl: d.validateUrl || null,
+    })));
+  });
+
   app.get("/api/connectors", (req, res) => {
     // Never expose api_key/tokens to frontend
     const connectors = storage.getConnectors().map(c => ({ ...c, config: undefined }));
@@ -572,14 +589,103 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.json({ ...updated, config: undefined });
   });
 
-  app.post("/api/connectors/:id/connect", (req, res) => {
-    const { apiKey, serverUrl, ...extra } = req.body;
+  app.post("/api/connectors/:id/connect", async (req, res) => {
+    const { apiKey, serverUrl, client_id, client_secret, ...extra } = req.body;
     if (apiKey !== undefined && (typeof apiKey !== "string" || apiKey.length >= 500)) {
       return res.status(400).json({ error: "apiKey must be a string under 500 characters" });
+    }
+    // For OAuth connectors, store client credentials and return OAuth URL
+    const def = getConnectorDef(req.params.id);
+    if (def?.type === "oauth" && client_id) {
+      const config = JSON.stringify({ client_id, client_secret, ...(apiKey ? { apiKey } : {}), ...extra });
+      const updated = storage.updateConnector(req.params.id, {
+        status: "pending",
+        config,
+        lastSynced: Date.now(),
+      });
+      if (!updated) return res.status(404).json({ error: "Not found" });
+      // Build OAuth authorization URL
+      const state = Buffer.from(JSON.stringify({ connectorId: req.params.id, ts: Date.now() })).toString("base64url");
+      const redirectUri = `${req.protocol}://${req.get("host")}/api/connectors/oauth/callback`;
+      const authUrl = new URL(def.oauthAuthUrl!);
+      authUrl.searchParams.set("client_id", client_id);
+      authUrl.searchParams.set("redirect_uri", redirectUri);
+      authUrl.searchParams.set("response_type", "code");
+      authUrl.searchParams.set("state", state);
+      if (def.scopes?.length) authUrl.searchParams.set("scope", def.scopes.join(" "));
+      return res.json({ ...updated, config: undefined, oauthUrl: authUrl.toString(), state });
+    }
+    // For API key connectors, validate the key first
+    if (apiKey && def?.validateUrl) {
+      const validation = await validateConnectorKey(req.params.id, apiKey);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error || "API key validation failed" });
+      }
     }
     const updated = connectWithApiKey(req.params.id, apiKey || "", { serverUrl, ...extra });
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json({ ...updated, config: undefined });
+  });
+
+  // OAuth callback handler for connector OAuth flows
+  app.get("/api/connectors/oauth/callback", async (req, res) => {
+    const { code, state, error } = req.query;
+    if (error) {
+      return res.redirect(`/?connector_error=${encodeURIComponent(String(error))}`);
+    }
+    if (!code || !state) {
+      return res.redirect("/?connector_error=missing_code_or_state");
+    }
+    let connectorId: string;
+    try {
+      const decoded = JSON.parse(Buffer.from(String(state), "base64url").toString());
+      connectorId = decoded.connectorId;
+      // Check state is not older than 10 minutes
+      if (Date.now() - decoded.ts > 10 * 60 * 1000) {
+        return res.redirect("/?connector_error=state_expired");
+      }
+    } catch {
+      return res.redirect("/?connector_error=invalid_state");
+    }
+    const connector = storage.getConnector(connectorId);
+    if (!connector) return res.redirect("/?connector_error=connector_not_found");
+    const def = getConnectorDef(connectorId);
+    if (!def?.oauthTokenUrl) return res.redirect("/?connector_error=no_token_url");
+    let config: Record<string, any> = {};
+    try { config = JSON.parse(connector.config || "{}"); } catch { config = {}; }
+    try {
+      const redirectUri = `${req.protocol}://${req.get("host")}/api/connectors/oauth/callback`;
+      const tokenRes = await fetch(def.oauthTokenUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: String(code),
+          redirect_uri: redirectUri,
+          client_id: config.client_id || "",
+          client_secret: config.client_secret || "",
+        }).toString(),
+      });
+      if (!tokenRes.ok) {
+        const errText = await tokenRes.text();
+        console.error(`[connector oauth] Token exchange failed for ${connectorId}:`, errText);
+        return res.redirect(`/?connector_error=token_exchange_failed`);
+      }
+      const tokenData = await tokenRes.json() as any;
+      const newConfig = JSON.stringify({
+        ...config,
+        accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token,
+        tokenType: tokenData.token_type,
+        expiresIn: tokenData.expires_in,
+        tokenFetchedAt: Date.now(),
+      });
+      storage.updateConnector(connectorId, { status: "connected", config: newConfig, lastSynced: Date.now() });
+      return res.redirect(`/?connector_connected=${encodeURIComponent(connectorId)}`);
+    } catch (err: any) {
+      console.error(`[connector oauth] Error for ${connectorId}:`, err);
+      return res.redirect(`/?connector_error=oauth_failed`);
+    }
   });
 
   app.post("/api/connectors/:id/disconnect", (req, res) => {
