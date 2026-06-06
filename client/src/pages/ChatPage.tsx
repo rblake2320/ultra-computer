@@ -573,7 +573,6 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
           <button
             onClick={async () => {
               try {
-                const { getSSEUrl } = await import('../lib/queryClient');
                 const res = await fetch(getSSEUrl(`/api/conversations/${conversationId}/export`));
                 if (!res.ok) throw new Error('Export failed');
                 const text = await res.text();

@@ -1,7 +1,6 @@
 import { Server, ServerCredentials, loadPackageDefinition } from "@grpc/grpc-js";
 import protoLoader from "@grpc/proto-loader";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { join, resolve } from "path";
 import { conversationGrpcHandlers } from "./services/conversations.js";
 import { modelGrpcHandlers } from "./services/models.js";
 import { knowledgeGrpcHandlers } from "./services/knowledge.js";
@@ -9,11 +8,8 @@ import { authInterceptor } from "./auth-interceptor.js";
 import { rateLimitInterceptor } from "./rate-limit-interceptor.js";
 import { grpcLogger } from "../logger.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
 // Resolve path to proto files from the project root
-const PROTO_ROOT = join(__dirname, "../../shared/proto");
+const PROTO_ROOT = resolve(process.cwd(), "shared/proto");
 
 const LOADER_OPTIONS: protoLoader.Options = {
   keepCase: false,       // convert snake_case → camelCase

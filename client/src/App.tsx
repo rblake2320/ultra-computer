@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Router, Switch, Route } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
@@ -5,29 +6,44 @@ import { queryClient } from "./lib/queryClient";
 import { Toaster } from "./components/ui/toaster";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { Layout } from "./components/Layout";
-import { ChatPage } from "./pages/ChatPage";
-import { ModelsPage } from "./pages/ModelsPage";
-import { SkillsPage } from "./pages/SkillsPage";
-import { ConnectorsPage } from "./pages/ConnectorsPage";
-import { MemoryPage } from "./pages/MemoryPage";
-import { WelcomePage } from "./pages/WelcomePage";
-import { SandboxPage } from "./pages/SandboxPage";
-import { SkillLibraryPage } from "./pages/SkillLibraryPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { FileBrowserPage } from "./pages/FileBrowserPage";
-import { BrowserPage } from "./pages/BrowserPage";
-import { TokenDashboardPage } from "./pages/TokenDashboardPage";
-import { MarketplacePage } from "./pages/MarketplacePage";
-import { AutonomyPage } from "./pages/AutonomyPage";
-import ProtocolsPage from "./pages/ProtocolsPage";
-import { MessagingPage } from "./pages/MessagingPage";
-import { NIPPage } from "./pages/NIPPage";
-import { IdentityPage } from "./pages/IdentityPage";
-import { CachePage } from "./pages/CachePage";
-import { KnowledgePage } from "./pages/KnowledgePage";
-import { SwarmPage } from "./pages/SwarmPage";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+
+const ChatPage = lazy(() => import("./pages/ChatPage").then(m => ({ default: m.ChatPage })));
+const ModelsPage = lazy(() => import("./pages/ModelsPage").then(m => ({ default: m.ModelsPage })));
+const SkillsPage = lazy(() => import("./pages/SkillsPage").then(m => ({ default: m.SkillsPage })));
+const ConnectorsPage = lazy(() => import("./pages/ConnectorsPage").then(m => ({ default: m.ConnectorsPage })));
+const MemoryPage = lazy(() => import("./pages/MemoryPage").then(m => ({ default: m.MemoryPage })));
+const WelcomePage = lazy(() => import("./pages/WelcomePage").then(m => ({ default: m.WelcomePage })));
+const SandboxPage = lazy(() => import("./pages/SandboxPage").then(m => ({ default: m.SandboxPage })));
+const SkillLibraryPage = lazy(() => import("./pages/SkillLibraryPage").then(m => ({ default: m.SkillLibraryPage })));
+const SettingsPage = lazy(() => import("./pages/SettingsPage").then(m => ({ default: m.SettingsPage })));
+const FileBrowserPage = lazy(() => import("./pages/FileBrowserPage").then(m => ({ default: m.FileBrowserPage })));
+const BrowserPage = lazy(() => import("./pages/BrowserPage").then(m => ({ default: m.BrowserPage })));
+const TokenDashboardPage = lazy(() => import("./pages/TokenDashboardPage").then(m => ({ default: m.TokenDashboardPage })));
+const MarketplacePage = lazy(() => import("./pages/MarketplacePage").then(m => ({ default: m.MarketplacePage })));
+const AutonomyPage = lazy(() => import("./pages/AutonomyPage").then(m => ({ default: m.AutonomyPage })));
+const ProtocolsPage = lazy(() => import("./pages/ProtocolsPage"));
+const MessagingPage = lazy(() => import("./pages/MessagingPage").then(m => ({ default: m.MessagingPage })));
+const NIPPage = lazy(() => import("./pages/NIPPage").then(m => ({ default: m.NIPPage })));
+const IdentityPage = lazy(() => import("./pages/IdentityPage").then(m => ({ default: m.IdentityPage })));
+const CachePage = lazy(() => import("./pages/CachePage").then(m => ({ default: m.CachePage })));
+const KnowledgePage = lazy(() => import("./pages/KnowledgePage").then(m => ({ default: m.KnowledgePage })));
+const SwarmPage = lazy(() => import("./pages/SwarmPage").then(m => ({ default: m.SwarmPage })));
+
+function RouteFallback() {
+  return <div className="p-8 text-sm text-muted-foreground">Loading...</div>;
+}
+
+function PageShell({ children }: { children: React.ReactNode }) {
+  return (
+    <Layout>
+      <ErrorBoundary>
+        <Suspense fallback={<RouteFallback />}>{children}</Suspense>
+      </ErrorBoundary>
+    </Layout>
+  );
+}
 
 function NotFound() {
   return (
@@ -47,70 +63,70 @@ export default function App() {
       <ThemeProvider>
         <Router hook={useHashLocation}>
           <Switch>
-            <Route path="/" component={WelcomePage} />
+            <Route path="/">
+              <Suspense fallback={<RouteFallback />}><WelcomePage /></Suspense>
+            </Route>
             <Route path="/chat/:id">
               {(params) => (
-                <Layout>
-                  <ErrorBoundary><ChatPage conversationId={params.id} /></ErrorBoundary>
-                </Layout>
+                <PageShell><ChatPage conversationId={params.id} /></PageShell>
               )}
             </Route>
             <Route path="/models">
-              <Layout><ErrorBoundary><ModelsPage /></ErrorBoundary></Layout>
+              <PageShell><ModelsPage /></PageShell>
             </Route>
             <Route path="/skills">
-              <Layout><ErrorBoundary><SkillsPage /></ErrorBoundary></Layout>
+              <PageShell><SkillsPage /></PageShell>
             </Route>
             <Route path="/connectors">
-              <Layout><ErrorBoundary><ConnectorsPage /></ErrorBoundary></Layout>
+              <PageShell><ConnectorsPage /></PageShell>
             </Route>
             <Route path="/memory">
-              <Layout><ErrorBoundary><MemoryPage /></ErrorBoundary></Layout>
+              <PageShell><MemoryPage /></PageShell>
             </Route>
             <Route path="/sandbox">
-              <Layout><ErrorBoundary><SandboxPage /></ErrorBoundary></Layout>
+              <PageShell><SandboxPage /></PageShell>
             </Route>
             <Route path="/library">
-              <Layout><ErrorBoundary><SkillLibraryPage /></ErrorBoundary></Layout>
+              <PageShell><SkillLibraryPage /></PageShell>
             </Route>
             <Route path="/settings">
-              <Layout><ErrorBoundary><SettingsPage /></ErrorBoundary></Layout>
+              <PageShell><SettingsPage /></PageShell>
             </Route>
             <Route path="/files">
-              <Layout><ErrorBoundary><FileBrowserPage /></ErrorBoundary></Layout>
+              <PageShell><FileBrowserPage /></PageShell>
             </Route>
             <Route path="/browser">
-              <Layout><ErrorBoundary><BrowserPage /></ErrorBoundary></Layout>
+              <PageShell><BrowserPage /></PageShell>
             </Route>
             <Route path="/tokens">
-              <Layout><ErrorBoundary><TokenDashboardPage /></ErrorBoundary></Layout>
+              <PageShell><TokenDashboardPage /></PageShell>
             </Route>
             <Route path="/marketplace">
-              <Layout><ErrorBoundary><MarketplacePage /></ErrorBoundary></Layout>
+              <PageShell><MarketplacePage /></PageShell>
             </Route>
             <Route path="/autonomy">
-              <Layout><ErrorBoundary><AutonomyPage /></ErrorBoundary></Layout>
+              <PageShell><AutonomyPage /></PageShell>
             </Route>
             <Route path="/protocols">
-              <Layout><ErrorBoundary><ProtocolsPage /></ErrorBoundary></Layout>
+              <PageShell><ProtocolsPage /></PageShell>
             </Route>
             <Route path="/messaging">
-              <Layout><ErrorBoundary><MessagingPage /></ErrorBoundary></Layout>
+              <PageShell><MessagingPage /></PageShell>
             </Route>
             <Route path="/nip">
-              <Layout><ErrorBoundary><NIPPage /></ErrorBoundary></Layout>
+              <PageShell><NIPPage /></PageShell>
             </Route>
             <Route path="/identity">
-              <Layout><ErrorBoundary><IdentityPage /></ErrorBoundary></Layout>
+              <PageShell><IdentityPage /></PageShell>
             </Route>
             <Route path="/cache">
-              <Layout><ErrorBoundary><CachePage /></ErrorBoundary></Layout>
+              <PageShell><CachePage /></PageShell>
             </Route>
             <Route path="/knowledge">
-              <Layout><ErrorBoundary><KnowledgePage /></ErrorBoundary></Layout>
+              <PageShell><KnowledgePage /></PageShell>
             </Route>
             <Route path="/swarm">
-              <Layout><ErrorBoundary><SwarmPage /></ErrorBoundary></Layout>
+              <PageShell><SwarmPage /></PageShell>
             </Route>
             <Route component={NotFound} />
           </Switch>

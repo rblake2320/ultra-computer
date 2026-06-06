@@ -3,11 +3,19 @@ import { QueryClient } from "@tanstack/react-query";
 const RAW_BASE = "__PORT_5000__";
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || (RAW_BASE.startsWith("__") ? "" : RAW_BASE);
 
+function browserApiKey(): string {
+  return (window as any).__ULTRA_API_KEY__ ?? "";
+}
+
 export async function apiRequest(method: string, path: string, body?: any) {
   const url = `${API_BASE}${path}`;
+  const key = browserApiKey();
   const res = await fetch(url, {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(key ? { Authorization: `Bearer ${key}` } : {}),
+    },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
@@ -18,7 +26,10 @@ export async function apiRequest(method: string, path: string, body?: any) {
 }
 
 export function getSSEUrl(path: string) {
-  return `${API_BASE}${path}`;
+  const key = browserApiKey();
+  if (!key) return `${API_BASE}${path}`;
+  const separator = path.includes("?") ? "&" : "?";
+  return `${API_BASE}${path}${separator}api_key=${encodeURIComponent(key)}`;
 }
 
 export const queryClient = new QueryClient({

@@ -1,7 +1,10 @@
 COMMAND: git diff --check
-warning: in the working copy of 'CLAUDE.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'client/src/App.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'client/src/lib/queryClient.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'client/src/pages/ChatPage.tsx', LF will be replaced by CRLF the next time Git touches it
 warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'server/fileRoutes.ts', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'server/protocolRoutes.ts', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'server/tools.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/authMiddleware.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/grpc/server.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/index.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'vite.config.ts', LF will be replaced by CRLF the next time Git touches it
 exit=0

@@ -5,6 +5,7 @@
  * request to supply a matching key via:
  *   - Authorization: Bearer <key>
  *   - X-API-Key: <key>
+ *   - api_key query parameter for GET/EventSource endpoints only
  *
  * Exempted routes (no auth required even when key is set):
  *   GET  /api/health
@@ -63,7 +64,10 @@ export function createAuthMiddleware() {
     const rawXApiKey = req.headers["x-api-key"];
     const xApiKey = typeof rawXApiKey === "string" ? rawXApiKey : undefined;
 
-    const suppliedKey = extractApiKey(authHeader, xApiKey);
+    const queryApiKey = req.method === "GET" && typeof req.query.api_key === "string"
+      ? req.query.api_key
+      : undefined;
+    const suppliedKey = extractApiKey(authHeader, xApiKey) || queryApiKey;
 
     if (!suppliedKey) {
       return res.status(401).json({ error: "Unauthorized" });

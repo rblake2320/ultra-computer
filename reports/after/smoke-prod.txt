@@ -1,0 +1,4 @@
+COMMAND: production smoke test on PORT=5099 with test secrets
+status=200
+{"status":"ok","uptime":5.0220063,"timestamp":"2026-06-06T05:54:55.481Z","version":"1.0.0","nodeVersion":"v24.3.0","checks":{"database":{"ok":true},"grpc":{"ok":true,"detail":"port 5100"}},"memory":{"heapUsed":"37MB","heapTotal":"67MB","rss":"126MB"},"latencyMs":0}
+exit=0

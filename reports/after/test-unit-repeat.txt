@@ -9,7 +9,7 @@ COMMAND: npm run test:unit -- --run
 
  Test Files  4 passed (4)
       Tests  26 passed (26)
-   Start at  20:44:01
-   Duration  608ms (transform 188ms, setup 0ms, import 297ms, tests 91ms, environment 0ms)
+   Start at  00:54:23
+   Duration  442ms (transform 209ms, setup 0ms, import 258ms, tests 73ms, environment 0ms)
 
 exit=0

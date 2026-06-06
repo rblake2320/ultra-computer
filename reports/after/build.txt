@@ -7,32 +7,95 @@ building client...
 [36mvite v7.3.2 [32mbuilding client environment for production...[36m[39m
 transforming...
 [32m✓[39m 2531 modules transformed.
-[plugin vite:reporter] 
-(!) C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/lib/queryClient.ts is dynamically imported by C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/ChatPage.tsx but also statically imported by C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/App.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/components/Layout.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/components/NotificationCenter.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/components/ThemeProvider.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/AutonomyPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/BrowserPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/CachePage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/ChatPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/ConnectorsPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/FileBrowserPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/IdentityPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/KnowledgePage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/MarketplacePage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/MemoryPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/MessagingPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/ModelsPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/NIPPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/ProtocolsPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/SandboxPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/SettingsPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/SkillLibraryPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/SkillsPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/SwarmPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/TokenDashboardPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/WelcomePage.tsx, dynamic import will not move module into another chunk.
-
 rendering chunks...
 computing gzip size...
-[2m../dist/public/[22m[32mindex.html                 [39m[1m[2m    2.06 kB[22m[1m[22m[2m │ gzip:   0.78 kB[22m
-[2m../dist/public/[22m[35massets/index-BQu1LJnO.css  [39m[1m[2m  108.38 kB[22m[1m[22m[2m │ gzip:  17.53 kB[22m
-[2m../dist/public/[22m[36massets/index-BjaKtyuX.js   [39m[1m[33m1,264.71 kB[39m[22m[2m │ gzip: 343.12 kB[22m
-
-(!) Some chunks are larger than 500 kB after minification. Consider:
-- Using dynamic import() to code-split the application
-- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
-- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
-[32m✓ built in 6.73s[39m
+[2m../dist/public/[22m[32mindex.html                               [39m[1m[2m  2.23 kB[22m[1m[22m[2m │ gzip:   0.83 kB[22m
+[2m../dist/public/[22m[35massets/index-BQu1LJnO.css                [39m[1m[2m108.38 kB[22m[1m[22m[2m │ gzip:  17.53 kB[22m
+[2m../dist/public/[22m[36massets/safeJson-CVfC_RVJ.js              [39m[1m[2m  0.09 kB[22m[1m[22m[2m │ gzip:   0.10 kB[22m
+[2m../dist/public/[22m[36massets/chevron-down-BOLySgKo.js          [39m[1m[2m  0.12 kB[22m[1m[22m[2m │ gzip:   0.14 kB[22m
+[2m../dist/public/[22m[36massets/play-BVumafd4.js                  [39m[1m[2m  0.13 kB[22m[1m[22m[2m │ gzip:   0.14 kB[22m
+[2m../dist/public/[22m[36massets/loader-circle-DXxjZvP3.js         [39m[1m[2m  0.14 kB[22m[1m[22m[2m │ gzip:   0.15 kB[22m
+[2m../dist/public/[22m[36massets/search-Dq8586l-.js                [39m[1m[2m  0.16 kB[22m[1m[22m[2m │ gzip:   0.16 kB[22m
+[2m../dist/public/[22m[36massets/circle-check-CVwGOY9J.js          [39m[1m[2m  0.17 kB[22m[1m[22m[2m │ gzip:   0.16 kB[22m
+[2m../dist/public/[22m[36massets/gauge-BkeUonrT.js                 [39m[1m[2m  0.17 kB[22m[1m[22m[2m │ gzip:   0.17 kB[22m
+[2m../dist/public/[22m[36massets/clock-BmX4n8IR.js                 [39m[1m[2m  0.18 kB[22m[1m[22m[2m │ gzip:   0.17 kB[22m
+[2m../dist/public/[22m[36massets/code-BM9x7Cdb.js                  [39m[1m[2m  0.18 kB[22m[1m[22m[2m │ gzip:   0.16 kB[22m
+[2m../dist/public/[22m[36massets/circle-check-big-VGISrQgG.js      [39m[1m[2m  0.18 kB[22m[1m[22m[2m │ gzip:   0.18 kB[22m
+[2m../dist/public/[22m[36massets/terminal-5NUXwgvL.js              [39m[1m[2m  0.19 kB[22m[1m[22m[2m │ gzip:   0.18 kB[22m
+[2m../dist/public/[22m[36massets/circle-stop-DgLTXnAR.js           [39m[1m[2m  0.19 kB[22m[1m[22m[2m │ gzip:   0.17 kB[22m
+[2m../dist/public/[22m[36massets/chevron-up-Btfu7ysn.js            [39m[1m[2m  0.19 kB[22m[1m[22m[2m │ gzip:   0.17 kB[22m
+[2m../dist/public/[22m[36massets/user-JTrlkOGQ.js                  [39m[1m[2m  0.19 kB[22m[1m[22m[2m │ gzip:   0.18 kB[22m
+[2m../dist/public/[22m[36massets/circle-x-jPlhChvK.js              [39m[1m[2m  0.20 kB[22m[1m[22m[2m │ gzip:   0.17 kB[22m
+[2m../dist/public/[22m[36massets/trending-up-DIm8ZtWi.js           [39m[1m[2m  0.20 kB[22m[1m[22m[2m │ gzip:   0.18 kB[22m
+[2m../dist/public/[22m[36massets/lock-D3eTLHBW.js                  [39m[1m[2m  0.20 kB[22m[1m[22m[2m │ gzip:   0.19 kB[22m
+[2m../dist/public/[22m[36massets/star-FZxXPI6c.js                  [39m[1m[2m  0.21 kB[22m[1m[22m[2m │ gzip:   0.18 kB[22m
+[2m../dist/public/[22m[36massets/skeleton-BASd_FhP.js              [39m[1m[2m  0.21 kB[22m[1m[22m[2m │ gzip:   0.18 kB[22m
+[2m../dist/public/[22m[36massets/target-CxtO8TP0.js                [39m[1m[2m  0.22 kB[22m[1m[22m[2m │ gzip:   0.16 kB[22m
+[2m../dist/public/[22m[36massets/copy-AIfNsQJH.js                  [39m[1m[2m  0.23 kB[22m[1m[22m[2m │ gzip:   0.20 kB[22m
+[2m../dist/public/[22m[36massets/settings-2-BVCLf9Hl.js            [39m[1m[2m  0.24 kB[22m[1m[22m[2m │ gzip:   0.19 kB[22m
+[2m../dist/public/[22m[36massets/eye-B4K9CUDX.js                   [39m[1m[2m  0.25 kB[22m[1m[22m[2m │ gzip:   0.20 kB[22m
+[2m../dist/public/[22m[36massets/monitor-Cx_HaVR3.js               [39m[1m[2m  0.26 kB[22m[1m[22m[2m │ gzip:   0.20 kB[22m
+[2m../dist/public/[22m[36massets/download-BzIrywdQ.js              [39m[1m[2m  0.26 kB[22m[1m[22m[2m │ gzip:   0.22 kB[22m
+[2m../dist/public/[22m[36massets/triangle-alert-DbjlaNEi.js        [39m[1m[2m  0.26 kB[22m[1m[22m[2m │ gzip:   0.21 kB[22m
+[2m../dist/public/[22m[36massets/pen-line-BEL5Lzn5.js              [39m[1m[2m  0.27 kB[22m[1m[22m[2m │ gzip:   0.22 kB[22m
+[2m../dist/public/[22m[36massets/send-Dhcp6DsM.js                  [39m[1m[2m  0.29 kB[22m[1m[22m[2m │ gzip:   0.22 kB[22m
+[2m../dist/public/[22m[36massets/hash-gu9O3VQ3.js                  [39m[1m[2m  0.29 kB[22m[1m[22m[2m │ gzip:   0.19 kB[22m
+[2m../dist/public/[22m[36massets/users-CCxUZMEO.js                 [39m[1m[2m  0.30 kB[22m[1m[22m[2m │ gzip:   0.22 kB[22m
+[2m../dist/public/[22m[36massets/refresh-ccw-DllWRSVJ.js           [39m[1m[2m  0.32 kB[22m[1m[22m[2m │ gzip:   0.23 kB[22m
+[2m../dist/public/[22m[36massets/refresh-cw-s8S9or2t.js            [39m[1m[2m  0.32 kB[22m[1m[22m[2m │ gzip:   0.23 kB[22m
+[2m../dist/public/[22m[36massets/bot-Nzn7riKQ.js                   [39m[1m[2m  0.33 kB[22m[1m[22m[2m │ gzip:   0.23 kB[22m
+[2m../dist/public/[22m[36massets/label-DyMTElFJ.js                 [39m[1m[2m  0.33 kB[22m[1m[22m[2m │ gzip:   0.25 kB[22m
+[2m../dist/public/[22m[36massets/server-MJl5pK8Z.js                [39m[1m[2m  0.34 kB[22m[1m[22m[2m │ gzip:   0.21 kB[22m
+[2m../dist/public/[22m[36massets/layers-974PtEWt.js                [39m[1m[2m  0.36 kB[22m[1m[22m[2m │ gzip:   0.24 kB[22m
+[2m../dist/public/[22m[36massets/network-CKho73TS.js               [39m[1m[2m  0.38 kB[22m[1m[22m[2m │ gzip:   0.24 kB[22m
+[2m../dist/public/[22m[36massets/package-BEnj1Ys5.js               [39m[1m[2m  0.38 kB[22m[1m[22m[2m │ gzip:   0.25 kB[22m
+[2m../dist/public/[22m[36massets/building-2-Duk9Dq46.js            [39m[1m[2m  0.44 kB[22m[1m[22m[2m │ gzip:   0.25 kB[22m
+[2m../dist/public/[22m[36massets/wifi-C01CMpUO.js                  [39m[1m[2m  0.44 kB[22m[1m[22m[2m │ gzip:   0.27 kB[22m
+[2m../dist/public/[22m[36massets/progress-DDLOyFfB.js              [39m[1m[2m  0.44 kB[22m[1m[22m[2m │ gzip:   0.31 kB[22m
+[2m../dist/public/[22m[36massets/unplug-D6YRXG-t.js                [39m[1m[2m  0.44 kB[22m[1m[22m[2m │ gzip:   0.26 kB[22m
+[2m../dist/public/[22m[36massets/key-CtwMCrkF.js                   [39m[1m[2m  0.46 kB[22m[1m[22m[2m │ gzip:   0.31 kB[22m
+[2m../dist/public/[22m[36massets/sparkles-DHzL-aFa.js              [39m[1m[2m  0.51 kB[22m[1m[22m[2m │ gzip:   0.30 kB[22m
+[2m../dist/public/[22m[36massets/upload-re7CbMb4.js                [39m[1m[2m  0.52 kB[22m[1m[22m[2m │ gzip:   0.31 kB[22m
+[2m../dist/public/[22m[36massets/memory-stick-Ckxm-JJQ.js          [39m[1m[2m  0.52 kB[22m[1m[22m[2m │ gzip:   0.27 kB[22m
+[2m../dist/public/[22m[36massets/textarea-CxoZMueO.js              [39m[1m[2m  0.54 kB[22m[1m[22m[2m │ gzip:   0.35 kB[22m
+[2m../dist/public/[22m[36massets/input-BY9hIKT0.js                 [39m[1m[2m  0.62 kB[22m[1m[22m[2m │ gzip:   0.37 kB[22m
+[2m../dist/public/[22m[36massets/webhook-DQ9RbdAT.js               [39m[1m[2m  0.66 kB[22m[1m[22m[2m │ gzip:   0.40 kB[22m
+[2m../dist/public/[22m[36massets/slider-YjSn1eg7.js                [39m[1m[2m  0.75 kB[22m[1m[22m[2m │ gzip:   0.43 kB[22m
+[2m../dist/public/[22m[36massets/tooltip-Bavl71OU.js               [39m[1m[2m  0.75 kB[22m[1m[22m[2m │ gzip:   0.43 kB[22m
+[2m../dist/public/[22m[36massets/switch-6LW-8C1n.js                [39m[1m[2m  0.81 kB[22m[1m[22m[2m │ gzip:   0.44 kB[22m
+[2m../dist/public/[22m[36massets/card-CD9gLuwy.js                  [39m[1m[2m  1.07 kB[22m[1m[22m[2m │ gzip:   0.40 kB[22m
+[2m../dist/public/[22m[36massets/tabs-BeE5yVNk.js                  [39m[1m[2m  1.11 kB[22m[1m[22m[2m │ gzip:   0.47 kB[22m
+[2m../dist/public/[22m[36massets/alert-dialog-BYo2DzP2.js          [39m[1m[2m  2.03 kB[22m[1m[22m[2m │ gzip:   0.74 kB[22m
+[2m../dist/public/[22m[36massets/dialog-DfzrWra3.js                [39m[1m[2m  2.17 kB[22m[1m[22m[2m │ gzip:   0.85 kB[22m
+[2m../dist/public/[22m[36massets/select-01wGhaPL.js                [39m[1m[2m  3.15 kB[22m[1m[22m[2m │ gzip:   1.15 kB[22m
+[2m../dist/public/[22m[36massets/WelcomePage-vmBn0Sh5.js           [39m[1m[2m  3.49 kB[22m[1m[22m[2m │ gzip:   1.60 kB[22m
+[2m../dist/public/[22m[36massets/MemoryPage-CWleBpAD.js            [39m[1m[2m  6.59 kB[22m[1m[22m[2m │ gzip:   2.27 kB[22m
+[2m../dist/public/[22m[36massets/SkillsPage-IYvBQqM9.js            [39m[1m[2m  7.52 kB[22m[1m[22m[2m │ gzip:   2.19 kB[22m
+[2m../dist/public/[22m[36massets/SettingsPage-BdvNC_gu.js          [39m[1m[2m 10.34 kB[22m[1m[22m[2m │ gzip:   2.99 kB[22m
+[2m../dist/public/[22m[36massets/SandboxPage-rMKUb682.js           [39m[1m[2m 11.17 kB[22m[1m[22m[2m │ gzip:   3.09 kB[22m
+[2m../dist/public/[22m[36massets/TokenDashboardPage-DAwUfLRO.js    [39m[1m[2m 11.33 kB[22m[1m[22m[2m │ gzip:   3.89 kB[22m
+[2m../dist/public/[22m[36massets/FileBrowserPage-Bx2cwpxj.js       [39m[1m[2m 14.03 kB[22m[1m[22m[2m │ gzip:   4.70 kB[22m
+[2m../dist/public/[22m[36massets/CachePage-0k-nymQt.js             [39m[1m[2m 14.51 kB[22m[1m[22m[2m │ gzip:   3.93 kB[22m
+[2m../dist/public/[22m[36massets/SkillLibraryPage-Ci6BX2sJ.js      [39m[1m[2m 16.55 kB[22m[1m[22m[2m │ gzip:   4.83 kB[22m
+[2m../dist/public/[22m[36massets/ConnectorsPage-DZIkV_mA.js        [39m[1m[2m 17.42 kB[22m[1m[22m[2m │ gzip:   4.97 kB[22m
+[2m../dist/public/[22m[36massets/BrowserPage-DarXRb1U.js           [39m[1m[2m 17.53 kB[22m[1m[22m[2m │ gzip:   5.11 kB[22m
+[2m../dist/public/[22m[36massets/KnowledgePage-DTU64BPr.js         [39m[1m[2m 19.63 kB[22m[1m[22m[2m │ gzip:   5.43 kB[22m
+[2m../dist/public/[22m[36massets/AutonomyPage-Ghx3klbd.js          [39m[1m[2m 22.18 kB[22m[1m[22m[2m │ gzip:   5.02 kB[22m
+[2m../dist/public/[22m[36massets/MessagingPage-hwxD4e2m.js         [39m[1m[2m 24.74 kB[22m[1m[22m[2m │ gzip:   6.51 kB[22m
+[2m../dist/public/[22m[36massets/ModelsPage-CmSZq2Yc.js            [39m[1m[2m 24.90 kB[22m[1m[22m[2m │ gzip:   6.51 kB[22m
+[2m../dist/public/[22m[36massets/ChatPage-DoEUx54y.js              [39m[1m[2m 27.66 kB[22m[1m[22m[2m │ gzip:   8.76 kB[22m
+[2m../dist/public/[22m[36massets/ProtocolsPage-CEGB4CuQ.js         [39m[1m[2m 28.50 kB[22m[1m[22m[2m │ gzip:   6.56 kB[22m
+[2m../dist/public/[22m[36massets/MarketplacePage-Ca_ZymxK.js       [39m[1m[2m 28.89 kB[22m[1m[22m[2m │ gzip:   7.33 kB[22m
+[2m../dist/public/[22m[36massets/IdentityPage-D0Ht_2Kw.js          [39m[1m[2m 43.34 kB[22m[1m[22m[2m │ gzip:   9.55 kB[22m
+[2m../dist/public/[22m[36massets/NIPPage-aQPTCtn0.js               [39m[1m[2m 48.89 kB[22m[1m[22m[2m │ gzip:  10.25 kB[22m
+[2m../dist/public/[22m[36massets/SwarmPage-brOIoTuZ.js             [39m[1m[2m 50.77 kB[22m[1m[22m[2m │ gzip:  11.07 kB[22m
+[2m../dist/public/[22m[36massets/index-CT-NPO-z.js                 [39m[1m[2m143.86 kB[22m[1m[22m[2m │ gzip:  46.82 kB[22m
+[2m../dist/public/[22m[36massets/vendor-radix-cIcvMoeu.js          [39m[1m[2m287.27 kB[22m[1m[22m[2m │ gzip:  90.98 kB[22m
+[2m../dist/public/[22m[36massets/vendor-visualization-CmpXICLH.js  [39m[1m[2m381.52 kB[22m[1m[22m[2m │ gzip: 105.39 kB[22m
+[32m✓ built in 4.81s[39m
 building server...
-▲ [WARNING] "import.meta" is not available with the "cjs" output format and will be empty [empty-import-meta]
-
-    server/grpc/server.ts:12:33:
-      12 │ const __filename = fileURLToPath(import.meta.url);
-         ╵                                  ~~~~~~~~~~~
-
-  You need to set the output format to "esm" for "import.meta" to work correctly.
-
-1 warning
 
   dist\index.cjs  1.8mb
 
-Done in 221ms
+Done in 199ms
 exit=0

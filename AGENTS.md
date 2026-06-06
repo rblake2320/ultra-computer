@@ -4,6 +4,7 @@
 - Install: `npm ci`
 - Build: `npm run build`
 - Dev: `npm run dev` (serves on port 5000)
+- Production smoke: set `ULTRA_API_KEY`, `SLACK_SIGNING_SECRET`, `GITHUB_WEBHOOK_SECRET`, and `ENCRYPTION_KEY`, then run `npm start`
 
 ## Verification
 - Typecheck: `npm run check`
@@ -25,7 +26,7 @@
 ## Non-Obvious Patterns
 - Raw request bodies are required for Slack/GitHub HMAC verification.
 - Sandbox file APIs must reject prefix siblings such as `sandbox2`, not just `../` traversal.
-- `npm audit` currently has two unresolved breaking-change advisories: `@anthropic-ai/sdk` and `drizzle-orm`.
+- Browser clients can set `window.__ULTRA_API_KEY__`; EventSource auth uses an `api_key` query parameter because native EventSource cannot send custom headers.
 
 ## Versions
 - Node.js 20+.

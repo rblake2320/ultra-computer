@@ -1,0 +1,8 @@
+COMMAND: node playwright production browser render check
+{
+  "title": "",
+  "hasRootContent": true,
+  "bodyTextPreview": "Ultra Computer\n\nAgent Harness v1.0\n\nNew Session\n\nNo sessions yet\n\nModels\nSkills\nConnectors\nMemory\nLibrary\nSandbox\nBrowser\nFiles\nMarketplace\nAutonomy\nProtocols\nMessaging\nNIP\nIdentity\nCache\nKnowledge\nSwarm\nTokens\nSettings\nDark mode\nUltra Computer\n\nA complete agent harness — not a chatbot. Decomposes g",
+  "errors": []
+}
+exit=0
