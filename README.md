@@ -144,7 +144,7 @@ The gate typechecks, runs unit and coverage suites, builds, audits dependencies,
 
 `npm run verify` is local repository-gate evidence. It must not be reported as production proof for live external providers, connectors, MCP/A2A peers, browser workflows, or deployment environments that were not actually exercised. Use the evidence labels in `docs/VERIFICATION_POLICY.md` for all release reports.
 
-`npm run live:docker` builds and runs a clean Linux production container and exercises selected real HTTP paths. It is Docker live-local proof, not Hyper-V/Azure VM proof and not proof of real third-party provider behavior.
+`npm run live:docker` builds and runs a clean Linux production container from a digest-pinned Node base image as a non-root runtime user, then exercises selected real HTTP paths. It is Docker live-local proof, not Hyper-V/Azure VM proof and not proof of real third-party provider behavior. Set `LIVE_DOCKER_CLEAN_IMAGE=true` to remove the local proof image after the run.
 
 ---
 

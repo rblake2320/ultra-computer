@@ -145,6 +145,11 @@ async function main() {
     await stopContainer(normal);
     await stopContainer(badPolicy);
     await stopContainer(badAudit);
+    if (process.env.LIVE_DOCKER_CLEAN_IMAGE === "true") {
+      await docker(["image", "rm", image], { capture: true }).catch((err) => {
+        console.warn(`image cleanup skipped: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
   }
 }
 

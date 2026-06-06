@@ -19,7 +19,7 @@ Evidence:
 - Some complexity is justified by product breadth, but the system is broad enough that policy enforcement should move toward shared middleware/helpers rather than repeated inline evaluator calls in each route.
 - No dead policy files were found; each `policies/*-access.json` is loaded by `server/policyEngine.ts`. No unreachable test policy was added.
 - CI permissions are mostly least-privilege; an unused `id-token: write` grant was removed from the security workflow during this gate.
-- Docker live-local deployment proof now exists through `npm run live:docker`: clean Linux image build, production container startup, auth, sandbox filesystem API, private browser navigation denial, policy audit write, missing policy fail-closed behavior, and audit write failure logging.
+- Docker live-local deployment proof now exists through `npm run live:docker`: clean Linux image build from a digest-pinned Node base image, non-root runtime user, production container startup, auth, sandbox filesystem API, private browser navigation denial, policy audit write, missing policy fail-closed behavior, and audit write failure logging.
 - Hyper-V VM proof is `BLOCKED`: `Get-VM`/Hyper-V operations require Windows authorization not available in this session. Azure VM proof is `BLOCKED`: `az account show` reports that `az login` is required.
 
 Architecture score for this gate: `PASS for core policy foundation`, `GAP ACCEPTED for full platform egress governance`.
@@ -128,7 +128,7 @@ Evidence:
 | Dependency audit | STATIC ONLY | `npm run audit` | npm reports known vulnerabilities only. |
 | Secret scan | STATIC ONLY | `gitleaks detect --no-banner --redact --source .` | Repository scan only, not runtime logs. |
 | Production startup | PASS | `npm run smoke:prod` | Real local production build/health only. |
-| Docker live-local production deployment | PASS | `npm run live:docker` | Real clean Linux image/container, not a Hyper-V/Azure VM. |
+| Docker live-local production deployment | PASS | `npm run live:docker` | Real clean Linux image/container with digest-pinned base and non-root runtime user, not a Hyper-V/Azure VM. |
 | CI verify | PASS | GitHub Actions Ubuntu/Windows checks | Real CI gate, not live product behavior. |
 | Hyper-V VM deployment | BLOCKED | Hyper-V commands require unavailable Windows authorization | Needs elevated/admin VM rights. |
 | Azure VM deployment | BLOCKED | Azure CLI not logged in | Needs `az login`, subscription selection, and approved spend controls. |

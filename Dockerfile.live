@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim
+FROM node:20-bookworm-slim@sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0
 
 WORKDIR /app
 
@@ -7,11 +7,14 @@ RUN npm ci
 
 COPY . .
 RUN npm run build
+RUN mkdir -p /app/data /app/sandbox && chown -R node:node /app
 
 ENV NODE_ENV=production
 ENV PORT=5000
 ENV GRPC_PORT=50051
 
 EXPOSE 5000
+
+USER node
 
 CMD ["node", "dist/index.cjs"]

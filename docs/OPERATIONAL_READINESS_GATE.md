@@ -36,6 +36,12 @@ gitleaks detect --no-banner --redact --source .
 git diff --check
 ```
 
+Optional image cleanup after the Docker gate:
+
+```bash
+LIVE_DOCKER_CLEAN_IMAGE=true npm run live:docker
+```
+
 ## Current Report
 
 The current gate report is `reports/policy-control-plane-readiness.md`.
