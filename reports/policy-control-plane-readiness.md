@@ -19,6 +19,8 @@ Evidence:
 - Some complexity is justified by product breadth, but the system is broad enough that policy enforcement should move toward shared middleware/helpers rather than repeated inline evaluator calls in each route.
 - No dead policy files were found; each `policies/*-access.json` is loaded by `server/policyEngine.ts`. No unreachable test policy was added.
 - CI permissions are mostly least-privilege; an unused `id-token: write` grant was removed from the security workflow during this gate.
+- Docker live-local deployment proof now exists through `npm run live:docker`: clean Linux image build, production container startup, auth, sandbox filesystem API, private browser navigation denial, policy audit write, missing policy fail-closed behavior, and audit write failure logging.
+- Hyper-V VM proof is `BLOCKED`: `Get-VM`/Hyper-V operations require Windows authorization not available in this session. Azure VM proof is `BLOCKED`: `az account show` reports that `az login` is required.
 
 Architecture score for this gate: `PASS for core policy foundation`, `GAP ACCEPTED for full platform egress governance`.
 
@@ -89,6 +91,8 @@ Evidence:
 | SSRF defense depth | GAP ACCEPTED | Evaluator blocks obvious private/loopback/link-local hosts, but does not resolve and pin DNS/IPs or validate redirect chains for every fetch path | Needs hardened outbound HTTP client. |
 | Shell execution model | GAP ACCEPTED | Policy blocks dangerous patterns but still executes through shell for allowed commands | Long-term target should prefer argv-based command execution or purpose-built tools. |
 | GitHub Actions immutable pinning | GAP ACCEPTED | Actions use version tags such as `@v4`, not commit SHAs | Owner: platform/security; follow-up: pin third-party actions to reviewed SHAs or document trusted-action policy. |
+| Hyper-V VM gate | BLOCKED | `Get-VM` failed with Windows authorization error | Run from elevated/admin context or delegate VM provisioning to environment owner. |
+| Azure VM gate | BLOCKED | `az account show` failed because Azure CLI is not logged in | Run `az login` with approved subscription and budget guardrails. |
 | GitHub mutating actions | NOT VERIFIED | Mutating tools are intentionally denied | Requires explicit approval workflow before enabling. |
 | Live external policy proof | NOT VERIFIED | No real GitHub/MCP/A2A/OpenAI provider calls executed in this gate | Requires credentials/services and cost/permission approval. |
 
@@ -105,6 +109,7 @@ Evidence:
 | Audit logging | `writePolicyAudit()` returns false and warns | Redacted `console.warn` | Operator log warning; user decision unchanged | Audit failure does not grant access | Fix disk/path/permissions or collector | `UNIT ONLY`: EISDIR audit write failure | Re-run audit write test and inspect log sink |
 | CI/security scans | GitHub Actions status, local commands | GitHub job logs/artifacts | PR checks red/green by job | Merge blocked by branch protections if configured | Fix code/deps/workflow | `VERIFIED LOCALLY/CI`: remote checks | Re-run failed workflow |
 | Production runtime | Health smoke, logs, watchdog | Platform logs; `GET /api/health` | Health response/log alerts | Auth gate and policy denies contain unsafe actions | Rollback or patch + redeploy | `VERIFIED LOCALLY`: `npm run smoke:prod`; live deploy NOT VERIFIED | Controlled rollout after health + logs pass |
+| Docker live-local runtime | Docker container health, HTTP assertions, container logs | Docker stdout/stderr and policy audit JSONL inside container | `npm run live:docker` exits non-zero on failure | Test containers are removed; denied actions are not executed | Fix code/policy/env/image and rebuild | `PASS`: `npm run live:docker` | Re-run Docker gate, then promote artifact |
 
 ## Coverage Matrix
 
@@ -113,17 +118,20 @@ Evidence:
 | Policy schema/load valid files | UNIT ONLY | `tests/unit/policyEngine.test.ts` | Uses real parser and files, not live route. |
 | Missing/invalid policy fail closed | UNIT ONLY | `tests/unit/policyEngine.test.ts` | Temp policy dirs used; proves unit behavior only. |
 | Deny-by-default unknown tool | UNIT ONLY | `tests/unit/policyEngine.test.ts` | Not live tool route proof. |
-| Filesystem allow/deny | UNIT ONLY | `tests/unit/policyEngine.test.ts`, `pathSafety.test.ts` | API route live exercise NOT VERIFIED in this gate. |
+| Filesystem allow/deny | PASS for Docker live-local API; UNIT ONLY for evaluator | `npm run live:docker`, `tests/unit/policyEngine.test.ts`, `pathSafety.test.ts` | Docker gate exercised real upload/read/list through production container. |
 | Shell allow/deny | UNIT ONLY | `tests/unit/policyEngine.test.ts` | Denied `executeTool("bash")` exercised before spawn; live allowed shell smoke NOT VERIFIED. |
-| Network public/private/method deny | UNIT ONLY | `tests/unit/policyEngine.test.ts` | Live outbound route/provider proof NOT VERIFIED. |
+| Network public/private/method deny | PASS for private browser navigation denial; UNIT ONLY for evaluator | `npm run live:docker`, `tests/unit/policyEngine.test.ts` | Public external provider/network success remains NOT VERIFIED. |
 | GitHub read-only/mutating policy | UNIT ONLY | `tests/unit/policyEngine.test.ts` | Real GitHub connector call NOT VERIFIED. |
 | Redaction including circular metadata | UNIT ONLY | `tests/unit/policyEngine.test.ts` | Real production log collector NOT VERIFIED. |
-| Audit write success/failure | UNIT ONLY | `tests/unit/policyEngine.test.ts` | File write tested locally; SIEM/log ship NOT VERIFIED. |
+| Audit write success/failure | PASS for Docker live-local file/log behavior; UNIT ONLY for helper | `npm run live:docker`, `tests/unit/policyEngine.test.ts` | SIEM/log ship remains NOT VERIFIED. |
 | TypeScript compatibility | STATIC ONLY | `npm run check` | No runtime proof. |
 | Dependency audit | STATIC ONLY | `npm run audit` | npm reports known vulnerabilities only. |
 | Secret scan | STATIC ONLY | `gitleaks detect --no-banner --redact --source .` | Repository scan only, not runtime logs. |
 | Production startup | PASS | `npm run smoke:prod` | Real local production build/health only. |
+| Docker live-local production deployment | PASS | `npm run live:docker` | Real clean Linux image/container, not a Hyper-V/Azure VM. |
 | CI verify | PASS | GitHub Actions Ubuntu/Windows checks | Real CI gate, not live product behavior. |
+| Hyper-V VM deployment | BLOCKED | Hyper-V commands require unavailable Windows authorization | Needs elevated/admin VM rights. |
+| Azure VM deployment | BLOCKED | Azure CLI not logged in | Needs `az login`, subscription selection, and approved spend controls. |
 | Live GitHub/MCP/A2A/OpenAI | NOT VERIFIED | No real credentials/services exercised | Needs explicit live test plan and scoped credentials. |
 | OAuth/model egress policy | GAP ACCEPTED | Direct fetches identified | Owner: platform/security; follow-up: shared governed HTTP client. |
 | Messaging egress policy | GAP ACCEPTED | Direct fetches identified | Owner: platform/security; follow-up: shared governed HTTP client. |

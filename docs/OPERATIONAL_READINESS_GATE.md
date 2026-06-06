@@ -31,6 +31,7 @@ Use `docs/VERIFICATION_POLICY.md` labels for every line item:
 npm run test:unit -- --run tests/unit/policyEngine.test.ts
 npm run check
 npm run verify
+npm run live:docker
 gitleaks detect --no-banner --redact --source .
 git diff --check
 ```

@@ -25,6 +25,7 @@ Nothing in testing or verification may be faked, mocked, simulated, or represent
 | meta files | missing/weak | present | `Get-ChildItem AGENTS.md,CLAUDE.md,code_review.md` | 0 |
 | diff check | not captured | pass | `git diff --check` | 0 |
 | prod smoke | not captured | pass; VERIFIED LOCALLY for local startup/health only | `npm run smoke:prod` | 0 |
+| Docker live-local gate | not captured | pass; VERIFIED LOCALLY for clean Linux container deployment and selected real HTTP policy paths | `npm run live:docker` | 0 |
 | browser smoke | not captured | pass; VERIFIED LOCALLY for local render only | Playwright render check against production build | 0 |
 
 ## Not Verified As Live Production Proof
@@ -39,6 +40,7 @@ These paths are not proven live by the local/CI gates and must not be reported a
 | Real OpenAI/OpenAI-compatible image generation | NOT VERIFIED | No real provider credentials/cost-bearing image request was executed in the gate. |
 | Full browser workflow coverage | NOT VERIFIED | Local render smoke exercised startup/render only, not every governed browser action. |
 | Production deployment environment | NOT VERIFIED | Gates ran locally and in CI, not in the final hosting environment. |
+| Hyper-V/Azure VM deployment | BLOCKED | Hyper-V operations require unavailable Windows authorization; Azure CLI requires `az login`. Docker live-local gate passed but is not VM proof. |
 
 ## Definition of Done
 

@@ -27,9 +27,11 @@ Nothing in testing or verification may be faked, mocked, simulated, or represent
 | Dependency audit | STATIC ONLY passing | `npm run audit` exits 0 |
 | Secret scanning | STATIC ONLY passing | `gitleaks detect --no-banner --redact --source .` |
 | Production startup | VERIFIED LOCALLY passing | `npm run smoke:prod` starts the production build and checks local health |
+| Docker live-local deployment | VERIFIED LOCALLY passing | `npm run live:docker` builds a clean Linux image, starts a production container, exercises auth, filesystem API, browser private-network denial, policy audit, missing policy fail-closed behavior, and audit write failure logging |
 | Browser render | VERIFIED LOCALLY passing | `reports/after/browser-prod.png`; local production render only |
 | Self-evolving skill loop | UNIT-LEVEL ONLY passing | Memory-derived skill proposals can be generated/deduped in tests; live production promotion workflow not exercised |
 | Policy-governed live GitHub/MCP/A2A/provider calls | NOT VERIFIED | Requires real credentials/services and live governed calls; not exercised by local unit/static gates |
+| Hyper-V/Azure VM deployment | BLOCKED | Hyper-V operations lack Windows authorization in this session; Azure CLI is not logged in |
 | CI | VERIFIED LOCALLY in CI passing | Ubuntu and Windows matrix with build, tests, audit, SBOM, smoke |
 | Static analysis | STATIC ONLY passing | CodeQL workflow is present; SARIF upload is advisory until GitHub code scanning is enabled for the repo |
 | Supply chain | STATIC ONLY passing | Enforced npm audit, Dependabot, OpenSSF Scorecard, CycloneDX SBOM; GitHub Dependency Review and SARIF upload are advisory until dependency graph / Advanced Security / code scanning support is enabled for the repo |

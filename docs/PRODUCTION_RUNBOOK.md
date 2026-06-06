@@ -29,10 +29,11 @@ Set these values in the deployment environment, never in committed files:
 4. Run `npm run test:unit -- --run tests/unit/policyEngine.test.ts`.
 5. Run `npm run verify`.
 6. Run `gitleaks detect --no-banner --redact --source .`.
-7. Label each verification result using `VERIFIED LIVE`, `VERIFIED LOCALLY`, `UNIT-LEVEL ONLY`, `STATIC ONLY`, `NOT VERIFIED`, or `BLOCKED`.
-8. For every `NOT VERIFIED` or `BLOCKED` live capability, record the exact reason and do not mark that capability green.
-9. For policy/control-plane changes, run `docs/OPERATIONAL_READINESS_GATE.md` and update `reports/policy-control-plane-readiness.md`.
-10. Archive `reports/sbom.cdx.json` with the release artifacts.
+7. Run `npm run live:docker` when Docker Desktop or a Linux Docker host is available.
+8. Label each verification result using `VERIFIED LIVE`, `VERIFIED LOCALLY`, `UNIT-LEVEL ONLY`, `STATIC ONLY`, `NOT VERIFIED`, or `BLOCKED`.
+9. For every `NOT VERIFIED` or `BLOCKED` live capability, record the exact reason and do not mark that capability green.
+10. For policy/control-plane changes, run `docs/OPERATIONAL_READINESS_GATE.md` and update `reports/policy-control-plane-readiness.md`.
+11. Archive `reports/sbom.cdx.json` with the release artifacts.
 
 ## Deploy
 
