@@ -18,6 +18,7 @@ import { v4 as uuidv4 } from "uuid";
 import * as a2aProtocol from "./a2aProtocol.js";
 import * as mcpProtocol from "./mcpProtocol.js";
 import * as cliToolEngine from "./cliToolEngine.js";
+import { resolveInside } from "./pathSafety.js";
 
 // ─── In-memory registries (used for webhooks, agents, servers until persistence) ─
 
@@ -338,9 +339,7 @@ export function registerProtocolRoutes(app: Express) {
     const { command, timeout, workDir, env } = req.body ?? {};
     // Validate workDir is within the sandbox
     if (workDir !== undefined && typeof workDir === "string") {
-      const resolvedWorkDir = require("path").resolve(workDir);
-      const sandboxBase = require("path").resolve("/tmp/ultra-sandbox");
-      if (!resolvedWorkDir.startsWith(sandboxBase)) {
+      if (!resolveInside("/tmp/ultra-sandbox", workDir)) {
         return res.status(400).json({ error: "workDir must be within the sandbox directory (/tmp/ultra-sandbox)" });
       }
     }

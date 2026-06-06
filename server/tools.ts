@@ -15,6 +15,7 @@ import { promisify } from "util";
 import { dockerSandbox } from "./dockerSandbox.js";
 import { BROWSER_TOOL_SCHEMAS, executeBrowserTool } from "./browserTool.js";
 import { IMAGE_GEN_TOOL_SCHEMAS, executeImageGenTool } from "./imageGenTool.js";
+import { resolveInside } from "./pathSafety.js";
 
 const execAsync = promisify(exec);
 
@@ -610,9 +611,8 @@ async function executeSearchWeb(query: string, numResultsStr: string | undefined
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function resolveSandboxPath(filename: string): string {
-  const resolved = path.resolve(SANDBOX_DIR, filename);
-  // Prevent path traversal outside sandbox
-  if (!resolved.startsWith(SANDBOX_DIR)) {
+  const resolved = resolveInside(SANDBOX_DIR, filename);
+  if (!resolved) {
     throw new Error("Path traversal blocked — must stay within sandbox");
   }
   return resolved;

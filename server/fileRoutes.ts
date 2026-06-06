@@ -2,6 +2,7 @@ import type { Express } from "express";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
+import { resolveInside } from "./pathSafety.js";
 
 const SANDBOX_DIR = path.join(process.cwd(), "sandbox");
 
@@ -33,23 +34,7 @@ function paramToPath(param: unknown): string {
  */
 function resolveSafe(relativePath: string): string | null {
   ensureSandboxDir();
-  const base = path.resolve(SANDBOX_DIR);
-  const resolved = path.resolve(base, relativePath);
-  if (!resolved.startsWith(base)) return null;
-  try {
-    const real = fs.realpathSync(resolved);
-    if (!real.startsWith(base)) return null;
-  } catch {
-    // File may not exist yet (write ops) — check parent
-    const parent = path.dirname(resolved);
-    try {
-      const realParent = fs.realpathSync(parent);
-      if (!realParent.startsWith(base)) return null;
-    } catch {
-      // Parent doesn't exist either — OK, will be created in sandbox
-    }
-  }
-  return resolved;
+  return resolveInside(SANDBOX_DIR, relativePath);
 }
 
 interface FileEntry {
