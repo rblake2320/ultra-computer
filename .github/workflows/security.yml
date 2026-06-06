@@ -8,6 +8,7 @@ on:
     - cron: "33 10 * * 1"
 
 permissions:
+  actions: read
   contents: read
   pull-requests: read
   security-events: write
@@ -24,6 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/dependency-review-action@v4
+        continue-on-error: true
 
   scorecard:
     runs-on: ubuntu-latest

@@ -23,7 +23,7 @@ Not a 10 / 10 for unrestricted enterprise GA yet because production identity/ses
 | Browser render | Green | `reports/after/browser-prod.png` |
 | CI | Green | Ubuntu and Windows matrix with build, tests, audit, SBOM, smoke |
 | Static analysis | Green | CodeQL workflow |
-| Supply chain | Green | Dependency Review, Dependabot, OpenSSF Scorecard, CycloneDX SBOM |
+| Supply chain | Green | Enforced npm audit, Dependabot, OpenSSF Scorecard, CycloneDX SBOM; GitHub Dependency Review is advisory until dependency graph / Advanced Security support is enabled for the repo |
 | Operational docs | Green | `docs/PRODUCTION_RUNBOOK.md` |
 | Persistence scale | Yellow | SQLite is single-node launch friendly, not broad GA architecture |
 | Auth model | Yellow | API-key production gate works; first-party session auth remains GA work |
