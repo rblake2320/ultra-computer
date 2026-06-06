@@ -2,7 +2,7 @@
 
 **AI Agent Orchestration Platform** — A production-grade autonomous agent harness with self-healing, self-learning, multi-protocol communication, and tamper-proof identity management.
 
-> **Status**: Launch-candidate hardening branch. Local repository gates are passing; this is not a blanket claim that every live external capability has been exercised. See `docs/VERIFICATION_POLICY.md`, `reports/production-readiness.md`, and `docs/PRODUCTION_RUNBOOK.md` before operating a public deployment.
+> **Status**: Launch-candidate hardening branch. Local repository gates are passing; this is not a blanket claim that every live external capability has been exercised. See `docs/VERIFICATION_POLICY.md`, `docs/OPERATIONAL_READINESS_GATE.md`, `reports/policy-control-plane-readiness.md`, `reports/production-readiness.md`, and `docs/PRODUCTION_RUNBOOK.md` before operating a public deployment.
 
 ---
 

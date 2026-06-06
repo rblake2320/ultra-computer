@@ -4,9 +4,13 @@ import { z } from "zod";
 import { isPathInside } from "./pathSafety.js";
 import { redactValue } from "./redaction.js";
 
-const POLICY_DIR = path.resolve(process.cwd(), "policies");
-const AUDIT_DIR = path.resolve(process.cwd(), "data/policy");
-const AUDIT_FILE = path.join(AUDIT_DIR, "audit.jsonl");
+function policyDir(): string {
+  return path.resolve(process.env.ULTRA_POLICY_DIR || path.join(process.cwd(), "policies"));
+}
+
+function auditFile(): string {
+  return path.resolve(process.env.ULTRA_POLICY_AUDIT_FILE || path.join(process.cwd(), "data/policy/audit.jsonl"));
+}
 
 const domainSchema = z.enum(["tool", "network", "filesystem", "github", "shell"]);
 export type PolicyDomain = z.infer<typeof domainSchema>;
@@ -72,7 +76,7 @@ export interface PolicyAuditRecord extends PolicyDecision {
 const policyFiles = new Map<PolicyDomain, PolicyFile>();
 
 function policyPath(domain: PolicyDomain): string {
-  return path.join(POLICY_DIR, `${domain === "tool" ? "tool" : domain}-access.json`);
+  return path.join(policyDir(), `${domain === "tool" ? "tool" : domain}-access.json`);
 }
 
 function loadPolicy(domain: PolicyDomain): PolicyFile {
@@ -174,7 +178,12 @@ function ruleMatches(rule: PolicyRule, context: PolicyContext): boolean {
 }
 
 export function evaluatePolicy(context: PolicyContext): PolicyDecision {
-  const policy = loadPolicy(context.domain);
+  let policy: PolicyFile;
+  try {
+    policy = loadPolicy(context.domain);
+  } catch (err: any) {
+    return deny(context, `Policy load failed for ${context.domain}: ${err?.message || String(err)}`);
+  }
 
   if (context.domain === "network") {
     const url = parsedUrl(context);
@@ -229,7 +238,7 @@ export function assertPolicyAllowed(context: PolicyContext): PolicyDecision {
   return decision;
 }
 
-export function writePolicyAudit(context: PolicyContext, decision: PolicyDecision): void {
+export function writePolicyAudit(context: PolicyContext, decision: PolicyDecision): boolean {
   const record: PolicyAuditRecord = {
     ...decision,
     timestamp: new Date().toISOString(),
@@ -248,9 +257,12 @@ export function writePolicyAudit(context: PolicyContext, decision: PolicyDecisio
   };
 
   try {
-    fs.mkdirSync(AUDIT_DIR, { recursive: true });
-    fs.appendFileSync(AUDIT_FILE, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch {
-    // Audit logging should never make a policy decision fail closed/open.
+    const target = auditFile();
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.appendFileSync(target, `${JSON.stringify(record)}\n`, "utf-8");
+    return true;
+  } catch (err: any) {
+    console.warn(`[policy] audit write failed: ${redactValue(err?.message || String(err))}`);
+    return false;
   }
 }

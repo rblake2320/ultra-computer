@@ -17,6 +17,7 @@
 - Security audit: `npm run audit`
 - Production smoke: `npm run smoke:prod` after `npm run build`
 - CLI/security changes: `npx tsx tests/adversarial-security.test.ts --cli-only`
+- Operational readiness gate: follow `docs/OPERATIONAL_READINESS_GATE.md` and update `reports/policy-control-plane-readiness.md` when policy/control-plane architecture changes.
 - Evidence rule: follow `docs/VERIFICATION_POLICY.md`. Never report mocked, stubbed, simulated, fixture-based, or unit-only checks as production proof.
 - Status labels: use `VERIFIED LIVE`, `VERIFIED LOCALLY`, `UNIT-LEVEL ONLY`, `STATIC ONLY`, `NOT VERIFIED`, or `BLOCKED` with an exact reason.
 

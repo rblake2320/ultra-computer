@@ -10,6 +10,8 @@ Rating: 9.2 / 10 for repository launch readiness after this hardening pass.
 
 Not a 10 / 10 for unrestricted enterprise GA yet because production identity/session auth, managed multi-node persistence, full telemetry, and broader integration coverage are product/platform work outside the local repo gate.
 
+Detailed control-plane architecture, failure lifecycle, coverage matrix, and current-source best-practice review: `reports/policy-control-plane-readiness.md`.
+
 ## Verification Truthfulness Rule
 
 Nothing in testing or verification may be faked, mocked, simulated, or represented as production proof unless it actually exercises the real behavior being claimed. Unit harnesses, stubs, mocks, fixtures, evaluator-only checks, and static checks must be labeled as such. If a real external capability cannot be exercised locally or remotely, mark it `BLOCKED` or `NOT VERIFIED` with the exact reason and do not round it up to green. See `docs/VERIFICATION_POLICY.md`.
@@ -19,7 +21,7 @@ Nothing in testing or verification may be faked, mocked, simulated, or represent
 | Area | Status | Evidence |
 | --- | --- | --- |
 | Build and type safety | STATIC ONLY passing | `npm run check`, `npm run build` |
-| Unit tests | UNIT-LEVEL ONLY passing | 35 passing tests in the latest local gate |
+| Unit tests | UNIT-LEVEL ONLY passing | 39 passing tests in the latest local gate |
 | Policy evaluator/redaction | UNIT-LEVEL ONLY passing | `tests/unit/policyEngine.test.ts`; does not prove live external tool execution |
 | Coverage capture | UNIT-LEVEL ONLY passing | `npm run test:coverage` |
 | Dependency audit | STATIC ONLY passing | `npm run audit` exits 0 |

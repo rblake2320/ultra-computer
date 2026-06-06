@@ -31,7 +31,8 @@ Set these values in the deployment environment, never in committed files:
 6. Run `gitleaks detect --no-banner --redact --source .`.
 7. Label each verification result using `VERIFIED LIVE`, `VERIFIED LOCALLY`, `UNIT-LEVEL ONLY`, `STATIC ONLY`, `NOT VERIFIED`, or `BLOCKED`.
 8. For every `NOT VERIFIED` or `BLOCKED` live capability, record the exact reason and do not mark that capability green.
-9. Archive `reports/sbom.cdx.json` with the release artifacts.
+9. For policy/control-plane changes, run `docs/OPERATIONAL_READINESS_GATE.md` and update `reports/policy-control-plane-readiness.md`.
+10. Archive `reports/sbom.cdx.json` with the release artifacts.
 
 ## Deploy
 

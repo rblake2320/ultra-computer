@@ -20,12 +20,19 @@ export function redactString(value: string): string {
 }
 
 export function redactValue<T>(value: T): T {
+  return redactValueInner(value, new WeakSet<object>());
+}
+
+function redactValueInner<T>(value: T, seen: WeakSet<object>): T {
   if (typeof value === "string") return redactString(value) as T;
-  if (Array.isArray(value)) return value.map((item) => redactValue(item)) as T;
+  if (Array.isArray(value)) return value.map((item) => redactValueInner(item, seen)) as T;
   if (value && typeof value === "object") {
+    const objectValue = value as Record<string, unknown>;
+    if (seen.has(objectValue)) return "[Circular]" as T;
+    seen.add(objectValue);
     const out: Record<string, unknown> = {};
-    for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = isSensitiveKey(key) ? "[REDACTED]" : redactValue(inner);
+    for (const [key, inner] of Object.entries(objectValue)) {
+      out[key] = isSensitiveKey(key) ? "[REDACTED]" : redactValueInner(inner, seen);
     }
     return out as T;
   }
