@@ -41,6 +41,7 @@ Set these values in the deployment environment, never in committed files:
 - Logs: route server stdout/stderr to the platform log collector.
 - Webhooks: reject unsigned Slack and GitHub webhooks; rotate secrets after incidents.
 - Sandbox: prefer Docker isolation. Avoid fallback host execution for untrusted workloads.
+- Self-evolving skills: review `GET /api/autonomy/skills/proposals` before promotion. Do not auto-promote memory-derived proposals in production without human approval.
 - Queue: run Redis/BullMQ for production job durability when workloads exceed one process.
 - Database: SQLite is acceptable for single-node launch traffic. Move to managed multi-node persistence before broad public GA.
 

@@ -8,6 +8,7 @@
  *   - Circuit breaker monitoring
  *   - Self-learning analytics + feedback
  *   - Skill auto-improvement suggestions
+ *   - Memory-derived skill proposals
  */
 
 import type { Express } from "express";
@@ -33,6 +34,11 @@ import {
   generateImprovements, getImprovementSuggestions,
   applyImprovement, rejectImprovement, getSkillHealth,
 } from "./skillAutoImprove.js";
+import {
+  generateSkillProposals, getSkillProposals,
+  promoteSkillProposal, rejectSkillProposal,
+  type SkillProposalStatus,
+} from "./skillProposalEngine.js";
 
 export function registerAutonomyRoutes(app: Express) {
 
@@ -329,6 +335,57 @@ export function registerAutonomyRoutes(app: Express) {
       rejectImprovement(req.params.id, typeof reason === "string" ? reason : undefined);
       res.json({ ok: true });
     } catch (err: any) { res.status(500).json({ error: err.message ?? "Failed to reject improvement" }); }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // MEMORY-DERIVED SKILL PROPOSALS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  app.get("/api/autonomy/skills/proposals", (req, res) => {
+    const status = req.query.status as SkillProposalStatus | undefined;
+    if (status && !["pending", "promoted", "rejected"].includes(status)) {
+      return res.status(400).json({ error: "status must be pending, promoted, or rejected" });
+    }
+    res.json(getSkillProposals(status));
+  });
+
+  app.post("/api/autonomy/skills/proposals/generate", (req, res) => {
+    const body = req.body ?? {};
+    if (typeof body !== "object" || Array.isArray(body)) {
+      return res.status(400).json({ error: "Request body must be an object" });
+    }
+
+    const minImportance = body.minImportance === undefined ? undefined : Number(body.minImportance);
+    if (minImportance !== undefined && (Number.isNaN(minImportance) || minImportance < 0 || minImportance > 1)) {
+      return res.status(400).json({ error: "minImportance must be between 0 and 1" });
+    }
+
+    const limit = body.limit === undefined ? undefined : Number(body.limit);
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 50)) {
+      return res.status(400).json({ error: "limit must be an integer between 1 and 50" });
+    }
+
+    res.json(generateSkillProposals({ minImportance, limit }));
+  });
+
+  app.post("/api/autonomy/skills/proposals/:id/promote", (req, res) => {
+    const result = promoteSkillProposal(req.params.id);
+    if (!result.promoted && result.reason === "Proposal not found.") {
+      return res.status(404).json(result);
+    }
+    res.json(result);
+  });
+
+  app.post("/api/autonomy/skills/proposals/:id/reject", (req, res) => {
+    const reason = (req.body ?? {}).reason;
+    if (reason !== undefined && typeof reason !== "string") {
+      return res.status(400).json({ error: "reason must be a string" });
+    }
+    const result = rejectSkillProposal(req.params.id, reason);
+    if (!result.rejected && result.reason === "Proposal not found.") {
+      return res.status(404).json(result);
+    }
+    res.json(result);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

@@ -165,6 +165,25 @@ All endpoints are under `/api/`. Key groups:
 
 Full API documentation: [Notion Page](https://www.notion.so/33f16b3224c981dca6c9c74293e36a47)
 
+### Self-Evolving Skill Loop
+
+Ultra Computer can now turn high-signal memory into governed skill proposals:
+
+1. Session context is captured as memory.
+2. Procedural memories are analyzed for repeated workflows.
+3. Draft skill scripts are proposed with evidence, trigger keywords, and sandbox governance notes.
+4. A human promotes or rejects each proposal.
+5. Promoted skills enter the versioned skill-script library and can be improved by the existing skill auto-improvement loop.
+
+Relevant endpoints:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /api/autonomy/skills/proposals` | List skill proposals |
+| `POST /api/autonomy/skills/proposals/generate` | Generate proposals from memory |
+| `POST /api/autonomy/skills/proposals/:id/promote` | Promote a proposal into a skill script |
+| `POST /api/autonomy/skills/proposals/:id/reject` | Reject a proposal with an optional reason |
+
 ---
 
 ## Project Structure

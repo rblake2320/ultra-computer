@@ -21,6 +21,7 @@ Not a 10 / 10 for unrestricted enterprise GA yet because production identity/ses
 | Secret scanning | Green | `gitleaks detect --no-banner --redact --source .` |
 | Production startup | Green | `npm run smoke:prod` |
 | Browser render | Green | `reports/after/browser-prod.png` |
+| Self-evolving skill loop | Green | Memory-derived skill proposals can be generated, reviewed, promoted, or rejected before entering the skill-script library |
 | CI | Green | Ubuntu and Windows matrix with build, tests, audit, SBOM, smoke |
 | Static analysis | Green | CodeQL workflow is present; SARIF upload is advisory until GitHub code scanning is enabled for the repo |
 | Supply chain | Green | Enforced npm audit, Dependabot, OpenSSF Scorecard, CycloneDX SBOM; GitHub Dependency Review and SARIF upload are advisory until dependency graph / Advanced Security / code scanning support is enabled for the repo |
@@ -32,3 +33,7 @@ Not a 10 / 10 for unrestricted enterprise GA yet because production identity/ses
 ## Launch Recommendation
 
 Use this branch as the launch-candidate baseline. For the "next biggest launch" target, run a controlled release first, measure real traffic and failure modes, then finish the GA items before promising high-volume enterprise reliability.
+
+## Competitive Signal Added
+
+The NVIDIA / Nous Hermes pattern of turning organizational memory into reusable skills is now represented as a governed proposal loop. Ultra Computer does not silently mutate production skills from memory; it proposes skill scripts with evidence and requires promotion before use.

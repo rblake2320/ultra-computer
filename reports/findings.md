@@ -79,3 +79,11 @@
 - Root cause: initial hardening focused on local correctness and immediate blockers.
 - Fix: Added CodeQL, Dependency Review, OpenSSF Scorecard, Dependabot, CycloneDX SBOM generation, `npm run verify`, `npm run smoke:prod`, and `docs/PRODUCTION_RUNBOOK.md`.
 - Status: Fixed.
+
+## UC-LOW-004 - Product Loop - Memory Did Not Become Governed Skills
+
+- Severity: Low
+- Evidence: memory capture and skill auto-improvement existed, but there was no reviewable proposal step to turn procedural memory into reusable skills.
+- Root cause: self-improvement focused on existing skills, not new memory-derived skill creation.
+- Fix: Added `server/skillProposalEngine.ts`, autonomy proposal endpoints, and unit coverage for proposal generation/deduplication.
+- Status: Fixed.
