@@ -29,7 +29,7 @@
 - Severity: Medium
 - Evidence: no `.github/workflows` existed.
 - Root cause: Verification commands were documented but not enforced.
-- Fix: Added `.github/workflows/ci.yml` for npm install, typecheck, unit tests, build, and audit on Windows and Ubuntu.
+- Fix: Added `.github/workflows/ci.yml` for npm install, typecheck, unit tests, coverage, build, audit, SBOM generation, and production smoke on Windows and Ubuntu.
 - Status: Fixed.
 
 ## UC-MED-002 - Agent Readiness - Bloated/Drifting Claude Guidance
@@ -71,3 +71,11 @@
 - Root cause: all route pages were statically imported into the initial bundle.
 - Fix: Added route-level lazy loading and manual vendor chunking.
 - Status: Fixed; build exits 0 without chunk warnings.
+
+## UC-LOW-003 - Launch Governance - Missing Security Automation
+
+- Severity: Low
+- Evidence: repository lacked CodeQL, dependency review, dependency update automation, Scorecard, SBOM generation, and production runbook.
+- Root cause: initial hardening focused on local correctness and immediate blockers.
+- Fix: Added CodeQL, Dependency Review, OpenSSF Scorecard, Dependabot, CycloneDX SBOM generation, `npm run verify`, `npm run smoke:prod`, and `docs/PRODUCTION_RUNBOOK.md`.
+- Status: Fixed.

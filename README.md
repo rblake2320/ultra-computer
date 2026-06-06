@@ -2,7 +2,7 @@
 
 **AI Agent Orchestration Platform** — A production-grade autonomous agent harness with self-healing, self-learning, multi-protocol communication, and tamper-proof identity management.
 
-> **Status**: Beta v0.1.0 — Active development, not yet production-hardened.
+> **Status**: Launch-candidate hardening branch. Local production gates are green; see `reports/production-readiness.md` and `docs/PRODUCTION_RUNBOOK.md` before operating a public deployment.
 
 ---
 
@@ -98,14 +98,19 @@ Every user/agent gets a cryptographic identity that cannot be spoofed, faked, or
 
 ```bash
 # Install dependencies
-npm install
+npm ci
 
 # Development (hot reload)
 npm run dev
 
 # Production build
 npm run build
-NODE_ENV=production node dist/index.cjs
+
+# Generate a 64-character ENCRYPTION_KEY value
+npm run gen:key
+
+# Set required production secrets, then start
+npm start
 
 # The app serves on http://localhost:5000
 ```
@@ -117,6 +122,22 @@ NODE_ENV=production node dist/index.cjs
 | `PORT` | Server port | `5000` |
 | `NODE_ENV` | Environment | `development` |
 | `DATABASE_URL` | SQLite path | `./ultra_computer.db` |
+| `ULTRA_API_KEY` | Required bearer token for protected API routes in production | none |
+| `ENCRYPTION_KEY` | Required 64-character hex key for encrypted secrets | none |
+| `SLACK_SIGNING_SECRET` | Required for Slack webhook signature verification | none |
+| `GITHUB_WEBHOOK_SECRET` | Required for GitHub webhook signature verification | none |
+| `ALLOWED_ORIGIN` | Optional CORS origin allowlist | same origin |
+| `GRPC_PORT` | gRPC server port | `50051` |
+
+### Launch Gate
+
+Run the full local launch gate before promoting a build:
+
+```bash
+npm run verify
+```
+
+The gate typechecks, runs unit and coverage suites, builds, audits dependencies, generates an SBOM, and starts the production server for a health smoke test.
 
 ---
 

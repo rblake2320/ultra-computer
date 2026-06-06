@@ -3,14 +3,18 @@
 ## Commands
 - Install: `npm ci`
 - Build: `npm run build`
+- Full gate: `npm run verify`
+- SBOM: `npm run sbom`
 - Dev: `npm run dev` (serves on port 5000)
 - Production smoke: set `ULTRA_API_KEY`, `SLACK_SIGNING_SECRET`, `GITHUB_WEBHOOK_SECRET`, and `ENCRYPTION_KEY`, then run `npm start`
 
 ## Verification
 - Typecheck: `npm run check`
 - Unit tests: `npm run test:unit -- --run`
+- Coverage: `npm run test:coverage`
 - Build: `npm run build`
-- Security audit: `npm audit --audit-level=moderate`
+- Security audit: `npm run audit`
+- Production smoke: `npm run smoke:prod` after `npm run build`
 - CLI/security changes: `npx tsx tests/adversarial-security.test.ts --cli-only`
 
 ## Code Style

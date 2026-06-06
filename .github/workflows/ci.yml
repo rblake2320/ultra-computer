@@ -5,9 +5,17 @@ on:
   push:
     branches: [master, main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
         node: [20.x]
@@ -21,5 +29,13 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run test:unit -- --run
+      - run: npm run test:coverage
       - run: npm run build
-      - run: npm audit --audit-level=moderate
+      - run: npm run audit
+      - run: npm run sbom
+      - run: npm run smoke:prod
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.os }}-node-${{ matrix.node }}
+          path: reports/sbom.cdx.json
+          if-no-files-found: error
