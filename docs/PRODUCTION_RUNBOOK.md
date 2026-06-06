@@ -2,7 +2,9 @@
 
 ## Status
 
-Ultra Computer is a launch-candidate branch when `npm run verify` passes on a clean checkout. Treat public deployment as a controlled launch until session auth, managed persistence, and production telemetry are in place.
+Ultra Computer is a launch-candidate branch when `npm run verify` passes on a clean checkout. Treat public deployment as a controlled launch until session auth, managed persistence, production telemetry, and live external capability verification are in place.
+
+All release claims must follow `docs/VERIFICATION_POLICY.md`. Do not report a mocked, stubbed, simulated, fixture-based, unit-only, or static check as production proof.
 
 ## Required Secrets
 
@@ -27,7 +29,9 @@ Set these values in the deployment environment, never in committed files:
 4. Run `npm run test:unit -- --run tests/unit/policyEngine.test.ts`.
 5. Run `npm run verify`.
 6. Run `gitleaks detect --no-banner --redact --source .`.
-7. Archive `reports/sbom.cdx.json` with the release artifacts.
+7. Label each verification result using `VERIFIED LIVE`, `VERIFIED LOCALLY`, `UNIT-LEVEL ONLY`, `STATIC ONLY`, `NOT VERIFIED`, or `BLOCKED`.
+8. For every `NOT VERIFIED` or `BLOCKED` live capability, record the exact reason and do not mark that capability green.
+9. Archive `reports/sbom.cdx.json` with the release artifacts.
 
 ## Deploy
 

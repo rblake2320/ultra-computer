@@ -3,8 +3,12 @@
 REVIEWED  : correctness, tests, security, supply chain, architecture, docs, CI, agent-readiness, license metadata, UI presence, service posture, secret handling, production launch controls
 FOUND     : 0 critical / 3 high / 4 medium / 2 low
 FIXED     : 9 resolved / 0 deferred
-TESTED    : 26 unit tests passed twice; coverage 37.72% statements after; baseline coverage unavailable
-BENCHMARK : Ultra Computer vs LangGraph, AutoGen, CrewAI; at-par on feature breadth and agent meta files, still behind on ecosystem maturity/release history but local hardening gates are green
+TESTED    : Unit/local/static gates passed; latest local gate has 35 unit tests passing. Unit tests are UNIT-LEVEL ONLY evidence, not live production proof.
+BENCHMARK : Ultra Computer vs LangGraph, AutoGen, CrewAI; at-par on feature breadth and agent meta files, still behind on ecosystem maturity/release history. Local hardening gates are passing, but live external capability coverage is not complete.
+
+## Verification Truthfulness Rule
+
+Nothing in testing or verification may be faked, mocked, simulated, or represented as production proof unless it actually exercises the real behavior being claimed. Unit harnesses, stubs, mocks, fixtures, evaluator-only checks, and static checks must be labeled as such. If a real external capability cannot be exercised locally or remotely, mark it `BLOCKED` or `NOT VERIFIED` with the exact reason and do not round it up to green. See `docs/VERIFICATION_POLICY.md`.
 
 ## Before -> After
 
@@ -13,15 +17,28 @@ BENCHMARK : Ultra Computer vs LangGraph, AutoGen, CrewAI; at-par on feature brea
 | install | failed with broken global npm cache; passed with local cache | pass | `npm ci` | 0 |
 | build | pass with local cache | pass | `npm run build` | 0 |
 | typecheck | pass with local cache | pass | `npm run check` | 0 |
-| tests | pass with local cache | pass twice | `npm run test:unit -- --run` | 0 |
-| coverage | not captured at baseline | pass, 37.72% statements | `npm run test:coverage` | 0 |
+| tests | pass with local cache | pass; UNIT-LEVEL ONLY evidence | `npm run test:unit -- --run` | 0 |
+| coverage | not captured at baseline | pass; UNIT-LEVEL ONLY evidence | `npm run test:coverage` | 0 |
 | dep audit | 35 vulnerabilities | pass | `npm run audit` | 0 |
 | SBOM | not present | pass | `npm run sbom` | 0 |
 | secret scan | not present in baseline | pass | `gitleaks detect --no-banner --redact --source .` | 0 |
 | meta files | missing/weak | present | `Get-ChildItem AGENTS.md,CLAUDE.md,code_review.md` | 0 |
 | diff check | not captured | pass | `git diff --check` | 0 |
-| prod smoke | not captured | pass | `npm run smoke:prod` | 0 |
-| browser smoke | not captured | pass | Playwright render check against production build | 0 |
+| prod smoke | not captured | pass; VERIFIED LOCALLY for local startup/health only | `npm run smoke:prod` | 0 |
+| browser smoke | not captured | pass; VERIFIED LOCALLY for local render only | Playwright render check against production build | 0 |
+
+## Not Verified As Live Production Proof
+
+These paths are not proven live by the local/CI gates and must not be reported as clean or working beyond their actual evidence level:
+
+| Capability | Status | Reason |
+| --- | --- | --- |
+| Real GitHub MCP read/mutation path | NOT VERIFIED | Requires real GitHub credentials and a governed live connector call; local policy tests only prove evaluator behavior. |
+| Real remote MCP servers | NOT VERIFIED | No live remote MCP server was exercised through the governed transport in the gate. |
+| Real remote A2A peers | NOT VERIFIED | No live remote A2A peer was exercised through the governed transport in the gate. |
+| Real OpenAI/OpenAI-compatible image generation | NOT VERIFIED | No real provider credentials/cost-bearing image request was executed in the gate. |
+| Full browser workflow coverage | NOT VERIFIED | Local render smoke exercised startup/render only, not every governed browser action. |
+| Production deployment environment | NOT VERIFIED | Gates ran locally and in CI, not in the final hosting environment. |
 
 ## Definition of Done
 
@@ -42,7 +59,7 @@ BENCHMARK : Ultra Computer vs LangGraph, AutoGen, CrewAI; at-par on feature brea
 - [x] Production runbook and readiness matrix added.
 - [x] Benchmark gap matrix complete; remaining ecosystem maturity items are roadmap, not local gate failures.
 
-STATUS: ALL GREEN - nothing left to do for the current repository hardening gate. Production readiness is launch-candidate with yellow GA items documented in `reports/production-readiness.md`.
+STATUS: REPOSITORY GATES PASSING. This does not mean every live external capability is verified. Production readiness is launch-candidate with yellow GA items and `NOT VERIFIED` live-capability items documented in `reports/production-readiness.md`.
 
 ## Next Steps
 

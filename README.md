@@ -2,7 +2,7 @@
 
 **AI Agent Orchestration Platform** — A production-grade autonomous agent harness with self-healing, self-learning, multi-protocol communication, and tamper-proof identity management.
 
-> **Status**: Launch-candidate hardening branch. Local production gates are green; see `reports/production-readiness.md` and `docs/PRODUCTION_RUNBOOK.md` before operating a public deployment.
+> **Status**: Launch-candidate hardening branch. Local repository gates are passing; this is not a blanket claim that every live external capability has been exercised. See `docs/VERIFICATION_POLICY.md`, `reports/production-readiness.md`, and `docs/PRODUCTION_RUNBOOK.md` before operating a public deployment.
 
 ---
 
@@ -139,6 +139,8 @@ npm run verify
 
 The gate typechecks, runs unit and coverage suites, builds, audits dependencies, generates an SBOM, and starts the production server for a health smoke test.
 
+`npm run verify` is local repository-gate evidence. It must not be reported as production proof for live external providers, connectors, MCP/A2A peers, browser workflows, or deployment environments that were not actually exercised. Use the evidence labels in `docs/VERIFICATION_POLICY.md` for all release reports.
+
 ---
 
 ## Policy-Governed Tool Execution
@@ -161,6 +163,8 @@ Focused verification:
 npm run test:unit -- --run tests/unit/policyEngine.test.ts
 npm run verify
 ```
+
+The policy unit test is `UNIT-LEVEL ONLY` evidence for policy evaluation/redaction behavior. Live tool, GitHub, MCP, A2A, provider, and browser claims require real governed execution through the relevant route.
 
 ---
 
