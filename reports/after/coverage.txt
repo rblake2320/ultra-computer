@@ -1,0 +1,35 @@
+COMMAND: npx vitest run --coverage
+
+ RUN  v4.1.5 C:/Users/techai/AppData/Local/Temp/codex-ultra-computer
+      Coverage enabled with v8
+
+
+ Test Files  4 passed (4)
+      Tests  26 passed (26)
+   Start at  20:44:03
+   Duration  420ms (transform 234ms, setup 0ms, import 301ms, tests 107ms, environment 0ms)
+
+ % Coverage report from v8
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |   37.72 |    42.55 |   29.85 |   43.01 |                   
+ server            |   85.45 |    66.66 |     100 |   89.79 |                   
+  encryption.ts    |   83.78 |    64.28 |     100 |   85.29 | 18,23-27          
+  pathSafety.ts    |   88.88 |       70 |     100 |     100 | 5,21-26           
+ server/graphql    |   15.29 |        0 |    9.67 |   22.41 |                   
+  scalars.ts       |    6.25 |        0 |       0 |    6.66 | 10-37             
+  schema.ts        |   17.39 |        0 |   11.11 |    27.9 | ...31-290,309-311 
+ server/services   |   28.75 |       50 |   36.66 |   27.77 |                   
+  ...ionService.ts |   21.87 |       50 |   44.44 |      20 | 17,31-37,49-78    
+  ...dgeService.ts |   38.46 |       60 |   44.44 |   39.13 | 13,48-56,64-77    
+  modelService.ts  |   27.27 |    16.66 |      25 |   26.31 | 20,35-59,67-84    
+-------------------|---------|----------|---------|---------|-------------------
+
+=============================== Coverage summary ===============================
+Statements   : 37.72% ( 83/220 )
+Branches     : 42.55% ( 40/94 )
+Functions    : 29.85% ( 20/67 )
+Lines        : 43.01% ( 77/179 )
+================================================================================
+exit=0

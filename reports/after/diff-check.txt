@@ -1,0 +1,7 @@
+COMMAND: git diff --check
+warning: in the working copy of 'CLAUDE.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/fileRoutes.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/protocolRoutes.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/tools.ts', LF will be replaced by CRLF the next time Git touches it
+exit=0

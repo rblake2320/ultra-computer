@@ -1,0 +1,157 @@
+COMMAND: npm audit --audit-level=moderate
+# npm audit report
+
+@anthropic-ai/sdk  
+Severity: moderate
+Claude SDK for TypeScript has Insecure Default File Permissions in Local Filesystem Memory Tool - https://github.com/advisories/GHSA-p7fg-763f-g4gf
+No fix available
+node_modules/@anthropic-ai/sdk
+
+@protobufjs/utf8  
+Severity: moderate
+protobufjs has overlong UTF-8 decoding - https://github.com/advisories/GHSA-q6x5-8v7m-xcrf
+No fix available
+node_modules/@protobufjs/utf8
+  protobufjs  
+  Depends on vulnerable versions of @protobufjs/utf8
+  node_modules/@grpc/proto-loader/node_modules/protobufjs
+  node_modules/protobufjs
+    @grpc/proto-loader  
+    Depends on vulnerable versions of protobufjs
+    node_modules/@grpc/proto-loader
+      @grpc/grpc-js  
+      Depends on vulnerable versions of @grpc/proto-loader
+      node_modules/@grpc/grpc-js
+        nice-grpc  
+        Depends on vulnerable versions of @grpc/grpc-js
+        node_modules/nice-grpc
+    protobufjs-cli  
+    Depends on vulnerable versions of protobufjs
+    Depends on vulnerable versions of tmp
+    node_modules/protobufjs-cli
+
+drizzle-orm  
+Severity: high
+Drizzle ORM has SQL injection via improperly escaped SQL identifiers - https://github.com/advisories/GHSA-gpj5-g38j-94v9
+No fix available
+node_modules/drizzle-orm
+  drizzle-zod  
+  Depends on vulnerable versions of drizzle-orm
+  node_modules/drizzle-zod
+
+ip-address  
+Severity: moderate
+ip-address has XSS in Address6 HTML-emitting methods - https://github.com/advisories/GHSA-v2v4-37r5-5v8g
+No fix available
+node_modules/ip-address
+  express-rate-limit  
+  Depends on vulnerable versions of express
+  Depends on vulnerable versions of ip-address
+  node_modules/express-rate-limit
+
+postcss  
+Severity: moderate
+PostCSS has XSS via Unescaped </style> in its CSS Stringify Output - https://github.com/advisories/GHSA-qx2v-qp2m-jg93
+No fix available
+node_modules/postcss
+  autoprefixer  
+  Depends on vulnerable versions of postcss
+  node_modules/autoprefixer
+  postcss-import  
+  Depends on vulnerable versions of postcss
+  node_modules/postcss-import
+  postcss-js  
+  Depends on vulnerable versions of postcss
+  node_modules/postcss-js
+  postcss-load-config  
+  Depends on vulnerable versions of postcss
+  node_modules/postcss-load-config
+  postcss-nested  
+  Depends on vulnerable versions of postcss
+  node_modules/postcss-nested
+  tailwindcss  
+  Depends on vulnerable versions of postcss
+  Depends on vulnerable versions of postcss-import
+  Depends on vulnerable versions of postcss-js
+  Depends on vulnerable versions of postcss-load-config
+  Depends on vulnerable versions of postcss-nested
+  node_modules/tailwindcss
+    @tailwindcss/typography  
+    Depends on vulnerable versions of tailwindcss
+    node_modules/@tailwindcss/typography
+    tailwindcss-animate  
+    Depends on vulnerable versions of tailwindcss
+    node_modules/tailwindcss-animate
+  vite  
+  Depends on vulnerable versions of postcss
+  node_modules/vite
+    @tailwindcss/vite  
+    Depends on vulnerable versions of vite
+    node_modules/@tailwindcss/vite
+    @vitejs/plugin-react  
+    Depends on vulnerable versions of vite
+    node_modules/@vitejs/plugin-react
+    @vitest/mocker  
+    Depends on vulnerable versions of vite
+    node_modules/@vitest/mocker
+    vitest  
+    Depends on vulnerable versions of @vitest/coverage-v8
+    Depends on vulnerable versions of @vitest/mocker
+    Depends on vulnerable versions of vite
+    node_modules/vitest
+      @vitest/coverage-v8  
+      Depends on vulnerable versions of vitest
+      node_modules/@vitest/coverage-v8
+
+
+
+qs  
+Severity: moderate
+qs has a remotely triggerable DoS: qs.stringify crashes with TypeError on null/undefined entries in comma-format arrays when encodeValuesOnly is set - https://github.com/advisories/GHSA-q8mj-m7cp-5q26
+No fix available
+node_modules/qs
+  body-parser  
+  Depends on vulnerable versions of qs
+  node_modules/body-parser
+  express  
+  Depends on vulnerable versions of body-parser
+  Depends on vulnerable versions of qs
+  node_modules/express
+
+tmp  
+Severity: high
+tmp has Path Traversal via unsanitized prefix/postfix that enables directory escape - https://github.com/advisories/GHSA-ph9p-34f9-6g65
+fix available via `npm audit fix`
+node_modules/tmp
+
+uuid  
+Severity: moderate
+uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided - https://github.com/advisories/GHSA-w5hq-g745-h8pq
+uuid: Missing buffer bounds check in v3/v5/v6 when buf is provided - https://github.com/advisories/GHSA-w5hq-g745-h8pq
+No fix available
+node_modules/bullmq/node_modules/uuid
+node_modules/uuid
+  bullmq  
+  Depends on vulnerable versions of uuid
+  node_modules/bullmq
+
+ws  
+Severity: moderate
+ws: Uninitialized memory disclosure - https://github.com/advisories/GHSA-58qx-3vcg-4xpx
+No fix available
+node_modules/ws
+  graphql-ws  
+  Depends on vulnerable versions of ws
+  node_modules/graphql-ws
+  openai  
+  Depends on vulnerable versions of ws
+  node_modules/openai
+
+35 vulnerabilities (27 moderate, 8 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+Some issues need review, and may require choosing
+a different dependency.
+exit=1

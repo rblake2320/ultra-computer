@@ -1,0 +1,20 @@
+COMMAND: npm ci
+npm warn cleanup Failed to remove some directories [
+npm warn cleanup   [
+npm warn cleanup     '\\\\?\\C:\\Users\\techai\\AppData\\Local\\Temp\\codex-ultra-computer\\node_modules\\@graphql-tools',
+npm warn cleanup     [Error: EPERM: operation not permitted, rmdir 'C:\Users\techai\AppData\Local\Temp\codex-ultra-computer\node_modules\@graphql-tools'] {
+npm warn cleanup       errno: -4048,
+npm warn cleanup       code: 'EPERM',
+npm warn cleanup       syscall: 'rmdir',
+npm warn cleanup       path: 'C:\\Users\\techai\\AppData\\Local\\Temp\\codex-ultra-computer\\node_modules\\@graphql-tools'
+npm warn cleanup     }
+npm warn cleanup   ]
+npm warn cleanup ]
+npm error code UNKNOWN
+npm error syscall stat
+npm error path D:\dev\npm-cache\_cacache\content-v2\sha512\fa\11\2244888fa1b832b85944a239ea8c99e116f838aff8b772a81c9baede7a165ffd605a2b783a703d36614f66b5d571663bfc0b3080f67fd186bb37c8002f03
+npm error errno -4094
+npm error UNKNOWN: unknown error, stat 'D:\dev\npm-cache\_cacache\content-v2\sha512\fa\11\2244888fa1b832b85944a239ea8c99e116f838aff8b772a81c9baede7a165ffd605a2b783a703d36614f66b5d571663bfc0b3080f67fd186bb37c8002f03'
+npm error Log files were not written due to an error writing to the directory: D:\dev\npm-cache\_logs
+npm error You can rerun the command with `--loglevel=verbose` to see the logs in your terminal
+exit=-4094

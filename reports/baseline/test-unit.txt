@@ -1,0 +1,7 @@
+COMMAND: npm run test:unit -- --run
+npm error code UNKNOWN
+npm error syscall write
+npm error errno -4094
+npm error UNKNOWN: unknown error, write
+npm error A complete log of this run can be found in: D:\dev\npm-cache\_logs\2026-06-06T01_38_23_297Z-debug-0.log
+exit=-4094

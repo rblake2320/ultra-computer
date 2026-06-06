@@ -1,0 +1,10 @@
+COMMAND: manual license metadata check
+Proprietary License
+
+Copyright (c) 2026 Blakes Innovations. All rights reserved.
+
+This repository and its contents are proprietary. No license is granted to use,
+copy, modify, distribute, sublicense, or create derivative works from this
+software without prior written permission from Blakes Innovations.
+UNLICENSED
+exit=0

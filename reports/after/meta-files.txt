@@ -1,0 +1,15 @@
+COMMAND: Get-ChildItem AGENTS.md,CLAUDE.md,code_review.md,LICENSE,SECURITY.md,CONTRIBUTING.md,CHANGELOG.md,.editorconfig,CODEOWNERS
+
+Name            Length
+----            ------
+AGENTS.md         1240
+CLAUDE.md           23
+code_review.md     591
+LICENSE            304
+SECURITY.md        785
+CONTRIBUTING.md    478
+CHANGELOG.md       549
+.editorconfig      188
+CODEOWNERS          14
+
+exit=0

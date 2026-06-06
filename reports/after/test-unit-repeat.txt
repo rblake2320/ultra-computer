@@ -1,0 +1,15 @@
+COMMAND: npm run test:unit -- --run
+
+> rest-express@1.0.0 test:unit
+> vitest run --run
+
+
+ RUN  v4.1.5 C:/Users/techai/AppData/Local/Temp/codex-ultra-computer
+
+
+ Test Files  4 passed (4)
+      Tests  26 passed (26)
+   Start at  20:44:01
+   Duration  608ms (transform 188ms, setup 0ms, import 297ms, tests 91ms, environment 0ms)
+
+exit=0

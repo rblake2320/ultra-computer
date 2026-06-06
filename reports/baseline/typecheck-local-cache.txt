@@ -1,0 +1,6 @@
+COMMAND: npm run check
+
+> rest-express@1.0.0 check
+> tsc
+
+exit=0

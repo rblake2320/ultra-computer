@@ -1,0 +1,38 @@
+COMMAND: npm run build
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+building client...
+[36mvite v7.3.2 [32mbuilding client environment for production...[36m[39m
+transforming...
+[32m✓[39m 2531 modules transformed.
+[plugin vite:reporter] 
+(!) C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/lib/queryClient.ts is dynamically imported by C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/ChatPage.tsx but also statically imported by C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/App.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/components/Layout.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/components/NotificationCenter.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/components/ThemeProvider.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/AutonomyPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/BrowserPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/CachePage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/ChatPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/ConnectorsPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/FileBrowserPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/IdentityPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/KnowledgePage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/MarketplacePage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/MemoryPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/MessagingPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/ModelsPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/NIPPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/ProtocolsPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/SandboxPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/SettingsPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/SkillLibraryPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/SkillsPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/SwarmPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/TokenDashboardPage.tsx, C:/Users/techai/AppData/Local/Temp/codex-ultra-computer/client/src/pages/WelcomePage.tsx, dynamic import will not move module into another chunk.
+
+rendering chunks...
+computing gzip size...
+[2m../dist/public/[22m[32mindex.html                 [39m[1m[2m    2.06 kB[22m[1m[22m[2m │ gzip:   0.78 kB[22m
+[2m../dist/public/[22m[35massets/index-BQu1LJnO.css  [39m[1m[2m  108.38 kB[22m[1m[22m[2m │ gzip:  17.53 kB[22m
+[2m../dist/public/[22m[36massets/index-BjaKtyuX.js   [39m[1m[33m1,264.71 kB[39m[22m[2m │ gzip: 343.12 kB[22m
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+[32m✓ built in 4.54s[39m
+building server...
+▲ [WARNING] "import.meta" is not available with the "cjs" output format and will be empty [empty-import-meta]
+
+    server/grpc/server.ts:12:33:
+      12 │ const __filename = fileURLToPath(import.meta.url);
+         ╵                                  ~~~~~~~~~~~
+
+  You need to set the output format to "esm" for "import.meta" to work correctly.
+
+1 warning
+
+  dist\index.cjs  1.8mb
+
+Done in 135ms
+exit=0
