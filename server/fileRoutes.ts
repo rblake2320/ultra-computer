@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import { resolveInside } from "./pathSafety.js";
+import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 
 const SANDBOX_DIR = path.join(process.cwd(), "sandbox");
 
@@ -35,6 +36,13 @@ function paramToPath(param: unknown): string {
 function resolveSafe(relativePath: string): string | null {
   ensureSandboxDir();
   return resolveInside(SANDBOX_DIR, relativePath);
+}
+
+function isFilesystemAllowed(action: "filesystem:read" | "filesystem:write" | "filesystem:list", filePath: string, metadata?: Record<string, unknown>): { ok: boolean; reason?: string } {
+  const context = { domain: "filesystem" as const, action, tool: "sandbox.files", path: filePath, metadata };
+  const decision = evaluatePolicy(context);
+  writePolicyAudit(context, decision);
+  return decision.allowed ? { ok: true } : { ok: false, reason: decision.reason };
 }
 
 interface FileEntry {
@@ -120,6 +128,8 @@ export function registerFileRoutes(app: Express) {
         if (!resolved) return cb(new Error("Invalid destination path"), "");
         targetDir = resolved;
       }
+      const allowed = isFilesystemAllowed("filesystem:write", targetDir, { destination: dest || "." });
+      if (!allowed.ok) return cb(new Error(`Policy denied: ${allowed.reason}`), "");
       fs.mkdirSync(targetDir, { recursive: true });
       cb(null, targetDir);
     },
@@ -137,6 +147,8 @@ export function registerFileRoutes(app: Express) {
   // ─── GET /api/sandbox/files ────────────────────────────────────────────────
   app.get("/api/sandbox/files", (_req, res) => {
     ensureSandboxDir();
+    const allowed = isFilesystemAllowed("filesystem:list", SANDBOX_DIR);
+    if (!allowed.ok) return res.status(403).json({ error: `Policy denied: ${allowed.reason}` });
     const entries = walkDir(SANDBOX_DIR, SANDBOX_DIR);
     res.json({ files: entries, sandboxDir: SANDBOX_DIR });
   });
@@ -156,6 +168,8 @@ export function registerFileRoutes(app: Express) {
     const relativePath = paramToPath(rawParam);
     const resolved = resolveSafe(relativePath);
     if (!resolved) return res.status(400).json({ error: "Invalid path" });
+    const allowed = isFilesystemAllowed("filesystem:read", resolved, { relativePath, download: true });
+    if (!allowed.ok) return res.status(403).json({ error: `Policy denied: ${allowed.reason}` });
     if (!fs.existsSync(resolved)) return res.status(404).json({ error: "File not found" });
 
     const stat = fs.statSync(resolved);
@@ -181,6 +195,8 @@ export function registerFileRoutes(app: Express) {
     const relativePath = paramToPath(rawParam);
     const resolved = resolveSafe(relativePath);
     if (!resolved) return res.status(400).json({ error: "Invalid path" });
+    const allowed = isFilesystemAllowed("filesystem:read", resolved, { relativePath });
+    if (!allowed.ok) return res.status(403).json({ error: `Policy denied: ${allowed.reason}` });
     if (!fs.existsSync(resolved)) return res.status(404).json({ error: "File not found" });
 
     const stat = fs.statSync(resolved);
@@ -231,6 +247,8 @@ export function registerFileRoutes(app: Express) {
     const relativePath = paramToPath(rawParam);
     const resolved = resolveSafe(relativePath);
     if (!resolved) return res.status(400).json({ error: "Invalid path" });
+    const allowed = isFilesystemAllowed("filesystem:write", resolved, { relativePath, delete: true });
+    if (!allowed.ok) return res.status(403).json({ error: `Policy denied: ${allowed.reason}` });
     if (!fs.existsSync(resolved)) return res.status(404).json({ error: "File not found" });
 
     let stat: fs.Stats;

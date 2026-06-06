@@ -141,6 +141,29 @@ The gate typechecks, runs unit and coverage suites, builds, audits dependencies,
 
 ---
 
+## Policy-Governed Tool Execution
+
+Agent effectiveness layers such as memory, skills, MCP, A2A, browser automation, and shell tools are constrained by the policy control plane. Policies are JSON files under `policies/` and every file uses deny-by-default semantics:
+
+| Policy | Scope |
+|--------|-------|
+| `policies/tool-access.json` | Top-level tool names that may be invoked. |
+| `policies/filesystem-access.json` | Filesystem read/write/list/search/execute roots. |
+| `policies/network-access.json` | Outbound public HTTP(S) methods and network actions. Private, loopback, link-local, and `.local` targets are hard-denied by the evaluator. |
+| `policies/shell-access.json` | Shell command patterns allowed or denied before execution. |
+| `policies/github-access.json` | GitHub connector and MCP tool operations, with mutating tools denied pending an explicit approval workflow. |
+
+Server-side policy loading and validation live in `server/policyEngine.ts`. Tool, shell, filesystem, browser, connector, MCP, A2A, CLI, and protocol HTTP execution paths route decisions through the evaluator where they touch external capability boundaries. Policy decisions are written to `data/policy/audit.jsonl` with redacted command, URL, path, actor/context, and metadata fields.
+
+Focused verification:
+
+```bash
+npm run test:unit -- --run tests/unit/policyEngine.test.ts
+npm run verify
+```
+
+---
+
 ## API Overview
 
 All endpoints are under `/api/`. Key groups:

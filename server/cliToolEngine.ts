@@ -15,6 +15,8 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
 import { v4 as uuidv4 } from "uuid";
+import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
+import { isSensitiveKey, redactEnv, redactString } from "./redaction.js";
 
 const execAsync = promisify(exec);
 
@@ -241,7 +243,10 @@ function buildSafeEnv(extraEnv?: Record<string, string>): Record<string, string>
     const val = process.env[key];
     if (val !== undefined) safe[key] = val;
   }
-  return { ...safe, ...(extraEnv ?? {}) };
+  for (const [key, value] of Object.entries(extraEnv ?? {})) {
+    if (!isSensitiveKey(key)) safe[key] = value;
+  }
+  return safe;
 }
 
 export async function executeCommand(
@@ -253,7 +258,33 @@ export async function executeCommand(
   // Use safe env: only curated keys + caller-provided extras (not full process.env)
   const env = buildSafeEnv(opts.env);
 
+  const fileContext = { domain: "filesystem" as const, action: "filesystem:execute", tool: "cli.execute", path: workDir, metadata: { env: redactEnv(opts.env) } };
+  const fileDecision = evaluatePolicy(fileContext);
+  writePolicyAudit(fileContext, fileDecision);
+  if (!fileDecision.allowed) {
+    return {
+      stdout: "",
+      stderr: `Policy denied: ${fileDecision.reason}`,
+      exitCode: 1,
+      duration: 0,
+      timedOut: false,
+    };
+  }
+
   await ensureSandbox(workDir);
+
+  const shellContext = { domain: "shell" as const, action: "shell:execute", tool: "cli.execute", command: cmd, metadata: { env: redactEnv(opts.env) } };
+  const shellDecision = evaluatePolicy(shellContext);
+  writePolicyAudit(shellContext, shellDecision);
+  if (!shellDecision.allowed) {
+    return {
+      stdout: "",
+      stderr: `Policy denied: ${shellDecision.reason}`,
+      exitCode: 1,
+      duration: 0,
+      timedOut: false,
+    };
+  }
 
   const validation = validateCommand(cmd);
   if (!validation.safe) {
@@ -313,8 +344,8 @@ export async function executeCommand(
         runningProcesses.delete(proc.pid);
       }
       resolve({
-        stdout,
-        stderr,
+        stdout: redactString(stdout),
+        stderr: redactString(stderr),
         exitCode: code,
         duration: Date.now() - start,
         timedOut,
@@ -328,8 +359,8 @@ export async function executeCommand(
         runningProcesses.delete(proc.pid);
       }
       resolve({
-        stdout,
-        stderr: stderr + "\n" + err.message,
+        stdout: redactString(stdout),
+        stderr: redactString(stderr + "\n" + err.message),
         exitCode: 1,
         duration: Date.now() - start,
         timedOut,
@@ -674,7 +705,7 @@ export function validateCommand(
   for (const entry of allBlocked) {
     if (entry.pattern.test(cmd)) {
       // Audit log: record every blocked command for security review.
-      console.warn(`[cliToolEngine] BLOCKED command | rule: ${entry.pattern.source} | reason: ${entry.reason} | cmd: ${cmd.slice(0, 200)}`);
+      console.warn(`[cliToolEngine] BLOCKED command | rule: ${entry.pattern.source} | reason: ${entry.reason} | cmd: ${redactString(cmd).slice(0, 200)}`);
       return { safe: false, reason: entry.reason, matchedRule: entry.pattern.source };
     }
   }
@@ -728,6 +759,25 @@ export async function executeHttpRequest(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   const start = Date.now();
+  const policyContext = {
+    domain: "network" as const,
+    action: "network:http_request",
+    tool: "cli.http",
+    url,
+    method,
+    metadata: { headers },
+  };
+  const policyDecision = evaluatePolicy(policyContext);
+  writePolicyAudit(policyContext, policyDecision);
+  if (!policyDecision.allowed) {
+    clearTimeout(timer);
+    return {
+      status: 0,
+      headers: {},
+      body: { error: `Policy denied: ${policyDecision.reason}` },
+      duration: Date.now() - start,
+    };
+  }
 
   try {
     let fetchBody: BodyInit | undefined;

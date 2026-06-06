@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "domain": "network",
+  "defaultEffect": "deny",
+  "rules": [
+    {
+      "id": "network-public-http-read",
+      "effect": "allow",
+      "actions": ["network:fetch", "network:search", "network:browse", "network:http_request", "network:connector_validate", "network:mcp_call", "network:ai_provider", "network:image_download"],
+      "urlSchemes": ["http:", "https:"],
+      "urlHosts": ["*"],
+      "methods": ["GET", "HEAD", "OPTIONS", "POST"],
+      "reason": "Outbound public HTTP(S) is allowed for governed read/search/API calls; private network targets are still hard-denied by the evaluator."
+    }
+  ]
+}

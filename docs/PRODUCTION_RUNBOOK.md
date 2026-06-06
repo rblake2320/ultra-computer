@@ -23,9 +23,11 @@ Set these values in the deployment environment, never in committed files:
 
 1. Confirm Node.js 20+.
 2. Run `npm ci`.
-3. Run `npm run verify`.
-4. Run `gitleaks detect --no-banner --redact --source .`.
-5. Archive `reports/sbom.cdx.json` with the release artifacts.
+3. Review `policies/*-access.json` for the release. They are deny-by-default; do not add broad allow rules for launch convenience.
+4. Run `npm run test:unit -- --run tests/unit/policyEngine.test.ts`.
+5. Run `npm run verify`.
+6. Run `gitleaks detect --no-banner --redact --source .`.
+7. Archive `reports/sbom.cdx.json` with the release artifacts.
 
 ## Deploy
 
@@ -39,6 +41,7 @@ Set these values in the deployment environment, never in committed files:
 
 - Health: `GET /api/health`.
 - Logs: route server stdout/stderr to the platform log collector.
+- Policy audit: ship `data/policy/audit.jsonl` to the log collector. Records include domain/action, tool/action, allow/deny, reason, actor/session when available, and redacted command/URL/path/metadata.
 - Webhooks: reject unsigned Slack and GitHub webhooks; rotate secrets after incidents.
 - Sandbox: prefer Docker isolation. Avoid fallback host execution for untrusted workloads.
 - Self-evolving skills: review `GET /api/autonomy/skills/proposals` before promotion. Do not auto-promote memory-derived proposals in production without human approval.

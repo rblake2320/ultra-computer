@@ -16,6 +16,8 @@ import { dockerSandbox } from "./dockerSandbox.js";
 import { BROWSER_TOOL_SCHEMAS, executeBrowserTool } from "./browserTool.js";
 import { IMAGE_GEN_TOOL_SCHEMAS, executeImageGenTool } from "./imageGenTool.js";
 import { resolveInside } from "./pathSafety.js";
+import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
+import { redactString } from "./redaction.js";
 
 const execAsync = promisify(exec);
 
@@ -151,6 +153,11 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
 export async function executeTool(name: string, args: Record<string, string>, sessionId: string = "default"): Promise<ToolResult> {
   const start = Date.now();
   try {
+    const context = { domain: "tool" as const, action: "tool:execute", tool: name, sessionId, metadata: args };
+    const decision = evaluatePolicy(context);
+    writePolicyAudit(context, decision);
+    if (!decision.allowed) return policyDeniedResult(decision.reason, start);
+
     switch (name) {
       case "bash": return await executeBash(args.command, start, sessionId);
       case "write_file": return executeWriteFile(args.filename, args.content, start);
@@ -159,7 +166,13 @@ export async function executeTool(name: string, args: Record<string, string>, se
       case "fetch_url": return await executeFetchUrl(args.url, args.extract_text === "true", start);
       case "calculator": return executeCalculator(args.expression, start);
       case "search_files": return await executeSearchFiles(args.pattern, args.directory, args.file_glob, start);
-      case "browse_url":
+      case "browse_url": {
+        const networkContext = { domain: "network" as const, action: "network:browse", tool: "browse_url", url: args.url, method: "GET", sessionId };
+        const networkDecision = evaluatePolicy(networkContext);
+        writePolicyAudit(networkContext, networkDecision);
+        if (!networkDecision.allowed) return policyDeniedResult(networkDecision.reason, start);
+        return await executeBrowserTool(name, args);
+      }
       case "browser_action":
       case "browser_evaluate":
       case "browser_pdf":
@@ -176,9 +189,23 @@ export async function executeTool(name: string, args: Record<string, string>, se
   }
 }
 
+function policyDeniedResult(reason: string, start: number): ToolResult {
+  return {
+    success: false,
+    output: "",
+    error: `Policy denied: ${reason}`,
+    durationMs: Date.now() - start,
+  };
+}
+
 // ─── bash ─────────────────────────────────────────────────────────────────────
 async function executeBash(command: string, start: number, sessionId: string = "default"): Promise<ToolResult> {
   if (!command) return { success: false, output: "", error: "No command provided", durationMs: 0 };
+
+  const context = { domain: "shell" as const, action: "shell:execute", tool: "bash", command, sessionId };
+  const decision = evaluatePolicy(context);
+  writePolicyAudit(context, decision);
+  if (!decision.allowed) return policyDeniedResult(decision.reason, start);
 
   // Try Docker sandbox first, fall back to host process
   if (await dockerSandbox.isActive()) {
@@ -192,7 +219,7 @@ async function executeBashDocker(command: string, start: number, sessionId: stri
   try {
     const result = await dockerSandbox.exec(sessionId, command, SANDBOX_DIR);
 
-    const output = result.stdout + (result.stderr ? `\n[stderr]: ${result.stderr}` : "");
+    const output = redactString(result.stdout + (result.stderr ? `\n[stderr]: ${result.stderr}` : ""));
 
     if (result.timedOut) {
       return {
@@ -211,7 +238,7 @@ async function executeBashDocker(command: string, start: number, sessionId: stri
     };
   } catch (err: any) {
     // If Docker fails, fall back to host process for this command
-    console.warn(`[tools/bash] Docker exec failed, falling back to host: ${err.message}`);
+    console.warn(`[tools/bash] Docker exec failed, falling back to host: ${redactString(err.message)}`);
     return executeBashHost(command, start);
   }
 }
@@ -234,7 +261,7 @@ async function executeBashHost(command: string, start: number): Promise<ToolResu
       env: safeEnv,
     });
 
-    const output = stdout + (stderr ? `\n[stderr]: ${stderr}` : "");
+    const output = redactString(stdout + (stderr ? `\n[stderr]: ${stderr}` : ""));
     return {
       success: true,
       output: output.slice(0, 50_000), // cap at 50K chars
@@ -242,10 +269,10 @@ async function executeBashHost(command: string, start: number): Promise<ToolResu
     };
   } catch (err: any) {
     // exec errors include stdout/stderr on the error object
-    const output = (err.stdout || "") + (err.stderr ? `\n[stderr]: ${err.stderr}` : "");
+    const output = redactString((err.stdout || "") + (err.stderr ? `\n[stderr]: ${err.stderr}` : ""));
     return {
       success: false,
-      output: output.slice(0, 50_000) || err.message,
+      output: output.slice(0, 50_000) || redactString(err.message),
       error: err.killed ? "Command timed out (30s limit)" : `Exit code ${err.code}`,
       durationMs: Date.now() - start,
     };
@@ -262,6 +289,11 @@ function executeWriteFile(filename: string, content: string, start: number): Too
   }
 
   const safePath = resolveSandboxPath(filename);
+  const context = { domain: "filesystem" as const, action: "filesystem:write", tool: "write_file", path: safePath, metadata: { filename } };
+  const decision = evaluatePolicy(context);
+  writePolicyAudit(context, decision);
+  if (!decision.allowed) return policyDeniedResult(decision.reason, start);
+
   const dir = path.dirname(safePath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
@@ -281,6 +313,11 @@ function executeReadFile(filename: string, start: number): ToolResult {
   if (!filename) return { success: false, output: "", error: "No filename provided", durationMs: 0 };
 
   const safePath = resolveSandboxPath(filename);
+  const context = { domain: "filesystem" as const, action: "filesystem:read", tool: "read_file", path: safePath, metadata: { filename } };
+  const decision = evaluatePolicy(context);
+  writePolicyAudit(context, decision);
+  if (!decision.allowed) return policyDeniedResult(decision.reason, start);
+
   if (!fs.existsSync(safePath)) {
     return { success: false, output: "", error: `File not found: ${filename}`, durationMs: Date.now() - start };
   }
@@ -304,6 +341,11 @@ function executeReadFile(filename: string, start: number): ToolResult {
 // ─── list_files ───────────────────────────────────────────────────────────────
 function executeListFiles(directory: string | undefined, start: number): ToolResult {
   const dir = resolveSandboxPath(directory || ".");
+  const context = { domain: "filesystem" as const, action: "filesystem:list", tool: "list_files", path: dir, metadata: { directory } };
+  const decision = evaluatePolicy(context);
+  writePolicyAudit(context, decision);
+  if (!decision.allowed) return policyDeniedResult(decision.reason, start);
+
   if (!fs.existsSync(dir)) {
     return { success: false, output: "", error: `Directory not found: ${directory}`, durationMs: Date.now() - start };
   }
@@ -337,6 +379,10 @@ function listDirRecursive(base: string, current: string, depth: number, maxDepth
 // ─── fetch_url ────────────────────────────────────────────────────────────────
 async function executeFetchUrl(url: string, extractText: boolean, start: number): Promise<ToolResult> {
   if (!url) return { success: false, output: "", error: "No URL provided", durationMs: 0 };
+  const context = { domain: "network" as const, action: "network:fetch", tool: "fetch_url", url, method: "GET" };
+  const decision = evaluatePolicy(context);
+  writePolicyAudit(context, decision);
+  if (!decision.allowed) return policyDeniedResult(decision.reason, start);
 
   // Validate URL
   let parsedUrl: URL;
@@ -486,6 +532,11 @@ async function executeSearchFiles(pattern: string, directory: string | undefined
   if (!pattern) return { success: false, output: "", error: "No pattern provided", durationMs: 0 };
 
   const dir = resolveSandboxPath(directory || ".");
+  const context = { domain: "filesystem" as const, action: "filesystem:search", tool: "search_files", path: dir, metadata: { directory, fileGlob } };
+  const decision = evaluatePolicy(context);
+  writePolicyAudit(context, decision);
+  if (!decision.allowed) return policyDeniedResult(decision.reason, start);
+
   if (!fs.existsSync(dir)) {
     return { success: false, output: "", error: `Directory not found`, durationMs: Date.now() - start };
   }
@@ -519,6 +570,10 @@ async function executeSearchWeb(query: string, numResultsStr: string | undefined
 
   // Use DuckDuckGo HTML search (no API key required)
   const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}&kl=us-en`;
+  const context = { domain: "network" as const, action: "network:search", tool: "search_web", url: searchUrl, method: "GET", metadata: { query, numResults } };
+  const decision = evaluatePolicy(context);
+  writePolicyAudit(context, decision);
+  if (!decision.allowed) return policyDeniedResult(decision.reason, start);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "domain": "filesystem",
+  "defaultEffect": "deny",
+  "rules": [
+    {
+      "id": "filesystem-agent-sandbox",
+      "effect": "allow",
+      "actions": ["filesystem:read", "filesystem:write", "filesystem:list", "filesystem:search"],
+      "pathRoots": ["sandbox"],
+      "reason": "Agent file tools are constrained to the repo-local sandbox directory."
+    },
+    {
+      "id": "filesystem-cli-sandbox",
+      "effect": "allow",
+      "actions": ["filesystem:execute", "filesystem:read", "filesystem:write"],
+      "pathRoots": ["tmpSandbox"],
+      "reason": "Protocol CLI execution is constrained to /tmp/ultra-sandbox."
+    }
+  ]
+}

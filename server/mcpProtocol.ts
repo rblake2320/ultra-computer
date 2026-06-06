@@ -17,6 +17,7 @@ import { v4 as uuidv4 } from "uuid";
 import { storage } from "./storage.js";
 import { TOOL_SCHEMAS, executeTool } from "./tools.js";
 import crypto from "crypto";
+import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 
 // ─── MCP Protocol Version ─────────────────────────────────────────────────────
 
@@ -838,6 +839,21 @@ async function sendRemoteRequest(
   method: string,
   params?: Record<string, unknown>
 ): Promise<unknown> {
+  const policyContext = {
+    domain: "network" as const,
+    action: "network:mcp_call",
+    tool: "mcp.remote",
+    toolName: method,
+    url: connection.url,
+    method: "POST",
+    metadata: { serverId: connection.id, serverName: connection.name, headers: connection.headers },
+  };
+  const policyDecision = evaluatePolicy(policyContext);
+  writePolicyAudit(policyContext, policyDecision);
+  if (!policyDecision.allowed) {
+    throw new Error(`Policy denied: ${policyDecision.reason}`);
+  }
+
   connection._requestCounter++;
   const requestId = `${connection.id}-${connection._requestCounter}`;
 
@@ -907,6 +923,19 @@ async function sendRemoteNotification(
   method: string,
   params?: Record<string, unknown>
 ): Promise<void> {
+  const policyContext = {
+    domain: "network" as const,
+    action: "network:mcp_call",
+    tool: "mcp.remote",
+    toolName: method,
+    url: connection.url,
+    method: "POST",
+    metadata: { serverId: connection.id, serverName: connection.name, headers: connection.headers },
+  };
+  const policyDecision = evaluatePolicy(policyContext);
+  writePolicyAudit(policyContext, policyDecision);
+  if (!policyDecision.allowed) return;
+
   const body = {
     jsonrpc: "2.0" as const,
     method,

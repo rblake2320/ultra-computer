@@ -14,6 +14,7 @@
  */
 
 import { storage } from "./storage.js";
+import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -528,6 +529,20 @@ export async function validateConnectorKey(
     // No validation URL — accept as-is (can't verify without calling the API)
     return { valid: true };
   }
+  const networkContext = { domain: "network" as const, action: "network:connector_validate", tool: "connector.validate", connectorId, url: def.validateUrl, method: connectorId === "linear" ? "POST" : "GET" };
+  const networkDecision = evaluatePolicy(networkContext);
+  writePolicyAudit(networkContext, networkDecision);
+  if (!networkDecision.allowed) {
+    return { valid: false, error: `Policy denied: ${networkDecision.reason}` };
+  }
+  if (connectorId === "github") {
+    const githubContext = { domain: "github" as const, action: "github:validate", tool: "connector.validate", connectorId, toolName: "validate" };
+    const githubDecision = evaluatePolicy(githubContext);
+    writePolicyAudit(githubContext, githubDecision);
+    if (!githubDecision.allowed) {
+      return { valid: false, error: `Policy denied: ${githubDecision.reason}` };
+    }
+  }
   try {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -580,6 +595,14 @@ export async function callMCPTool(
   if (!SAFE_TOOL_NAME.test(toolName)) {
     throw new Error(`Invalid tool name: '${toolName}'. Tool names must match [a-zA-Z0-9_\\-\\.]{1,128}`);
   }
+  if (connectorId === "github") {
+    const githubContext = { domain: "github" as const, action: "github:tool", tool: "mcp.tool", connectorId, toolName, metadata: args };
+    const githubDecision = evaluatePolicy(githubContext);
+    writePolicyAudit(githubContext, githubDecision);
+    if (!githubDecision.allowed) {
+      throw new Error(`Policy denied: ${githubDecision.reason}`);
+    }
+  }
 
   const connector = storage.getConnector(connectorId);
   if (!connector) throw new Error(`Connector ${connectorId} not found`);
@@ -606,6 +629,12 @@ export async function callMCPTool(
   }
   if (!["http:", "https:"].includes(parsedUrl.protocol)) {
     throw new Error("MCP server URL must use http or https");
+  }
+  const networkContext = { domain: "network" as const, action: "network:mcp_call", tool: "mcp.tool", connectorId, toolName, url: serverUrl, method: "POST", metadata: args };
+  const networkDecision = evaluatePolicy(networkContext);
+  writePolicyAudit(networkContext, networkDecision);
+  if (!networkDecision.allowed) {
+    throw new Error(`Policy denied: ${networkDecision.reason}`);
   }
 
   const controller = new AbortController();

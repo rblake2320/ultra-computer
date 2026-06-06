@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "domain": "github",
+  "defaultEffect": "deny",
+  "rules": [
+    {
+      "id": "github-deny-mutating-tools",
+      "effect": "deny",
+      "actions": ["github:tool"],
+      "connectors": ["github"],
+      "toolNamePatterns": ["(^|[._-])(create|update|delete|remove|merge|close|comment|write|admin|invite|transfer|enable|disable)([._-]|$)"],
+      "reason": "Mutating GitHub actions require an explicit future approval workflow."
+    },
+    {
+      "id": "github-token-validation",
+      "effect": "allow",
+      "actions": ["github:validate"],
+      "connectors": ["github"],
+      "reason": "GitHub token validation may call the provider user endpoint without granting mutation access."
+    },
+    {
+      "id": "github-read-only-tools",
+      "effect": "allow",
+      "actions": ["github:tool"],
+      "connectors": ["github"],
+      "toolNamePatterns": ["(^|[._-])(get|list|search|read|view|fetch|find|status|diff)([._-]|$)", "^(get|list|search|read|view|fetch|find|status|diff)"],
+      "reason": "Read-only GitHub operations are allowed through connected tools."
+    }
+  ]
+}

@@ -19,6 +19,7 @@ import * as a2aProtocol from "./a2aProtocol.js";
 import * as mcpProtocol from "./mcpProtocol.js";
 import * as cliToolEngine from "./cliToolEngine.js";
 import { resolveInside } from "./pathSafety.js";
+import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 
 // ─── In-memory registries (used for webhooks, agents, servers until persistence) ─
 
@@ -454,6 +455,12 @@ export function registerProtocolRoutes(app: Express) {
     const resolvedMethod = (method || "GET").toUpperCase();
     if (!allowedMethods.includes(resolvedMethod)) {
       return res.status(400).json({ error: `method must be one of: ${allowedMethods.join(", ")}` });
+    }
+    const policyContext = { domain: "network" as const, action: "network:http_request", tool: "protocol.http", url, method: resolvedMethod, metadata: { headers } };
+    const policyDecision = evaluatePolicy(policyContext);
+    writePolicyAudit(policyContext, policyDecision);
+    if (!policyDecision.allowed) {
+      return res.status(403).json({ error: `Policy denied: ${policyDecision.reason}` });
     }
     try {
       // Basic implementation using built-in fetch

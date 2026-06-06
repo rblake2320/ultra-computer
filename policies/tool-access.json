@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "domain": "tool",
+  "defaultEffect": "deny",
+  "rules": [
+    {
+      "id": "tool-local-safe",
+      "effect": "allow",
+      "tools": ["calculator", "read_file", "write_file", "list_files", "search_files"],
+      "actions": ["tool:execute"],
+      "reason": "Local sandbox tools are allowed when their domain-specific filesystem policy also allows them."
+    },
+    {
+      "id": "tool-network-delegated",
+      "effect": "allow",
+      "tools": ["fetch_url", "search_web", "browse_url"],
+      "actions": ["tool:execute"],
+      "reason": "Network tools are allowed only after network policy evaluation succeeds."
+    },
+    {
+      "id": "tool-shell-delegated",
+      "effect": "allow",
+      "tools": ["bash"],
+      "actions": ["tool:execute"],
+      "reason": "Shell tool access is allowed only after shell policy evaluation succeeds."
+    },
+    {
+      "id": "tool-browser-session-local",
+      "effect": "allow",
+      "tools": ["browser_action", "browser_evaluate", "browser_pdf", "browser_wait", "browser_resize", "browser_close"],
+      "actions": ["tool:execute"],
+      "reason": "Browser session operations are allowed after a governed navigation has established the session."
+    },
+    {
+      "id": "tool-image-generation",
+      "effect": "allow",
+      "tools": ["generate_image"],
+      "actions": ["tool:execute"],
+      "reason": "Image generation is allowed only when provider/download network policy and sandbox write policy also allow it."
+    }
+  ]
+}

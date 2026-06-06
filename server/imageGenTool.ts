@@ -15,6 +15,8 @@ import http from "http";
 import OpenAI from "openai";
 import { storage } from "./storage.js";
 import type { ToolSchema, ToolResult } from "./tools.js";
+import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
+import { redactString } from "./redaction.js";
 
 // ─── Sandbox directory ────────────────────────────────────────────────────────
 
@@ -170,6 +172,26 @@ async function executeGenerateImage(
     clientOptions.baseURL = imageModel.baseUrl;
   }
 
+  const providerUrl = imageModel.baseUrl || "https://api.openai.com/v1";
+  const providerContext = {
+    domain: "network" as const,
+    action: "network:ai_provider",
+    tool: "generate_image",
+    url: providerUrl,
+    method: "POST",
+    metadata: { provider: imageModel.provider, modelId: imageModel.modelId },
+  };
+  const providerDecision = evaluatePolicy(providerContext);
+  writePolicyAudit(providerContext, providerDecision);
+  if (!providerDecision.allowed) {
+    return {
+      success: false,
+      output: "",
+      error: `Policy denied: ${providerDecision.reason}`,
+      durationMs: Date.now() - start,
+    };
+  }
+
   const openai = new OpenAI(clientOptions);
 
   let imageResponse: OpenAI.Images.ImagesResponse;
@@ -190,7 +212,7 @@ async function executeGenerateImage(
     return {
       success: false,
       output: "",
-      error: `Image generation API call failed: ${message}`,
+      error: `Image generation API call failed: ${redactString(message)}`,
       durationMs: Date.now() - start,
     };
   }
@@ -222,22 +244,34 @@ async function executeGenerateImage(
     const outputPath = path.join(IMAGES_DIR, filename);
 
     try {
+      const fileContext = {
+        domain: "filesystem" as const,
+        action: "filesystem:write",
+        tool: "generate_image",
+        path: outputPath,
+        metadata: { filename },
+      };
+      const fileDecision = evaluatePolicy(fileContext);
+      writePolicyAudit(fileContext, fileDecision);
+      if (!fileDecision.allowed) {
+        throw new Error(`Policy denied: ${fileDecision.reason}`);
+      }
       await downloadFile(imageUrl, outputPath);
       artifacts.push({ path: outputPath, type: "image/png" });
       savedPaths.push(`images/${filename}`);
     } catch (downloadErr: any) {
       // If download fails, record the URL so the agent can still use it
-      savedPaths.push(`(download failed, URL: ${imageUrl})`);
+      savedPaths.push(redactString(`(download failed, URL: ${imageUrl})`));
     }
   }
 
   const revisedPrompt = imageResponse.data[0]?.revised_prompt;
   const outputLines: string[] = [
     `Generated ${savedPaths.length} image(s) using model '${imageModel.name}' (${imageModel.modelId}).`,
-    `Prompt: ${prompt}`,
+    `Prompt: ${redactString(prompt)}`,
   ];
   if (revisedPrompt && revisedPrompt !== prompt) {
-    outputLines.push(`Revised prompt (DALL-E 3): ${revisedPrompt}`);
+    outputLines.push(`Revised prompt (DALL-E 3): ${redactString(revisedPrompt)}`);
   }
   outputLines.push("");
   outputLines.push("Saved files:");
@@ -260,6 +294,21 @@ async function executeGenerateImage(
 function downloadFile(url: string, dest: string, hopCount = 0): Promise<void> {
   return new Promise((resolve, reject) => {
     const parsedUrl = new URL(url);
+    const policyContext = {
+      domain: "network" as const,
+      action: "network:image_download",
+      tool: "generate_image",
+      url: parsedUrl.toString(),
+      method: "GET",
+      metadata: { dest, hopCount },
+    };
+    const policyDecision = evaluatePolicy(policyContext);
+    writePolicyAudit(policyContext, policyDecision);
+    if (!policyDecision.allowed) {
+      reject(new Error(`Policy denied: ${policyDecision.reason}`));
+      return;
+    }
+
     const client = parsedUrl.protocol === "https:" ? https : http;
 
     const request = client.get(url, { timeout: 60_000 }, (response) => {
@@ -276,7 +325,8 @@ function downloadFile(url: string, dest: string, hopCount = 0): Promise<void> {
           reject(new Error('Too many redirects (max 5)'));
           return;
         }
-        downloadFile(response.headers.location, dest, hopCount + 1).then(resolve, reject);
+        const nextUrl = new URL(response.headers.location, parsedUrl).toString();
+        downloadFile(nextUrl, dest, hopCount + 1).then(resolve, reject);
         return;
       }
 

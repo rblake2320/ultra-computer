@@ -11,6 +11,7 @@
 ## Verification
 - Typecheck: `npm run check`
 - Unit tests: `npm run test:unit -- --run`
+- Policy tests: `npm run test:unit -- --run tests/unit/policyEngine.test.ts`
 - Coverage: `npm run test:coverage`
 - Build: `npm run build`
 - Security audit: `npm run audit`
@@ -26,11 +27,13 @@
 - Generated protobuf files: `shared/generated/**`.
 - Audit evidence images under `audit/*.png` are historical artifacts.
 - Do not read, print, or commit `.env*`, private keys, webhook secrets, or API keys.
+- Agent/tool permissions live in `policies/*-access.json` and are deny-by-default. Do not broaden policy rules to make a feature or test pass; wire the feature through the policy evaluator and keep the policy as the hard constraint.
 
 ## Non-Obvious Patterns
 - Raw request bodies are required for Slack/GitHub HMAC verification.
 - Sandbox file APIs must reject prefix siblings such as `sandbox2`, not just `../` traversal.
 - Browser clients can set `window.__ULTRA_API_KEY__`; EventSource auth uses an `api_key` query parameter because native EventSource cannot send custom headers.
+- Policy decisions are audited to `data/policy/audit.jsonl` with command, URL, path, and metadata redacted before write.
 
 ## Versions
 - Node.js 20+.

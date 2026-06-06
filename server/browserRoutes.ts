@@ -1,5 +1,17 @@
 import type { Express, Request, Response } from "express";
 import { listBrowserSessions, getBrowserSessionInfo, executeBrowserTool, takeSessionScreenshot } from "./browserTool.js";
+import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
+
+function enforceToolPolicy(res: Response, tool: string, metadata: Record<string, unknown>): boolean {
+  const context = { domain: "tool" as const, action: "tool:execute", tool, metadata };
+  const decision = evaluatePolicy(context);
+  writePolicyAudit(context, decision);
+  if (!decision.allowed) {
+    res.status(403).json({ error: `Policy denied: ${decision.reason}` });
+    return false;
+  }
+  return true;
+}
 
 export function registerBrowserRoutes(app: Express) {
 
@@ -51,6 +63,12 @@ export function registerBrowserRoutes(app: Express) {
       if (screenshot !== undefined) args.screenshot = String(screenshot);
       if (extract_text !== undefined) args.extract_text = String(extract_text);
 
+      if (!enforceToolPolicy(res, "browse_url", args)) return;
+      const networkContext = { domain: "network" as const, action: "network:browse", tool: "browse_url", url: urlStr, method: "GET", metadata: args };
+      const networkDecision = evaluatePolicy(networkContext);
+      writePolicyAudit(networkContext, networkDecision);
+      if (!networkDecision.allowed) return res.status(403).json({ error: `Policy denied: ${networkDecision.reason}` });
+
       const result = await executeBrowserTool("browse_url", args);
       res.json(result);
     } catch (err: any) {
@@ -71,6 +89,7 @@ export function registerBrowserRoutes(app: Express) {
       if (direction !== undefined) args.direction = String(direction);
       if (session !== undefined) args.session = String(session);
 
+      if (!enforceToolPolicy(res, "browser_action", args)) return;
       const result = await executeBrowserTool("browser_action", args);
       res.json(result);
     } catch (err: any) {
@@ -91,6 +110,7 @@ export function registerBrowserRoutes(app: Express) {
       const args: Record<string, string> = { script: scriptStr };
       if (session !== undefined) args.session = String(session);
 
+      if (!enforceToolPolicy(res, "browser_evaluate", { ...args, script: "[browser script]" })) return;
       const result = await executeBrowserTool("browser_evaluate", args);
       res.json(result);
     } catch (err: any) {
@@ -103,6 +123,7 @@ export function registerBrowserRoutes(app: Express) {
   app.get("/api/browser/screenshot/:session", async (req: Request, res: Response) => {
     try {
       const sessionKey = (req.params.session as string);
+      if (!enforceToolPolicy(res, "browser_action", { action: "screenshot", session: sessionKey })) return;
       const png = await takeSessionScreenshot(sessionKey);
       if (!png) return res.status(404).json({ error: "No active session found" });
       res.setHeader("Content-Type", "image/png");
@@ -125,6 +146,7 @@ export function registerBrowserRoutes(app: Express) {
       if (device !== undefined) args.device = String(device);
       if (session !== undefined) args.session = String(session);
 
+      if (!enforceToolPolicy(res, "browser_resize", args)) return;
       const result = await executeBrowserTool("browser_resize", args);
       res.json(result);
     } catch (err: any) {
@@ -137,6 +159,7 @@ export function registerBrowserRoutes(app: Express) {
   app.delete("/api/browser/sessions/:session", async (req: Request, res: Response) => {
     try {
       const sessionKey = (req.params.session as string);
+      if (!enforceToolPolicy(res, "browser_close", { session: sessionKey })) return;
       const result = await executeBrowserTool("browser_close", { session: sessionKey });
       res.json(result);
     } catch (err: any) {
