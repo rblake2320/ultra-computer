@@ -38,7 +38,7 @@ BENCHMARK : Ultra Computer vs LangGraph, AutoGen, CrewAI; at-par on feature brea
 - [x] README quickstart still matches npm commands.
 - [x] `SECURITY.md`, `CONTRIBUTING.md`, `LICENSE`, `CHANGELOG.md`, `CODEOWNERS`, `.editorconfig` present.
 - [x] CI matrix added for Windows and Ubuntu on Node 20.
-- [x] CodeQL, Dependency Review, OpenSSF Scorecard, Dependabot, and SBOM artifact workflows added.
+- [x] CodeQL, Dependency Review, OpenSSF Scorecard, Dependabot, and SBOM artifact workflows added. GitHub-only code scanning uploads are advisory until repository security analysis features are enabled.
 - [x] Production runbook and readiness matrix added.
 - [x] Benchmark gap matrix complete; remaining ecosystem maturity items are roadmap, not local gate failures.
 

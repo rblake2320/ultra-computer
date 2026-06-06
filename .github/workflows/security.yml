@@ -41,3 +41,4 @@ jobs:
       - uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: scorecard-results.sarif
+        continue-on-error: true
