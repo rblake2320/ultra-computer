@@ -24,11 +24,13 @@ Use `docs/VERIFICATION_POLICY.md` labels for every line item:
 7. Recovery and rollback path.
 8. CI, dependency, SBOM, secret-scan, and static-analysis path.
 9. Live external capability proof, or explicit `NOT VERIFIED`/`BLOCKED`.
+10. Durable execution proof for agent work, or explicit `UNIT ONLY`/`NOT VERIFIED`/`BLOCKED`.
 
 ## Current Commands
 
 ```bash
 npm run test:unit -- --run tests/unit/policyEngine.test.ts
+npm run test:unit -- --run tests/unit/durableExecution.test.ts tests/unit/taskQueue.test.ts
 npm run check
 npm run verify
 npm run live:docker
@@ -44,6 +46,7 @@ LIVE_DOCKER_CLEAN_IMAGE=true npm run live:docker
 
 ## Current Report
 
-The current gate report is `reports/policy-control-plane-readiness.md`.
+The current policy/control-plane gate report is `reports/policy-control-plane-readiness.md`.
+The current durable execution gate report is `reports/durable-execution-readiness.md`.
 
 Do not convert its `UNIT ONLY`, `STATIC ONLY`, `NOT VERIFIED`, `BLOCKED`, or `GAP ACCEPTED` entries into green release claims unless new evidence actually exercises the real behavior being claimed.

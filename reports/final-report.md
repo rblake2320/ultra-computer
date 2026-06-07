@@ -3,8 +3,9 @@
 REVIEWED  : correctness, tests, security, supply chain, architecture, docs, CI, agent-readiness, license metadata, UI presence, service posture, secret handling, production launch controls
 FOUND     : 0 critical / 3 high / 4 medium / 2 low
 FIXED     : 9 resolved / 0 deferred
-TESTED    : Unit/local/static gates passed; latest local gate has 39 unit tests passing. Unit tests are UNIT-LEVEL ONLY evidence, not live production proof.
+TESTED    : Unit/local/static gates passed; latest local gate has 45 unit tests passing. Unit tests are UNIT-LEVEL ONLY evidence, not live production proof.
 BENCHMARK : Ultra Computer vs LangGraph, AutoGen, CrewAI; at-par on feature breadth and agent meta files, still behind on ecosystem maturity/release history. Local hardening gates are passing, but live external capability coverage is not complete.
+DURABILITY: Agent execution now has durable-ready run/step ledgers, workflow IDs, idempotency keys, retry classification, and no-stub queue processor behavior. This is not Temporal/Durable Task-grade production proof; exact crash/restart resume remains NOT VERIFIED.
 
 ## Verification Truthfulness Rule
 
@@ -25,8 +26,9 @@ Nothing in testing or verification may be faked, mocked, simulated, or represent
 | meta files | missing/weak | present | `Get-ChildItem AGENTS.md,CLAUDE.md,code_review.md` | 0 |
 | diff check | not captured | pass | `git diff --check` | 0 |
 | prod smoke | not captured | pass; VERIFIED LOCALLY for local startup/health only | `npm run smoke:prod` | 0 |
-| Docker live-local gate | not captured | pass; VERIFIED LOCALLY for clean Linux container deployment and selected real HTTP policy paths | `npm run live:docker` | 0 |
+| Docker live-local gate | not captured | previously pass; latest 2026-06-07 rerun BLOCKED because Docker Desktop Linux engine was unavailable in this session | `npm run live:docker` | 1 |
 | browser smoke | not captured | pass; VERIFIED LOCALLY for local render only | Playwright render check against production build | 0 |
+| durable execution unit gate | not captured | pass; UNIT-LEVEL ONLY for persisted ledger, idempotency records, retry classification, policy-audit correlation, and no-stub queue processor behavior | `npm run test:unit -- --run tests/unit/durableExecution.test.ts tests/unit/taskQueue.test.ts` | 0 |
 
 ## Not Verified As Live Production Proof
 
@@ -40,7 +42,9 @@ These paths are not proven live by the local/CI gates and must not be reported a
 | Real OpenAI/OpenAI-compatible image generation | NOT VERIFIED | No real provider credentials/cost-bearing image request was executed in the gate. |
 | Full browser workflow coverage | NOT VERIFIED | Local render smoke exercised startup/render only, not every governed browser action. |
 | Production deployment environment | NOT VERIFIED | Gates ran locally and in CI, not in the final hosting environment. |
-| Hyper-V/Azure VM deployment | BLOCKED | Hyper-V operations require unavailable Windows authorization; Azure CLI requires `az login`. Docker live-local gate passed but is not VM proof. |
+| Docker live-local rerun | BLOCKED | Docker client exists, but the Docker Desktop Linux engine pipe was unavailable on 2026-06-07, so this change does not have a fresh Docker proof. |
+| Hyper-V/Azure VM deployment | BLOCKED | Hyper-V operations require unavailable Windows authorization; Azure CLI requires `az login`. Docker live-local gate, when available, is not VM proof. |
+| Temporal/Durable Task-grade agent execution | NOT VERIFIED | No real Temporal service, Microsoft Durable Task Scheduler, or equivalent durable runtime was started and crash/restart/resume behavior was not exercised. See `reports/durable-execution-readiness.md`. |
 
 ## Definition of Done
 

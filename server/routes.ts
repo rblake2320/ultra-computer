@@ -27,9 +27,10 @@ import { registerNIPRoutes } from "./nipRoutes.js";
 import { registerIdentityRoutes } from "./identityRoutes.js";
 import { setIdentityEngine } from "./nipEngine.js";
 import { identityEngine } from "./identityEngine.js";
-import { taskQueue } from "./taskQueue.js";
+import { estimateTaskDuration, taskQueue } from "./taskQueue.js";
 import { initWatchdog, getHealthStatus } from "./processWatchdog.js";
 import { startCheckpointHeartbeats } from "./taskCheckpointing.js";
+import { workflowIdFromMessage } from "./durableExecution.js";
 import { startScheduler } from "./cronScheduler.js";
 import { startLearningLoop } from "./selfLearning.js";
 import { startAutoImproveLoop } from "./skillAutoImprove.js";
@@ -99,6 +100,16 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   console.log("[autonomy] All autonomous systems initialized: watchdog, checkpointing, cron, learning, skill-improvement");
 
   // ─── Initialize task queue (non-blocking) ──────────────────────────────────
+  taskQueue.setProcessor(async (task) => {
+    await runOrchestrator(task.conversationId, task.userMessage, {
+      workflowId: workflowIdFromMessage(task.taskId),
+      idempotencyKey: `message:${task.taskId}`,
+      messageId: task.taskId,
+      executionMode: "bullmq",
+    });
+    return "orchestrator completed";
+  });
+
   taskQueue.initialize().then(available => {
     if (available) console.log("[taskQueue] BullMQ connected to Redis");
     else console.log("[taskQueue] Redis not available — queue disabled (graceful fallback). " +
@@ -378,8 +389,50 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
     res.status(201).json(userMsg);
 
-    // Run orchestrator async (non-blocking)
-    runOrchestrator(convId, content).catch(err => {
+    const workflowId = workflowIdFromMessage(userMsg.id);
+    const estimatedDuration = estimateTaskDuration(content, storage.getTasks(convId).length);
+
+    if (taskQueue.isAvailable()) {
+      taskQueue.enqueue({
+        conversationId: convId,
+        taskId: userMsg.id,
+        userMessage: content,
+        estimatedDuration,
+      }).then((jobId) => {
+        if (jobId.startsWith("unavailable:") || jobId.startsWith("error:")) {
+          console.warn(`[routes] Queue degraded for message ${userMsg.id}; falling back to direct in-process execution.`);
+          runOrchestrator(convId, content, {
+            workflowId,
+            idempotencyKey: `message:${userMsg.id}`,
+            messageId: userMsg.id,
+            executionMode: "direct",
+          }).catch(orchestratorErr => {
+            console.error("Orchestrator error:", orchestratorErr);
+          });
+          return;
+        }
+        console.log(`[routes] Enqueued orchestrator workflow ${workflowId} as job ${jobId}.`);
+      }).catch(err => {
+        console.error("[routes] Queue enqueue failed; falling back to direct orchestrator:", err);
+        runOrchestrator(convId, content, {
+          workflowId,
+          idempotencyKey: `message:${userMsg.id}`,
+          messageId: userMsg.id,
+          executionMode: "direct",
+        }).catch(orchestratorErr => {
+          console.error("Orchestrator error:", orchestratorErr);
+        });
+      });
+      return;
+    }
+
+    // Run orchestrator async (non-blocking). This is NOT durable execution proof.
+    runOrchestrator(convId, content, {
+      workflowId,
+      idempotencyKey: `message:${userMsg.id}`,
+      messageId: userMsg.id,
+      executionMode: "direct",
+    }).catch(err => {
       console.error("Orchestrator error:", err);
     });
   });

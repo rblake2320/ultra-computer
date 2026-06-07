@@ -4,7 +4,8 @@
  * Long-running agent tasks that are estimated to exceed ~30 s are offloaded
  * here instead of running synchronously inside the HTTP request lifecycle.
  * If Redis is unavailable the queue gracefully degrades: isAvailable() returns
- * false and every enqueue / status / cancel call is a safe no-op.
+ * false and callers can fall back to direct execution. The queue must never
+ * report stubbed work as successfully completed.
  */
 
 import { Queue, Worker, Job, QueueEvents } from "bullmq";
@@ -18,6 +19,8 @@ export interface QueuedTask {
   userMessage: string;
   estimatedDuration: "short" | "medium" | "long";
 }
+
+export type QueuedTaskProcessor = (task: QueuedTask) => Promise<string | void>;
 
 export type JobStatus = {
   status: string;
@@ -67,40 +70,6 @@ export function estimateTaskDuration(
 
 // ─── Worker Processor ────────────────────────────────────────────────────────
 
-/**
- * Placeholder processor — the real orchestrator integration wires in later.
- * For now we log and immediately return a stub result so jobs complete cleanly.
- */
-async function processTask(job: Job<QueuedTask>): Promise<string> {
-  const { conversationId, taskId, userMessage, estimatedDuration } = job.data;
-
-  console.log(
-    `[TaskQueue] Would process job ${job.id}: ` +
-      `conversationId=${conversationId} taskId=${taskId} ` +
-      `estimatedDuration=${estimatedDuration} ` +
-      `messageLength=${userMessage.length}`
-  );
-
-  // Simulate progress reporting so the status endpoint returns useful data.
-  await job.updateProgress(10);
-
-  // Stub: real implementation calls the orchestrator here.
-  console.log(
-    `[TaskQueue] Stub execution complete for taskId=${taskId}. ` +
-      `Real orchestrator integration pending.`
-  );
-
-  await job.updateProgress(100);
-
-  return JSON.stringify({
-    taskId,
-    conversationId,
-    status: "stub_complete",
-    message:
-      "Task queued and processed by stub worker. Orchestrator integration pending.",
-  });
-}
-
 // ─── TaskQueue Class ─────────────────────────────────────────────────────────
 
 export class TaskQueue {
@@ -108,9 +77,42 @@ export class TaskQueue {
   private worker: Worker<QueuedTask, string> | null = null;
   private queueEvents: QueueEvents | null = null;
   private redisConnection: IORedis | null = null;
+  private processor: QueuedTaskProcessor | null = null;
   private available = false;
 
   constructor() {}
+
+  setProcessor(processor: QueuedTaskProcessor | null): void {
+    this.processor = processor;
+  }
+
+  async processJob(
+    job: Pick<Job<QueuedTask>, "id" | "data" | "updateProgress">
+  ): Promise<string> {
+    if (!this.processor) {
+      throw new Error("Task queue processor is not configured; refusing to mark job complete.");
+    }
+
+    const { conversationId, taskId, userMessage, estimatedDuration } = job.data;
+
+    console.log(
+      `[TaskQueue] Processing job ${job.id}: ` +
+        `conversationId=${conversationId} taskId=${taskId} ` +
+        `estimatedDuration=${estimatedDuration} ` +
+        `messageLength=${userMessage.length}`
+    );
+
+    await job.updateProgress(10);
+    const processorResult = await this.processor(job.data);
+    await job.updateProgress(100);
+
+    return JSON.stringify({
+      taskId,
+      conversationId,
+      status: "orchestrator_complete",
+      result: processorResult ?? "completed",
+    });
+  }
 
   /**
    * Attempts to connect to Redis and spin up the BullMQ queue + worker.
@@ -161,7 +163,7 @@ export class TaskQueue {
 
       this.worker = new Worker<QueuedTask, string>(
         "ultra-tasks",
-        processTask,
+        (job) => this.processJob(job),
         {
           connection: workerRedis,
           concurrency: 4,
@@ -224,7 +226,7 @@ export class TaskQueue {
         "[TaskQueue] enqueue called but queue is unavailable — skipping.",
         { taskId: task.taskId }
       );
-      // Return a synthetic ID so callers can store it without null-checks.
+      // Return a synthetic ID so callers can detect degraded mode without null-checks.
       return `unavailable:${task.taskId}:${Date.now()}`;
     }
 
@@ -259,10 +261,6 @@ export class TaskQueue {
    * Returns null if the job is unknown or the queue is unavailable.
    */
   async getJobStatus(jobId: string): Promise<JobStatus | null> {
-    if (!this.available || !this.queue) {
-      return null;
-    }
-
     // Synthetic IDs returned during degraded mode — report as unavailable.
     if (jobId.startsWith("unavailable:") || jobId.startsWith("error:")) {
       return {
@@ -270,6 +268,10 @@ export class TaskQueue {
         progress: 0,
         error: "Task queue was unavailable when this job was submitted.",
       };
+    }
+
+    if (!this.available || !this.queue) {
+      return null;
     }
 
     try {

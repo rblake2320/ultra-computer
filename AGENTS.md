@@ -17,8 +17,10 @@
 - Security audit: `npm run audit`
 - Production smoke: `npm run smoke:prod` after `npm run build`
 - Docker live-local gate: `npm run live:docker`
+- Durable execution unit gate: `npm run test:unit -- --run tests/unit/durableExecution.test.ts tests/unit/taskQueue.test.ts`
 - CLI/security changes: `npx tsx tests/adversarial-security.test.ts --cli-only`
 - Operational readiness gate: follow `docs/OPERATIONAL_READINESS_GATE.md` and update `reports/policy-control-plane-readiness.md` when policy/control-plane architecture changes.
+- Durable execution gate: follow `docs/DURABLE_EXECUTION_GATE.md` and update `reports/durable-execution-readiness.md` when agent execution, queueing, retries, checkpoints, or tool-call orchestration changes.
 - Evidence rule: follow `docs/VERIFICATION_POLICY.md`. Never report mocked, stubbed, simulated, fixture-based, or unit-only checks as production proof.
 - Status labels: use `VERIFIED LIVE`, `VERIFIED LOCALLY`, `UNIT-LEVEL ONLY`, `STATIC ONLY`, `NOT VERIFIED`, or `BLOCKED` with an exact reason.
 
@@ -33,6 +35,7 @@
 - Do not read, print, or commit `.env*`, private keys, webhook secrets, or API keys.
 - Agent/tool permissions live in `policies/*-access.json` and are deny-by-default. Do not broaden policy rules to make a feature or test pass; wire the feature through the policy evaluator and keep the policy as the hard constraint.
 - Do not round policy evaluator tests up to live tool proof. They are unit-level evidence unless the real governed route and real external capability were exercised.
+- Do not call agent execution production-durable unless a real durable runtime such as Temporal, Microsoft Durable Task, or an equivalent is started and crash/restart/resume behavior is exercised. BullMQ, local JSON ledgers, and unit tests are useful boundaries but not exact workflow replay proof.
 
 ## Non-Obvious Patterns
 - Raw request bodies are required for Slack/GitHub HMAC verification.

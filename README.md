@@ -146,6 +146,8 @@ The gate typechecks, runs unit and coverage suites, builds, audits dependencies,
 
 `npm run live:docker` builds and runs a clean Linux production container from a digest-pinned Node base image as a non-root runtime user, then exercises selected real HTTP paths. It is Docker live-local proof, not Hyper-V/Azure VM proof and not proof of real third-party provider behavior. Set `LIVE_DOCKER_CLEAN_IMAGE=true` to remove the local proof image after the run.
 
+Durable execution status is tracked in `docs/DURABLE_EXECUTION_GATE.md` and `reports/durable-execution-readiness.md`. Current durable-run ledgers, idempotency keys, and queue processor tests are useful local/unit evidence, but they are not production proof of Temporal/Durable Task-style crash/restart resume.
+
 ---
 
 ## Policy-Governed Tool Execution

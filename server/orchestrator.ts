@@ -26,6 +26,13 @@ import { analyzeTaskComplexity, routeToOptimalModel } from "./modelSpeedRouter.j
 import { logExecution } from "./selfLearning.js";
 import { knowledgeEngine } from "./knowledgeEngine.js";
 import { swarmEngine } from "./swarmEngine.js";
+import {
+  beginDurableRun,
+  classifyRetry,
+  markDurableRunStatus,
+  recordDurableStep,
+  workflowIdFromMessage,
+} from "./durableExecution.js";
 import type { Task } from "@shared/schema";
 
 // IPC directory for filesystem-based inter-agent communication
@@ -85,23 +92,61 @@ interface TaskPlan {
   skillIds: string[];
 }
 
+export interface OrchestratorRunOptions {
+  workflowId?: string;
+  idempotencyKey?: string;
+  messageId?: string;
+  executionMode?: "direct" | "bullmq";
+}
+
 // ─── Main Entry Point ─────────────────────────────────────────────────────────
-export async function runOrchestrator(conversationId: string, userMessage: string) {
+export async function runOrchestrator(
+  conversationId: string,
+  userMessage: string,
+  options: OrchestratorRunOptions = {}
+) {
   const conv = storage.getConversation(conversationId);
   if (!conv) throw new Error("Conversation not found");
+
+  const workflowId = options.workflowId || workflowIdFromMessage(options.messageId || uuidv4());
+  const durableStart = beginDurableRun({
+    workflowId,
+    idempotencyKey: options.idempotencyKey || `conversation:${conversationId}:message:${options.messageId || workflowId}`,
+    conversationId,
+    messageId: options.messageId,
+    executionMode: options.executionMode || "direct",
+    metadata: { userMessageLength: userMessage.length },
+  });
+  recordDurableStep({
+    workflowId,
+    stepId: "orchestrator.accepted",
+    status: "completed",
+    idempotencyKey: `${workflowId}:accepted`,
+    details: { created: durableStart.created, attempts: durableStart.run.attempts },
+  });
 
   storage.updateConversation(conversationId, { status: "planning" });
   emit(conversationId, { type: "status", status: "planning", message: "Analyzing your request..." });
 
   try {
     // 1. Recall relevant memory
+    recordDurableStep({ workflowId, stepId: "memory.recall", status: "started", idempotencyKey: `${workflowId}:memory.recall` });
     const memories = memoryManager.recallForPrompt(userMessage);
+    recordDurableStep({ workflowId, stepId: "memory.recall", status: "completed", idempotencyKey: `${workflowId}:memory.recall` });
     emit(conversationId, { type: "status", status: "planning", message: "Loading memory context..." });
 
     // 2. Match skills
+    recordDurableStep({ workflowId, stepId: "skills.match", status: "started", idempotencyKey: `${workflowId}:skills.match` });
     const matchedSkills = skillMatcher.matchSkills(userMessage);
     const skillContext = matchedSkills.map(s => `### Skill: ${s.name}\n${s.content}`).join("\n\n");
     matchedSkills.forEach(s => storage.incrementSkillUsage(s.id));
+    recordDurableStep({
+      workflowId,
+      stepId: "skills.match",
+      status: "completed",
+      idempotencyKey: `${workflowId}:skills.match`,
+      details: { matchedSkillCount: matchedSkills.length },
+    });
 
     // 3. Get orchestrator model
     const orchModel = storage.getOrchestratorModel() || storage.getDefaultModel();
@@ -115,6 +160,7 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
 
     if (isSwarmMode) {
       console.log(`[orchestrator] Swarm mode detected for conversation ${conversationId}`);
+      recordDurableStep({ workflowId, stepId: "swarm.run", status: "started", idempotencyKey: `${workflowId}:swarm.run` });
       emit(conversationId, { type: "status", status: "running", message: "Running in swarm mode..." });
 
       // Strip the swarm: prefix if present
@@ -201,6 +247,14 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
 
       storage.updateConversation(conversationId, { status: "idle" });
       emit(conversationId, { type: "done", summary: `Swarm completed with ${swarmResults.size} result(s).` });
+      recordDurableStep({
+        workflowId,
+        stepId: "swarm.run",
+        status: "completed",
+        idempotencyKey: `${workflowId}:swarm.run`,
+        details: { resultCount: swarmResults.size },
+      });
+      markDurableRunStatus(workflowId, "completed");
       return;
     }
 
@@ -219,6 +273,7 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
         skillIds: [],
       } as TaskPlan;
     } else {
+      recordDurableStep({ workflowId, stepId: "plan.decompose", status: "started", idempotencyKey: `${workflowId}:plan.decompose` });
       plan = await decomposeIntoDAG(userMessage, memories, skillContext, orchModel.id, conversationId);
     }
     emit(conversationId, { type: "plan", tasks: plan.tasks });
@@ -234,6 +289,13 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
         parallel: false,
       }];
     }
+    recordDurableStep({
+      workflowId,
+      stepId: "plan.decompose",
+      status: "completed",
+      idempotencyKey: `${workflowId}:plan.decompose`,
+      details: { taskCount: plan.tasks.length },
+    });
 
     // Persist tasks to DB
     const taskMap = new Map<string, string>(); // planId → dbTaskId
@@ -273,10 +335,11 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
 
     // 6. Execute DAG with parallel scheduling
     const allDbTasks = storage.getTasks(conversationId);
-    const results = await executeDAG(allDbTasks, conversationId, memories, skillContext);
+    const results = await executeDAG(allDbTasks, conversationId, memories, skillContext, workflowId);
 
     // 7. Synthesize final response
     emit(conversationId, { type: "status", status: "synthesizing", message: "Synthesizing results..." });
+    recordDurableStep({ workflowId, stepId: "synthesis", status: "started", idempotencyKey: `${workflowId}:synthesis` });
     const finalResponse = await synthesizeResults(
       userMessage,
       results,
@@ -285,6 +348,7 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
       orchModel.id,
       conversationId
     );
+    recordDurableStep({ workflowId, stepId: "synthesis", status: "completed", idempotencyKey: `${workflowId}:synthesis` });
 
     // 8. Save assistant message
     const msgId = uuidv4();
@@ -304,9 +368,19 @@ export async function runOrchestrator(conversationId: string, userMessage: strin
 
     storage.updateConversation(conversationId, { status: "idle" });
     emit(conversationId, { type: "done", summary: `Completed ${plan.tasks.length} task(s).` });
+    markDurableRunStatus(workflowId, "completed");
 
   } catch (err: any) {
     storage.updateConversation(conversationId, { status: "error" });
+    recordDurableStep({
+      workflowId,
+      stepId: "orchestrator.error",
+      status: "failed",
+      idempotencyKey: `${workflowId}:orchestrator.error:${Date.now()}`,
+      error: err?.message || "Unknown error",
+      details: { retry: classifyRetry(err) },
+    });
+    markDurableRunStatus(workflowId, "failed", { retry: classifyRetry(err) });
     emit(conversationId, { type: "error", error: err.message || "Unknown error" });
     throw err;
   }
@@ -432,7 +506,8 @@ async function executeDAG(
   allTasks: Task[],
   conversationId: string,
   memories: string,
-  skillContext: string
+  skillContext: string,
+  workflowId: string
 ): Promise<Map<string, string>> {
   const results = new Map<string, string>();
   const completed = new Set<string>();
@@ -483,15 +558,29 @@ async function executeDAG(
       pending.delete(task.id);
 
       storage.updateTask(task.id, { status: "running", startedAt: Date.now() });
+      recordDurableStep({
+        workflowId,
+        stepId: `task.${task.id}`,
+        status: "started",
+        idempotencyKey: `${workflowId}:task:${task.id}`,
+        details: { taskType: task.taskType, title: task.title },
+      });
       const runningTask = storage.getTask(task.id);
       if (runningTask) emit(conversationId, { type: "task_update", task: runningTask });
 
       try {
         const depContext = buildDependencyContext(task, results);
-        const result = await runWorkerAgent(task, conversationId, memories, skillContext, depContext);
+        const result = await runWorkerAgent(task, conversationId, memories, skillContext, depContext, workflowId);
         results.set(task.id, result);
 
         storage.updateTask(task.id, { status: "complete", result, completedAt: Date.now() });
+        recordDurableStep({
+          workflowId,
+          stepId: `task.${task.id}`,
+          status: "completed",
+          idempotencyKey: `${workflowId}:task:${task.id}`,
+          details: { resultLength: result.length },
+        });
         const completedTask = storage.getTask(task.id);
         if (completedTask) emit(conversationId, { type: "task_update", task: completedTask });
 
@@ -499,6 +588,14 @@ async function executeDAG(
         running.delete(task.id);
       } catch (err: any) {
         storage.updateTask(task.id, { status: "failed", error: err.message, completedAt: Date.now() });
+        recordDurableStep({
+          workflowId,
+          stepId: `task.${task.id}`,
+          status: "failed",
+          idempotencyKey: `${workflowId}:task:${task.id}`,
+          error: err?.message || "Unknown error",
+          details: { retry: classifyRetry(err) },
+        });
         const failedTask = storage.getTask(task.id);
         if (failedTask) emit(conversationId, { type: "task_update", task: failedTask });
         results.set(task.id, `[FAILED: ${err.message}]`);
@@ -539,9 +636,11 @@ async function runWorkerAgent(
   conversationId: string,
   memories: string,
   skillContext: string,
-  depContext: string
+  depContext: string,
+  workflowId: string
 ): Promise<string> {
   const agentRunId = uuidv4();
+  const toolSessionId = `${workflowId}-${agentRunId.slice(0, 8)}`;
   const ipcPath = path.join(IPC_DIR, `${agentRunId}.json`);
   const toolCallLog: Array<{ callId: string; tool: string; args: Record<string, string>; result: ToolResult }> = [];
 
@@ -688,7 +787,29 @@ async function runWorkerAgent(
       });
 
       // Execute the tool — pass sessionId explicitly for container isolation
-      const result = await executeTool(call.name, call.args, agentRunId);
+      recordDurableStep({
+        workflowId,
+        stepId: `tool.${callId}.${call.name}`,
+        status: "started",
+        idempotencyKey: `${workflowId}:tool:${callId}`,
+        details: { taskId: task.id, agentRunId, tool: call.name },
+      });
+
+      const result = await executeTool(call.name, call.args, toolSessionId);
+      recordDurableStep({
+        workflowId,
+        stepId: `tool.${callId}.${call.name}`,
+        status: result.success ? "completed" : "failed",
+        idempotencyKey: `${workflowId}:tool:${callId}`,
+        error: result.error,
+        details: {
+          taskId: task.id,
+          agentRunId,
+          tool: call.name,
+          durationMs: result.durationMs,
+          retry: result.success ? undefined : classifyRetry(result.error || "Tool failed"),
+        },
+      });
 
       // Emit tool result event to UI
       emit(conversationId, {
@@ -791,7 +912,7 @@ async function runWorkerAgent(
   });
 
   // Clean up Docker container for this agent session
-  dockerSandbox.removeContainer(agentRunId).catch(() => {});
+  dockerSandbox.removeContainer(toolSessionId).catch(() => {});
 
   return finalOutput;
 }
