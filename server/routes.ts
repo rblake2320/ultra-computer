@@ -12,7 +12,7 @@ import { runOrchestrator, subscribeToConversation, unsubscribeFromConversation }
 import { testModelConnection } from "./modelRouter.js";
 import { connectModel, disconnectModel, testConnection, quickAdd, discoverEnvVars, getProviderCatalog, PROVIDER_REGISTRY } from "./modelConnections.js";
 import { seedConnectors, connectWithApiKey, callMCPTool, validateConnectorKey, getConnectorDef, BUILT_IN_CONNECTORS } from "./connectorRegistry.js";
-import { seedBuiltInSkills } from "./skillSystem.js";
+import { seedBuiltInSkills, buildSkillVector, scheduleEmbeddingUpgrade } from "./skillSystem.js";
 import { memoryManager } from "./memoryManager.js";
 import { dockerSandbox } from "./tools.js";
 import { registerFileRoutes } from "./fileRoutes.js";
@@ -39,6 +39,7 @@ import { cacheEngine } from "./cacheEngine.js";
 import { knowledgeEngine } from "./knowledgeEngine.js";
 import { registerSwarmRoutes } from "./swarmRoutes.js";
 import { swarmEngine } from "./swarmEngine.js";
+import { warmBrowserPool } from "./browserTool.js";
 
 const sseConnectionsPerIp = new Map<string, number>();
 const MAX_SSE_PER_IP = 5;
@@ -63,6 +64,17 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   seedConnectors();
   seedBuiltInSkills();
   knowledgeEngine.seedIfEmpty();
+
+  // Restore persisted LLM responses from Redis into in-memory cache (non-blocking)
+  cacheEngine.warmFromRedis().then(n => {
+    if (n > 0) console.log(`[cacheEngine] Restored ${n} entries from Redis`);
+  }).catch(() => {});
+
+  // Pre-warm browser pool so first browser task has no cold-start delay (non-blocking)
+  warmBrowserPool().catch(() => {});
+
+  // Load all-MiniLM-L6-v2 embedding model; once ready, upgrade skill TF-IDF → float32 vectors
+  scheduleEmbeddingUpgrade();
 
   // ─── Register modular route groups ─────────────────────────────────────────
   registerFileRoutes(app);
@@ -537,16 +549,18 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (!name || !content) return res.status(400).json({ error: "name and content required" });
     if (typeof name !== "string" || name.length > 200) return res.status(400).json({ error: "name must be a string (max 200 chars)" });
     if (typeof content !== "string" || content.length > 100_000) return res.status(400).json({ error: "content must be a string (max 100,000 chars)" });
-    const skill = storage.createSkill({
+    const skillData = {
       id: uuidv4(),
       name,
       description: description || "",
       content,
       triggerKeywords: JSON.stringify(triggerKeywords || []),
-      embeddings: null,
+      embeddings: null as string | null,
       isBuiltIn: false,
       enabled: enabled ?? true,
-    });
+    };
+    skillData.embeddings = buildSkillVector(skillData);
+    const skill = storage.createSkill(skillData);
     res.json(skill);
   });
 
@@ -559,6 +573,20 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (content !== undefined) allowedUpdate.content = content;
     if (triggerKeywords !== undefined) allowedUpdate.triggerKeywords = triggerKeywords;
     if (enabled !== undefined) allowedUpdate.enabled = enabled;
+    // Recompute TF-IDF vector if any text field changed
+    const vectorFields = ["name", "description", "content", "triggerKeywords"] as const;
+    if (vectorFields.some(f => allowedUpdate[f] !== undefined)) {
+      const current = storage.getSkill(req.params.id);
+      if (current) {
+        const merged = {
+          name: allowedUpdate.name ?? current.name,
+          description: allowedUpdate.description ?? current.description,
+          content: allowedUpdate.content ?? current.content,
+          triggerKeywords: allowedUpdate.triggerKeywords ?? current.triggerKeywords,
+        };
+        allowedUpdate.embeddings = buildSkillVector(merged);
+      }
+    }
     const updated = storage.updateSkill(req.params.id, allowedUpdate);
     if (!updated) return res.status(404).json({ error: "Not found" });
     res.json(updated);

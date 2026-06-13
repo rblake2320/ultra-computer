@@ -10,6 +10,7 @@
 
 import { createHash } from "crypto";
 import { advancedMemorySearch } from "./memoryUpgrades.js";
+import { persistEntry, warmEntries } from "./redisCacheSync.js";
 import type { Memory } from "@shared/schema";
 
 // ─── Public Types ─────────────────────────────────────────────────────────────
@@ -705,6 +706,11 @@ export class CacheEngine {
     if (this.config.exactCache.enabled) {
       const key = ExactCache.buildKey(request.model, request.messages, request.parameters);
       this.exact.set(key, response, ttlMs);
+      // Persist to Redis so this entry survives app restarts
+      persistEntry(key, {
+        response: { content: response.content, tokensIn: response.tokensIn, tokensOut: response.tokensOut, modelId: response.modelId },
+        createdAt: Date.now(),
+      }, ttlMs);
     }
 
     // Tier 3: Semantic
@@ -818,6 +824,25 @@ export class CacheEngine {
   setPolicy(route: string, policy: CachePolicy): void {
     this.policies.set(route, policy);
     debug(`CacheEngine: policy set for route "${route}"`);
+  }
+
+  // ── Redis Warm ────────────────────────────────────────────────────────────
+
+  /**
+   * Restore persisted exact-cache entries from Redis into the in-memory LRU.
+   * Call once at startup (non-blocking — caller awaits or fire-and-forgets).
+   * Returns the number of entries restored.
+   */
+  async warmFromRedis(): Promise<number> {
+    if (!this.config.exactCache.enabled) return 0;
+    return warmEntries((key, entry, ttlRemainingMs) => {
+      this.exact.set(key, {
+        content: entry.response.content,
+        tokensIn: entry.response.tokensIn,
+        tokensOut: entry.response.tokensOut,
+        modelId: entry.response.modelId,
+      }, ttlRemainingMs);
+    });
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────

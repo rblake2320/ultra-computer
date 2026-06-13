@@ -7,36 +7,148 @@
 import { storage } from "./storage.js";
 import type { Skill } from "@shared/schema";
 import { v4 as uuidv4 } from "uuid";
+import {
+  embedText,
+  cosineSimF32,
+  serializeEmbedding,
+  deserializeEmbedding,
+  isEmbeddingAvailable,
+  prewarmEmbeddingModel,
+} from "./embeddingEngine.js";
 
-// Simple keyword/cosine-sim-like matching without heavy embedding libs
+// ─── TF-IDF Term Vectors ──────────────────────────────────────────────────────
+
+type TermVector = Record<string, number>;
+
+function tokenize(text: string): string[] {
+  return text.toLowerCase().split(/[^a-z]+/).filter(t => t.length > 2);
+}
+
+function buildVector(terms: string[]): TermVector {
+  const freq: TermVector = {};
+  for (const t of terms) freq[t] = (freq[t] || 0) + 1;
+  const magnitude = Math.sqrt(Object.values(freq).reduce((s, v) => s + v * v, 0));
+  if (magnitude === 0) return {};
+  const vec: TermVector = {};
+  for (const [t, c] of Object.entries(freq)) vec[t] = c / magnitude;
+  return vec;
+}
+
+function cosineSim(a: TermVector, b: TermVector): number {
+  // Both vectors are already L2-normalised — dot product = cosine similarity
+  let dot = 0;
+  for (const [t, wa] of Object.entries(a)) {
+    const wb = b[t];
+    if (wb) dot += wa * wb;
+  }
+  return dot;
+}
+
+/** Text representation of a skill for embedding (name + keywords + description + content head). */
+function skillToText(skill: Pick<Skill, "name" | "description" | "triggerKeywords" | "content">): string {
+  let kws: string[] = [];
+  try {
+    kws = JSON.parse(skill.triggerKeywords || "[]");
+    if (!Array.isArray(kws)) kws = [];
+  } catch { kws = []; }
+  return [
+    skill.name,
+    kws.join(" "),
+    skill.description,
+    (skill.content || "").slice(0, 400),
+  ].join(" ");
+}
+
+/**
+ * Build a TF-based term vector for a skill (synchronous fallback).
+ * Used when the semantic embedding model is not yet loaded.
+ * Weights: name (×4), trigger keywords (×3), description (×2), first 400 chars of content (×1).
+ */
+export function buildSkillVector(skill: Pick<Skill, "name" | "description" | "triggerKeywords" | "content">): string {
+  const terms: string[] = [];
+  tokenize(skill.name).forEach(w => { for (let i = 0; i < 4; i++) terms.push(w); });
+  let kws: string[] = [];
+  try {
+    kws = JSON.parse(skill.triggerKeywords || "[]");
+    if (!Array.isArray(kws)) kws = [];
+  } catch { kws = []; }
+  kws.flatMap(k => tokenize(k)).forEach(w => { for (let i = 0; i < 3; i++) terms.push(w); });
+  tokenize(skill.description).forEach(w => { for (let i = 0; i < 2; i++) terms.push(w); });
+  tokenize((skill.content || "").slice(0, 400)).forEach(w => terms.push(w));
+  return JSON.stringify(buildVector(terms));
+}
+
+/**
+ * Compute and persist a real semantic embedding for a skill.
+ * Upgrades the `embeddings` field from TF-IDF JSON → base64 Float32Array.
+ * No-op when the embedding model is not available.
+ */
+export async function upgradeSkillEmbedding(skillId: string, skill: Pick<Skill, "name" | "description" | "triggerKeywords" | "content">): Promise<void> {
+  const vec = await embedText(skillToText(skill));
+  if (!vec) return;
+  storage.updateSkill(skillId, { embeddings: "f32:" + serializeEmbedding(vec) });
+}
+
+/**
+ * Attempt to upgrade all skills to real embeddings in the background.
+ * Called once after the embedding model finishes loading.
+ */
+async function upgradeAllSkillEmbeddings(): Promise<void> {
+  const skills = storage.getSkills();
+  let upgraded = 0;
+  for (const skill of skills) {
+    if (skill.embeddings?.startsWith("f32:")) continue; // already upgraded
+    await upgradeSkillEmbedding(skill.id, skill);
+    upgraded++;
+  }
+  if (upgraded > 0) console.log(`[skillSystem] Upgraded ${upgraded} skill(s) to semantic embeddings`);
+}
+
+// ─── Skill Matcher ────────────────────────────────────────────────────────────
+
 class SkillMatcher {
-  matchSkills(userMessage: string, topK = 3): Skill[] {
+  async matchSkills(userMessage: string, topK = 3): Promise<Skill[]> {
     const skills = storage.getSkills().filter(s => s.enabled);
     if (skills.length === 0) return [];
 
-    const msgWords = new Set(userMessage.toLowerCase().split(/\W+/).filter(w => w.length > 2));
-    
+    // Try semantic embedding for the message (may be null if model not ready)
+    const msgF32 = isEmbeddingAvailable() ? await embedText(userMessage) : null;
+    const msgVec = buildVector(tokenize(userMessage));
+    const hasMsg = Object.keys(msgVec).length > 0;
+
     const scored = skills.map(skill => {
-      let keywords: string[] = [];
+      const emb = skill.embeddings;
+
+      // Semantic path: both skill and message have real float32 embeddings
+      if (emb?.startsWith("f32:") && msgF32) {
+        const skillF32 = deserializeEmbedding(emb.slice(4));
+        if (skillF32) return { skill, score: cosineSimF32(msgF32, skillF32) };
+      }
+
+      // TF-IDF path: skill has pre-computed term vector
+      if (emb && !emb.startsWith("f32:") && hasMsg) {
+        try {
+          const skillVec = JSON.parse(emb) as TermVector;
+          return { skill, score: cosineSim(msgVec, skillVec) };
+        } catch { /* fall through */ }
+      }
+
+      // Legacy fallback: keyword intersection
+      const msgWords = new Set(Object.keys(msgVec));
+      let kws: string[] = [];
       try {
-        keywords = JSON.parse(skill.triggerKeywords || "[]");
-        if (!Array.isArray(keywords)) keywords = [];
-      } catch {
-        keywords = [];
-      }
-      const descWords = skill.description.toLowerCase().split(/\W+/);
-      const allTriggers = new Set([...keywords.map(k => k.toLowerCase()), ...descWords]);
-      
+        kws = JSON.parse(skill.triggerKeywords || "[]");
+        if (!Array.isArray(kws)) kws = [];
+      } catch { kws = []; }
+      const triggers = new Set([
+        ...kws.map(k => k.toLowerCase()),
+        ...skill.description.toLowerCase().split(/\W+/),
+      ]);
       let matches = 0;
-      for (const word of msgWords) {
-        if (allTriggers.has(word)) matches++;
-      }
-      // Boost by checking if skill name words appear in message
-      const nameWords = skill.name.toLowerCase().split(/\W+/);
-      for (const nw of nameWords) {
+      for (const w of msgWords) if (triggers.has(w)) matches++;
+      for (const nw of skill.name.toLowerCase().split(/\W+/)) {
         if (msgWords.has(nw)) matches += 2;
       }
-      
       return { skill, score: matches };
     });
 
@@ -49,6 +161,11 @@ class SkillMatcher {
 }
 
 export const skillMatcher = new SkillMatcher();
+
+/** Fire-and-forget: wait for model load then upgrade all skill embeddings. */
+export function scheduleEmbeddingUpgrade(): void {
+  embedText("warmup").then(() => upgradeAllSkillEmbeddings()).catch(() => {});
+}
 
 // ─── Built-in Skills ──────────────────────────────────────────────────────────
 export const BUILT_IN_SKILLS: Array<Omit<Skill, "id" | "createdAt" | "usageCount">> = [
@@ -178,12 +295,15 @@ Activate for data analysis, statistics, CSV/JSON processing, metrics interpretat
 
 export function seedBuiltInSkills() {
   const existing = storage.getSkills().filter(s => s.isBuiltIn);
-  // Guard by name, not count, to handle partial seeding correctly
   for (const skill of BUILT_IN_SKILLS) {
     const exists = existing.find(e => e.name === skill.name);
     if (!exists) {
       const id = uuidv4();
-      storage.createSkill({ id, ...skill });
+      const embeddings = buildSkillVector(skill);
+      storage.createSkill({ id, ...skill, embeddings });
+    } else if (!exists.embeddings) {
+      // Back-fill vectors for skills seeded before this feature shipped
+      storage.updateSkill(exists.id, { embeddings: buildSkillVector(exists) });
     }
   }
 }

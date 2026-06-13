@@ -137,7 +137,7 @@ export async function runOrchestrator(
 
     // 2. Match skills
     recordDurableStep({ workflowId, stepId: "skills.match", status: "started", idempotencyKey: `${workflowId}:skills.match` });
-    const matchedSkills = skillMatcher.matchSkills(userMessage);
+    const matchedSkills = await skillMatcher.matchSkills(userMessage);
     const skillContext = matchedSkills.map(s => `### Skill: ${s.name}\n${s.content}`).join("\n\n");
     matchedSkills.forEach(s => storage.incrementSkillUsage(s.id));
     recordDurableStep({

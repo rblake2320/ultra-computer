@@ -33,6 +33,75 @@ const _pendingPages: Map<string, Promise<any>> = new Map(); // serialize concurr
 
 let _playwrightAvailable: boolean | null = null; // cached availability check
 
+// ─── Browser Page Pool ────────────────────────────────────────────────────────
+// Pre-warmed (context, page) pairs. Eliminates chromium.launch() cold-start on
+// the first browser task by launching the browser at server startup.
+// Pool slots are closed and replaced with a fresh context on return — contexts
+// retain JS interceptors, localStorage, and cookies across navigations so they
+// MUST be discarded rather than reset to about:blank (research-confirmed).
+
+const POOL_SIZE = Math.max(1, parseInt(process.env.BROWSER_POOL_SIZE || "2", 10));
+interface PoolSlot { context: any; page: any }
+const _pool: PoolSlot[] = [];
+// Maps sessionKey → pool slot so closePage() can return the slot instead of closing it
+const _poolSlots: Map<string, PoolSlot> = new Map();
+let _poolWarmed = false;
+
+const UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const VIEWPORT = { width: 1280, height: 800 };
+
+async function _createSlot(browser: any): Promise<PoolSlot> {
+  const context = await browser.newContext({ userAgent: UA, viewport: VIEWPORT });
+  const page = await context.newPage();
+  return { context, page };
+}
+
+/** Fill pool up to POOL_SIZE. Fire-and-forget safe. */
+async function _refillPool(): Promise<void> {
+  if (!_poolWarmed) return;
+  try {
+    const browser = await getBrowser();
+    while (_pool.length < POOL_SIZE) {
+      _pool.push(await _createSlot(browser));
+    }
+  } catch { /* ignore — pool is best-effort */ }
+}
+
+/** Acquire a slot from the pool. Returns null if pool is empty. */
+function _acquireSlot(): PoolSlot | null {
+  return _pool.shift() ?? null;
+}
+
+/** Return a slot to the pool: close the used context and create a fresh one. */
+function _returnSlot(slot: PoolSlot): void {
+  slot.context.close().catch(() => {});
+  if (_pool.length < POOL_SIZE) {
+    // Async refill — errors are silently ignored
+    _refillPool().catch(() => {});
+  }
+}
+
+/**
+ * Pre-warm the browser and fill the page pool.
+ * Called once at server startup (non-blocking from the call site).
+ * Silently no-ops when Playwright is not installed.
+ */
+export async function warmBrowserPool(): Promise<void> {
+  try {
+    const browser = await getBrowser(); // launches chromium if not already running
+    const slots = await Promise.all(
+      Array.from({ length: POOL_SIZE }, () => _createSlot(browser))
+    );
+    _pool.push(...slots);
+    _poolWarmed = true;
+    console.log(`[browserPool] Warmed ${POOL_SIZE} page(s) — cold-start eliminated`);
+  } catch {
+    // Playwright not installed or binary missing — silent degradation
+  }
+}
+
+// ─── Core Playwright Helpers ──────────────────────────────────────────────────
+
 async function getPlaywright(): Promise<any | null> {
   if (_playwrightAvailable === false) return null;
   try {
@@ -63,8 +132,6 @@ async function getBrowser(): Promise<any> {
 
 async function getPage(sessionKey: string): Promise<any> {
   // Serialize concurrent getPage calls for the same session to avoid race conditions.
-  // If a creation is already in-flight, return the same promise so callers share
-  // the result (or the same error) without spawning duplicate pages.
   const pending = _pendingPages.get(sessionKey);
   if (pending) return pending;
 
@@ -74,21 +141,16 @@ async function getPage(sessionKey: string): Promise<any> {
     const page = await creation;
     return page;
   } finally {
-    // The finally block runs on BOTH success and failure, ensuring the stale
-    // promise is removed from the map in either case. A rejected creation
-    // promise will not stay cached: the next getPage call will retry creation
-    // from scratch. This is the correct behaviour — no bug here.
     _pendingPages.delete(sessionKey);
   }
 }
 
 async function _getPageInternal(sessionKey: string): Promise<any> {
-  // Return existing open page for this session, or create a new one.
+  // Return existing open page for this session.
   const existing = _pages.get(sessionKey);
   if (existing) {
     try {
-      // Check the page is still usable by reading its URL (throws if closed).
-      existing.url();
+      existing.url(); // throws if the page is closed
       return existing;
     } catch {
       _pages.delete(sessionKey);
@@ -96,12 +158,20 @@ async function _getPageInternal(sessionKey: string): Promise<any> {
     }
   }
 
+  // Try the pre-warmed pool first — eliminates context+page creation latency
+  const slot = _acquireSlot();
+  if (slot) {
+    _pages.set(sessionKey, slot.page);
+    _contexts.set(sessionKey, slot.context);
+    _poolSlots.set(sessionKey, slot);
+    // Replenish pool asap in background
+    _refillPool().catch(() => {});
+    return slot.page;
+  }
+
+  // Pool empty — create fresh (same as original behaviour)
   const browser = await getBrowser();
-  const context = await browser.newContext({
-    userAgent:
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    viewport: { width: 1280, height: 800 },
-  });
+  const context = await browser.newContext({ userAgent: UA, viewport: VIEWPORT });
   const page = await context.newPage();
   _pages.set(sessionKey, page);
   _contexts.set(sessionKey, context);
@@ -109,6 +179,14 @@ async function _getPageInternal(sessionKey: string): Promise<any> {
 }
 
 async function closePage(sessionKey: string): Promise<void> {
+  const poolSlot = _poolSlots.get(sessionKey);
+  if (poolSlot) {
+    _poolSlots.delete(sessionKey);
+    _pages.delete(sessionKey);
+    _contexts.delete(sessionKey);
+    _returnSlot(poolSlot); // reset + recycle instead of destroying
+    return;
+  }
   const context = _contexts.get(sessionKey);
   if (context) {
     try { await context.close(); } catch { /* ignore */ }
