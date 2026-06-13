@@ -1,15 +1,8 @@
-# Cloudflare Setup — ultra-computer
+# Cloudflare Tunnel Setup — ultra-computer
 
-## Current: ultra-computer.ultrarag.app (temporary)
-
-Using `ultra-computer.ultrarag.app` as a temporary home under the existing `ultrarag.app` zone.
-This is clearly labeled and fully separable — see **Migration to own domain** below.
-
-## Public URL
-
-```
-https://ultra-computer.ultrarag.app
-```
+Exposes the app publicly via a Cloudflare Tunnel — no open inbound ports required.
+Your server makes an outbound-only connection to Cloudflare's edge; Cloudflare handles
+SSL, DDoS protection, WAF, and routing.
 
 ## Architecture
 
@@ -17,13 +10,13 @@ https://ultra-computer.ultrarag.app
 Browser / API clients
         │
         ▼
-Cloudflare Edge — ultrarag.app zone
+Cloudflare Edge (your zone)
   • SSL/TLS (auto cert)
   • DDoS + WAF
   • CDN (static assets cached at edge)
         │
         │  Cloudflare Tunnel (encrypted, outbound-only from your server)
-        │  CNAME: ultra-computer.ultrarag.app → <tunnel-id>.cfargotunnel.com
+        │  CNAME: your-subdomain.your-domain.com → <tunnel-id>.cfargotunnel.com
         ▼
 cloudflared container (docker-compose tunnel profile)
         │  routes to → http://app:5000 (internal Docker network)
@@ -41,7 +34,7 @@ app container — Node.js + Express port 5000
 1. Go to https://one.dash.cloudflare.com
 2. **Zero Trust → Networks → Tunnels → Create a tunnel**
 3. Connector: **Cloudflared**
-4. Name: `ultra-computer`
+4. Give it any name (e.g. `ultra-computer`)
 5. Save → copy the **tunnel token** (starts with `eyJ...`)
 
 ### Step 2 — Add the public hostname
@@ -50,15 +43,15 @@ Still in the tunnel wizard (or edit tunnel → Public Hostnames tab):
 
 | Field | Value |
 |-------|-------|
-| Subdomain | `ultra-computer` |
-| Domain | `ultrarag.app` |
+| Subdomain | `your-subdomain` |
+| Domain | `your-domain.com` |
 | Path | *(leave blank)* |
 | Service type | `HTTP` |
 | URL | `app:5000` |
 
 Click **Save**. Cloudflare automatically creates:
 ```
-ultra-computer.ultrarag.app  CNAME  <tunnel-id>.cfargotunnel.com  [Proxied]
+your-subdomain.your-domain.com  CNAME  <tunnel-id>.cfargotunnel.com  [Proxied]
 ```
 
 ### Step 3 — Add token to .env
@@ -74,7 +67,7 @@ TUNNEL_TOKEN=eyJ...your-token-here...
 docker compose --profile tunnel up -d
 ```
 
-Check it's connected:
+Confirm it connected:
 ```bash
 docker compose logs -f cloudflared
 # Should show: "Registered tunnel connection"
@@ -83,19 +76,32 @@ docker compose logs -f cloudflared
 ### Step 5 — Verify live
 
 ```bash
-curl https://ultra-computer.ultrarag.app/api/health
+curl https://your-subdomain.your-domain.com/api/health
 # {"status":"ok",...}
 ```
 
 ---
 
-## Migration to own domain (when ready)
+## Default vs tunnel profiles
+
+The `cloudflared` service is **off by default** — it uses the `tunnel` compose profile:
+
+```bash
+docker compose up -d                    # local stack only, no tunnel
+docker compose --profile tunnel up -d   # local stack + Cloudflare tunnel
+```
+
+The rest of the stack (Redis, Temporal, app) is unaffected either way.
+
+---
+
+## Swapping to a different domain later
 
 Zero downtime. Three steps:
 
 **1. Create a new tunnel for the new domain**
-- Zero Trust → Tunnels → Create tunnel → name: `ultra-computer-prod`
-- Add public hostname: `<subdomain>.<your-new-domain>` → `http://app:5000`
+- Zero Trust → Tunnels → Create tunnel
+- Add public hostname: `<subdomain>.<new-domain>` → `http://app:5000`
 - Copy the new tunnel token
 
 **2. Swap the token in .env and restart cloudflared**
@@ -106,35 +112,22 @@ TUNNEL_TOKEN=eyJ...new-token...
 docker compose --profile tunnel restart cloudflared
 ```
 
-**3. Delete the old CNAME from ultrarag.app**
-- Cloudflare Dashboard → ultrarag.app → DNS → delete `ultra-computer` CNAME
-- OR: edit the old tunnel → remove the `ultra-computer.ultrarag.app` public hostname
+**3. Delete the old public hostname from the old tunnel**
+- Cloudflare Dashboard → old tunnel → Public Hostnames → remove it
+- Or delete the tunnel entirely if no longer needed
 
-That's it. `ultrarag.app` is completely clean. The app itself never changes.
-
----
-
-## What does NOT start by default
-
-The `cloudflared` service uses the `tunnel` compose profile — it is **off by default**:
-
-```bash
-docker compose up -d                    # local stack only, no tunnel
-docker compose --profile tunnel up -d   # local stack + Cloudflare tunnel
-```
-
-This means the existing `ultrarag.app` setup (api, army, memoryweb) is completely unaffected by this stack.
+The app itself never changes — only the tunnel token in `.env`.
 
 ---
 
-## Cloudflare Access (add login gate — optional)
+## Cloudflare Access (optional login gate)
 
-To require login before any request reaches the app:
+To require authentication before any request reaches the app:
 
 1. Zero Trust → Access → Applications → Add
 2. Type: **Self-hosted**
-3. Domain: `ultra-computer.ultrarag.app`
-4. Policy: Email → `rob47595@gmail.com`
+3. Domain: `your-subdomain.your-domain.com`
+4. Policy: Email → `your-email@example.com` (or any identity provider)
 
 Adds Cloudflare's JWT-verified login gate in front of the tunnel.
 
@@ -150,5 +143,5 @@ Adds Cloudflare's JWT-verified login gate in front of the tunnel.
 | Bot fight mode | Active |
 | App rate limiting (`express-rate-limit`) | Active |
 | Policy egress control (`governedFetch`) | Active |
-| Bearer token auth (`ULTRA_API_KEY`) | Active |
-| Temporal/Redis/Postgres — internal only | Confirmed |
+| Bearer token auth (`ULTRA_API_KEY`) | Active when set in .env |
+| Temporal/Redis/Postgres — internal only | Confirmed (no ports exposed externally) |

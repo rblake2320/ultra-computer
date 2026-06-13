@@ -3,7 +3,7 @@ version: "3.9"
 # Ultra Computer — full local stack with durable execution + Cloudflare Tunnel
 #
 # Starts: Redis, PostgreSQL (Temporal state), Temporal server, Temporal UI, app, cloudflared.
-# cloudflared exposes the app at https://ultra.ultrarag.app via Cloudflare's network.
+# cloudflared exposes the app at your configured public hostname via Cloudflare's network.
 #
 # Quick start:
 #   1. Get a tunnel token: Cloudflare Dashboard → Zero Trust → Networks → Tunnels → Create
@@ -107,7 +107,7 @@ services:
       retries: 10
       start_period: 20s
 
-  # Cloudflare Tunnel — exposes the app at https://ultra.ultrarag.app
+  # Cloudflare Tunnel — exposes the app at your configured public hostname
   # Set TUNNEL_TOKEN in .env (see docs/CLOUDFLARE_SETUP.md)
   # If TUNNEL_TOKEN is not set the service exits cleanly and the rest of the stack runs fine.
   cloudflared:

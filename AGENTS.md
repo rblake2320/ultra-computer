@@ -44,8 +44,46 @@
 - Policy decisions are audited to `data/policy/audit.jsonl` with command, URL, path, and metadata redacted before write.
 
 ## Versions
-- Node.js 20+.
+- Node.js 22 (LTS). Node 20 reached EOL 2026-04-30 — do not downgrade.
 - TypeScript `5.6.3`.
-- Express 5, React 18, Vite 7, Vitest 4.
+- Express 5, React 18, Vite 8, Vitest 4.
+- Temporal SDK `1.18.1` — workflow isolation model: workflow code in its own bundleable file (`.ts`), never mixed with activity or runner code.
+- BullMQ `^5.78.0` — task queue, requires Redis on `REDIS_URL`.
+
+## Runtime Stack (Docker Compose)
+
+```
+docker compose up -d          # starts redis, temporal-postgres, temporal, temporal-ui, app
+docker compose --profile tunnel up -d   # also starts cloudflared
+```
+
+Services and ports:
+| Service | Internal | Host-mapped |
+|---------|----------|-------------|
+| app (Node.js) | 5000, 50051 | 5000, 50051 |
+| redis | 6379 | 6379 |
+| temporal (gRPC) | 7233 | 7233 |
+| temporal-ui | 8080 | 8080 |
+| temporal-postgres | 5432 | not exposed |
+| cloudflared | — | none (outbound only) |
+
+First-run only: `npm run temporal:namespace` registers the `default` namespace.
+Temporal healthcheck uses the container's bridge IP, not localhost — `hostname -i` inside the container.
+
+## Durable Execution Architecture
+
+Two layers:
+1. **BullMQ** — task queue for every inbound message. Falls back to direct in-process execution when Redis is unavailable.
+2. **Temporal** — durable workflow engine for long-running or crash-sensitive tasks. Worker in `server/temporalWorker.ts`, workflow in `server/temporalWorkflow.ts`, activities in `server/temporalActivities.ts`.
+
+Proof: `npm run temporal:proof` — runs a 3-step workflow, verifies 3 `ACTIVITY_TASK_COMPLETED` events in history (type=12), verifies idempotent result fetch.
+
+Evidence: `docs/DURABLE_EXECUTION_VERIFICATION.md`, `reports/durable-execution-readiness.md`.
+
+## Cloudflare Tunnel (Public Access)
+
+Set `TUNNEL_TOKEN` in `.env`, then `docker compose --profile tunnel up -d`.
+The `cloudflared` service is gated behind the `tunnel` profile — it does not start with plain `docker compose up -d`.
+Setup guide: `docs/CLOUDFLARE_SETUP.md`.
 
 Review rubric: see `code_review.md`.
