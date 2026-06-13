@@ -10,7 +10,7 @@ import { runOrchestrator } from "./orchestrator.js";
 import { workflowIdFromMessage } from "./durableExecution.js";
 
 export interface OrchestratorActivityInput {
-  conversationId: number;
+  conversationId: string;
   userMessage: string;
   messageId: string;
 }

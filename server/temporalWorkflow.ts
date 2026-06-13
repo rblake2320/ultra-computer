@@ -33,7 +33,7 @@ const { runOrchestratorActivity } = proxyActivities<typeof activities>({
 });
 
 export interface ConversationRunInput {
-  conversationId: number;
+  conversationId: string;
   userMessage: string;
   messageId: string;
 }

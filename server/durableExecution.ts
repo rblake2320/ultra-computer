@@ -11,7 +11,7 @@ export interface DurableRunInput {
   idempotencyKey: string;
   conversationId: string;
   messageId?: string;
-  executionMode: "direct" | "bullmq";
+  executionMode: "direct" | "bullmq" | "temporal";
   metadata?: Record<string, unknown>;
 }
 
@@ -46,7 +46,7 @@ export interface DurableRunRecord {
   idempotencyKey: string;
   conversationId: string;
   messageId?: string;
-  executionMode: "direct" | "bullmq";
+  executionMode: "direct" | "bullmq" | "temporal";
   status: DurableRunStatus;
   attempts: number;
   createdAt: number;

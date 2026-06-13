@@ -96,7 +96,7 @@ export interface OrchestratorRunOptions {
   workflowId?: string;
   idempotencyKey?: string;
   messageId?: string;
-  executionMode?: "direct" | "bullmq";
+  executionMode?: "direct" | "bullmq" | "temporal";
 }
 
 // ─── Main Entry Point ─────────────────────────────────────────────────────────

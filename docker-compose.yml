@@ -2,13 +2,12 @@ version: "3.9"
 
 # Ultra Computer — full local stack with durable execution
 #
-# Starts: Redis (BullMQ), Temporal dev server, and the app.
+# Starts: Redis (BullMQ queue), PostgreSQL (Temporal state), Temporal server, Temporal UI, and the app.
 # Use this to verify durable execution including crash-at-step-N resume.
 #
 # Quick start:
 #   docker compose up -d
-#   npm run temporal:worker   # in a separate terminal
-#   # Send a message, kill the worker, restart — verify resume from ledger
+#   npm run temporal:worker   # in a separate terminal (after npm run temporal:install)
 #
 # Durable execution proof:
 #   See docs/DURABLE_EXECUTION_VERIFICATION.md
@@ -26,23 +25,43 @@ services:
       timeout: 3s
       retries: 5
 
+  temporal-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   temporal:
     image: temporalio/auto-setup:1.24.2
     restart: unless-stopped
     ports:
       - "7233:7233"
     environment:
-      - DB=sqlite
-      - TEMPORAL_ADDRESS=temporal:7233
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=temporal-postgres
+      # The server binds to the container's Docker bridge IP, not 127.0.0.1.
+      # The setup script uses TEMPORAL_CLI_ADDRESS; it auto-detects the container IP.
+      # Healthcheck uses the host-mapped port.
+      - SKIP_DEFAULT_NAMESPACE_CREATION=false
     depends_on:
-      redis:
+      temporal-postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      test: ["CMD-SHELL", "tctl --address $(hostname -i | awk '{print $1}'):7233 cluster health"]
       interval: 10s
       timeout: 5s
-      retries: 10
-      start_period: 30s
+      retries: 15
+      start_period: 45s
 
   temporal-ui:
     image: temporalio/ui:2.28.0

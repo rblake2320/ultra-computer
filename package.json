@@ -22,7 +22,9 @@
     "verify": "npm run check && npm run test:unit -- --run && npm run test:coverage && npm run build && npm run audit && npm run sbom && npm run smoke:prod",
     "temporal:install": "npm install @temporalio/client @temporalio/worker @temporalio/workflow @temporalio/activity",
     "temporal:worker": "RUN_TEMPORAL_WORKER=1 tsx server/temporalWorker.ts",
-    "temporal:verify": "echo 'Start the stack first: docker compose up -d && npm run temporal:install && npm run temporal:worker' && echo 'Then run: npx vitest run tests/integration/temporal-durable-live.test.ts'"
+    "temporal:verify": "echo 'Start the stack first: docker compose up -d && npm run temporal:install && npm run temporal:worker' && echo 'Then run: npx vitest run tests/integration/temporal-durable-live.test.ts'",
+    "temporal:proof": "TEMPORAL_ADDRESS=localhost:7233 tsx scripts/temporal-proof-run.ts",
+    "temporal:namespace": "docker exec codex-ultra-computer-temporal-1 sh -c 'tctl --address $(hostname -i | awk \"{print $1}\"):7233 namespace register --retention 1 default 2>/dev/null || echo already-registered'"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.101.0",
@@ -60,6 +62,10 @@
     "@radix-ui/react-toggle-group": "^1.1.3",
     "@radix-ui/react-tooltip": "^1.2.0",
     "@tanstack/react-query": "^5.60.5",
+    "@temporalio/activity": "^1.18.1",
+    "@temporalio/client": "^1.18.1",
+    "@temporalio/worker": "^1.18.1",
+    "@temporalio/workflow": "^1.18.1",
     "@types/multer": "^2.1.0",
     "better-sqlite3": "^11.10.0",
     "bullmq": "^5.73.4",

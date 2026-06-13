@@ -18,22 +18,22 @@
  *   - TEMPORAL_TASK_QUEUE env var set (default: ultra-computer)
  */
 
-import { NativeConnection, Worker, Runtime } from "@temporalio/worker";
+import { NativeConnection, Worker, Runtime, type Logger } from "@temporalio/worker";
 import * as activities from "./temporalActivities.js";
 
 const TEMPORAL_ADDRESS = process.env.TEMPORAL_ADDRESS || "localhost:7233";
 const TASK_QUEUE = process.env.TEMPORAL_TASK_QUEUE || "ultra-computer";
 
 export async function startTemporalWorker(): Promise<Worker> {
-  Runtime.install({
-    logger: {
-      info: (msg, attrs) => console.log(`[temporal:worker] ${msg}`, attrs ?? ""),
-      warn: (msg, attrs) => console.warn(`[temporal:worker] WARN ${msg}`, attrs ?? ""),
-      error: (msg, attrs) => console.error(`[temporal:worker] ERROR ${msg}`, attrs ?? ""),
-      debug: () => {},
-      trace: () => {},
-    },
-  });
+  const logger: Logger = {
+    log: (level, msg, attrs) => console.log(`[temporal:worker] [${level}] ${msg}`, attrs ?? ""),
+    info: (msg, attrs) => console.log(`[temporal:worker] ${msg}`, attrs ?? ""),
+    warn: (msg, attrs) => console.warn(`[temporal:worker] WARN ${msg}`, attrs ?? ""),
+    error: (msg, attrs) => console.error(`[temporal:worker] ERROR ${msg}`, attrs ?? ""),
+    debug: () => {},
+    trace: () => {},
+  };
+  Runtime.install({ logger });
 
   const connection = await NativeConnection.connect({ address: TEMPORAL_ADDRESS });
 
