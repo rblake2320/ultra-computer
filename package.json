@@ -19,7 +19,10 @@
     "sbom": "cyclonedx-npm --package-lock-only --output-reproducible --output-file reports/sbom.cdx.json",
     "smoke:prod": "node script/smoke-prod.mjs",
     "live:docker": "node script/live-local-docker.mjs",
-    "verify": "npm run check && npm run test:unit -- --run && npm run test:coverage && npm run build && npm run audit && npm run sbom && npm run smoke:prod"
+    "verify": "npm run check && npm run test:unit -- --run && npm run test:coverage && npm run build && npm run audit && npm run sbom && npm run smoke:prod",
+    "temporal:install": "npm install @temporalio/client @temporalio/worker @temporalio/workflow @temporalio/activity",
+    "temporal:worker": "RUN_TEMPORAL_WORKER=1 tsx server/temporalWorker.ts",
+    "temporal:verify": "echo 'Start the stack first: docker compose up -d && npm run temporal:install && npm run temporal:worker' && echo 'Then run: npx vitest run tests/integration/temporal-durable-live.test.ts'"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.101.0",
@@ -121,19 +124,19 @@
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@types/ws": "^8.18.1",
-    "@vitejs/plugin-react": "^4.7.0",
+    "@vitejs/plugin-react": "^6.0.2",
     "@vitest/coverage-v8": "^4.1.5",
     "autoprefixer": "^10.4.20",
     "cross-env": "^10.1.0",
-    "drizzle-kit": "^0.31.8",
-    "esbuild": "^0.25.0",
+    "drizzle-kit": "^0.19.1",
+    "esbuild": "^0.28.1",
     "postcss": "^8.4.47",
     "protobufjs-cli": "^2.0.1",
     "tailwindcss": "^3.4.17",
     "ts-proto": "^2.11.6",
     "tsx": "^4.20.5",
     "typescript": "5.6.3",
-    "vite": "^7.3.0",
+    "vite": "^8.0.16",
     "vitest": "^4.1.5"
   },
   "optionalDependencies": {

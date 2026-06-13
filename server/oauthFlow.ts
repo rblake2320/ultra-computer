@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import crypto from "crypto";
 import { storage } from "./storage.js";
+import { governedFetch, PolicyDeniedError } from "./governedFetch.js";
 
 // In-memory state store: state_token → connectorId
 // (no localStorage; purely server-side ephemeral state)
@@ -184,14 +185,22 @@ export function registerOAuthRoutes(app: Express): void {
         ...(clientSecret ? { client_secret: clientSecret } : {}),
       });
 
-      const tokenResponse = await fetch(tokenUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json",
-        },
-        body: tokenRequestBody.toString(),
-      });
+      let tokenResponse: Response;
+      try {
+        tokenResponse = await governedFetch(tokenUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Accept: "application/json",
+          },
+          body: tokenRequestBody.toString(),
+        }, "oauth:connector-callback", "network", "network:oauth_token_exchange");
+      } catch (err) {
+        if (err instanceof PolicyDeniedError) {
+          return res.redirect(`/#/connectors?oauth=error&message=${encodeURIComponent("OAuth token exchange denied by policy")}`);
+        }
+        throw err;
+      }
 
       if (!tokenResponse.ok) {
         let errBody: any = {};

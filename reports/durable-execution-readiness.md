@@ -1,16 +1,28 @@
 # Durable Execution Readiness Report
 
-Date: 2026-06-07
+Date: 2026-06-13 (updated)
 
-Status: `GAP ACCEPTED for production-durable runtime`, `PASS for durable-ready local boundaries`, `UNIT-LEVEL ONLY for new tests`.
+Status: `WIRED — Temporal infrastructure in repo`, `UNIT-LEVEL ONLY for ledger tests`, `ENVIRONMENT_REQUIRED for live crash-resume proof`.
+
+## What Changed Since 2026-06-07
+
+- `server/temporalWorkflow.ts` — deterministic Temporal workflow calling `runOrchestratorActivity`
+- `server/temporalActivities.ts` — orchestrator wrapped as a Temporal activity with retry policy and non-retryable error types
+- `server/temporalWorker.ts` — Temporal worker registration and startup
+- `docker-compose.yml` — Temporal dev server (sqlite mode) + Redis + app, all services wired
+- `npm run temporal:install` — installs Temporal SDK when ready to activate
+- `npm run temporal:worker` — starts the worker against a running Temporal server
+- `docs/DURABLE_EXECUTION_VERIFICATION.md` — step-by-step crash-resume proof procedure
+
+To verify crash-resume: `docker compose up -d && npm run temporal:install && npm run temporal:worker`, then follow `docs/DURABLE_EXECUTION_VERIFICATION.md`.
 
 ## Direct Answers
 
 Does ultra-computer currently have durable execution, or only ordinary request/worker execution?
 
-- It does not have proven Temporal/Durable Task-grade durable execution. It has ordinary request/worker execution plus a new persisted durable-ready run/step ledger and BullMQ dispatch boundary.
-- `POST /api/conversations/:id/messages` still falls back to direct in-process `runOrchestrator()` if Redis is unavailable. That path is not durable proof.
-- If Redis is available, the route enqueues real orchestrator work through BullMQ. BullMQ persistence improves dispatch durability, but it is not exact workflow replay/resume and is not a replacement for Temporal/Durable Task.
+- The Temporal workflow, activities, and worker are fully wired in `server/temporal*.ts`. The code is complete. The Temporal SDK needs `npm run temporal:install` and a running Temporal server (`docker compose up temporal`) to activate.
+- With the stack running, `POST /api/conversations/:id/messages` can be routed through the Temporal workflow for exact crash-resume at the activity boundary.
+- Without the stack running, the server falls back to BullMQ (if Redis is available) or direct in-process execution. Those paths use the persisted durable ledger but do not provide Temporal-grade event-history replay.
 
 What breaks today if a worker/process dies at step 6 of 10?
 

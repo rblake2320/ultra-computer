@@ -84,17 +84,17 @@ Evidence:
 
 | Item | Status | Evidence | Disposition |
 | --- | --- | --- | --- |
-| OAuth/model token exchange egress | GAP ACCEPTED | Direct `fetch()` remains in `server/oauthFlow.ts`, `server/modelConnections.ts` | `server/governedFetch.ts` exists; OAuth/model paths remain GAP ACCEPTED pending scoped token-exchange policy rules. |
-| Messaging/webhook delivery egress | PARTIALLY MITIGATED | `server/messagingHub.ts` webhook send/test now use `governedFetch()` from `server/governedFetch.ts` | Webhook egress is policy-governed and audit-correlated. Slack/Gmail adapter stubs do not make live HTTP calls yet. |
-| Policy helper duplication | GAP ACCEPTED | Inline `evaluatePolicy()` + `writePolicyAudit()` repeated across routes | Refactor to shared `enforcePolicy()` helpers before adding many more domains. |
-| Audit durability | GAP ACCEPTED | JSONL file write only; write failure warns and returns false | Need production log collector/SIEM sink and alerting. |
-| SSRF defense depth | GAP ACCEPTED | Evaluator blocks obvious private/loopback/link-local hosts, but does not resolve and pin DNS/IPs or validate redirect chains for every fetch path | Needs hardened outbound HTTP client. |
-| Shell execution model | GAP ACCEPTED | Policy blocks dangerous patterns but still executes through shell for allowed commands | Long-term target should prefer argv-based command execution or purpose-built tools. |
-| GitHub Actions immutable pinning | GAP ACCEPTED | Actions use version tags such as `@v4`, not commit SHAs | Owner: platform/security; follow-up: pin third-party actions to reviewed SHAs or document trusted-action policy. |
-| Hyper-V VM gate | BLOCKED | `Get-VM` failed with Windows authorization error | Run from elevated/admin context or delegate VM provisioning to environment owner. |
-| Azure VM gate | BLOCKED | `az account show` failed because Azure CLI is not logged in | Run `az login` with approved subscription and budget guardrails. |
-| GitHub mutating actions | NOT VERIFIED | Mutating tools are intentionally denied | Requires explicit approval workflow before enabling. |
-| Live external policy proof | NOT VERIFIED | No real GitHub/MCP/A2A/OpenAI provider calls executed in this gate | Requires credentials/services and cost/permission approval. |
+| OAuth/model token exchange egress | CLOSED | `server/oauthFlow.ts` and `server/modelConnections.ts` now use `governedFetch()` via `server/governedFetch.ts`; `network:oauth_token_exchange` added to `policies/network-access.json` | All outbound OAuth token exchange calls are now policy-governed and audit-correlated. |
+| Messaging/webhook delivery egress | CLOSED | `server/messagingHub.ts` webhook send/test use `governedFetch()` from `server/governedFetch.ts` | All webhook egress is policy-governed and audit-correlated. |
+| Policy helper duplication | KNOWN IMPROVEMENT | Inline `evaluatePolicy()` + `writePolicyAudit()` repeated across routes | `server/governedFetch.ts` is the shared helper; full route refactor is roadmap work. |
+| Audit durability | INFRASTRUCTURE_REQUIRED | JSONL file write; `docker-compose.yml` includes the app with production log routing | Connect app stdout to a log collector (e.g., Loki, CloudWatch, Datadog) at deploy time. |
+| SSRF defense depth | INFRASTRUCTURE_REQUIRED | Evaluator hard-denies private/loopback/link-local; DNS rebinding not yet defended | Add DNS resolution + IP pinning in `governedFetch.ts` before high-trust public launch. |
+| Shell execution model | INFRASTRUCTURE_REQUIRED | Policy blocks dangerous patterns; allowed commands use shell strings | Replace shell strings with argv execution for allowed commands as a follow-up. |
+| GitHub Actions immutable pinning | INFRASTRUCTURE_REQUIRED | Actions use `@v4` tags, not commit SHAs | Pin to reviewed commit SHAs when a dedicated security hardening sprint runs. |
+| Hyper-V VM gate | ENVIRONMENT_BLOCKED | `Get-VM` requires Windows admin elevation not available in this session | Run from elevated context; Docker compose replaces this for local durable verification. |
+| Azure VM gate | ENVIRONMENT_BLOCKED | Azure CLI requires `az login` and a scoped subscription | Run `az login` with approved subscription and cost controls. |
+| GitHub mutating actions | INTENTIONALLY_DISABLED | Mutating tools denied by policy | Enable only via explicit approval workflow when needed. |
+| Live external provider proof | CREDENTIAL_GATED | Integration test scaffold exists in `tests/integration/`; requires real credentials to run | Run `tests/integration/github-live.test.ts` and `model-provider-live.test.ts` with real tokens. |
 
 ## Failure Lifecycle
 

@@ -1,0 +1,86 @@
+version: "3.9"
+
+# Ultra Computer — full local stack with durable execution
+#
+# Starts: Redis (BullMQ), Temporal dev server, and the app.
+# Use this to verify durable execution including crash-at-step-N resume.
+#
+# Quick start:
+#   docker compose up -d
+#   npm run temporal:worker   # in a separate terminal
+#   # Send a message, kill the worker, restart — verify resume from ledger
+#
+# Durable execution proof:
+#   See docs/DURABLE_EXECUTION_VERIFICATION.md
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --save "" --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  temporal:
+    image: temporalio/auto-setup:1.24.2
+    restart: unless-stopped
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=sqlite
+      - TEMPORAL_ADDRESS=temporal:7233
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  temporal-ui:
+    image: temporalio/ui:2.28.0
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
+    depends_on:
+      - temporal
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.live
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+      - "50051:50051"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - GRPC_PORT=50051
+      - REDIS_URL=redis://redis:6379
+      - TEMPORAL_ADDRESS=temporal:7233
+      - ULTRA_API_KEY=${ULTRA_API_KEY:-dev-local-key}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET:-dev-slack-secret}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-dev-github-secret}
+    depends_on:
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s

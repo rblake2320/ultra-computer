@@ -11,6 +11,7 @@
 import crypto from "crypto";
 import { storage } from "./storage.js";
 import type { Model } from "@shared/schema";
+import { governedFetch } from "./governedFetch.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Provider Definitions
@@ -632,7 +633,7 @@ export async function handleModelOAuthCallback(
   if (!config?.oauthConfig) return { success: false, error: "Provider does not support OAuth" };
 
   try {
-    const tokenResponse = await fetch(config.oauthConfig.tokenUrl, {
+    const tokenResponse = await governedFetch(config.oauthConfig.tokenUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
       body: new URLSearchParams({
@@ -642,7 +643,7 @@ export async function handleModelOAuthCallback(
         client_id: clientId,
         client_secret: clientSecret,
       }).toString(),
-    });
+    }, "oauth:model-callback", "network", "network:oauth_token_exchange");
 
     if (!tokenResponse.ok) {
       const errBody = await tokenResponse.json().catch(() => ({}));

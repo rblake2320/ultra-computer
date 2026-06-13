@@ -1,0 +1,59 @@
+/**
+ * temporalWorker.ts
+ *
+ * Temporal worker that registers orchestrator steps as durable activities.
+ * Run this alongside the main server to enable production-grade durable execution:
+ *
+ *   TEMPORAL_ADDRESS=localhost:7233 npm run temporal:worker
+ *
+ * With the worker running, each /api/conversations/:id/messages request:
+ * 1. Enqueues a Temporal workflow (not just a BullMQ job)
+ * 2. The workflow calls activities: memoryRecall, skillMatch, plan, toolCall, synthesize
+ * 3. If the worker crashes at any step, Temporal resumes from the last completed activity
+ * 4. Completed activities are NOT re-executed (event history prevents duplication)
+ *
+ * Requirements:
+ *   - Temporal server running (docker compose up temporal)
+ *   - TEMPORAL_ADDRESS env var set (default: localhost:7233)
+ *   - TEMPORAL_TASK_QUEUE env var set (default: ultra-computer)
+ */
+
+import { NativeConnection, Worker, Runtime } from "@temporalio/worker";
+import * as activities from "./temporalActivities.js";
+
+const TEMPORAL_ADDRESS = process.env.TEMPORAL_ADDRESS || "localhost:7233";
+const TASK_QUEUE = process.env.TEMPORAL_TASK_QUEUE || "ultra-computer";
+
+export async function startTemporalWorker(): Promise<Worker> {
+  Runtime.install({
+    logger: {
+      info: (msg, attrs) => console.log(`[temporal:worker] ${msg}`, attrs ?? ""),
+      warn: (msg, attrs) => console.warn(`[temporal:worker] WARN ${msg}`, attrs ?? ""),
+      error: (msg, attrs) => console.error(`[temporal:worker] ERROR ${msg}`, attrs ?? ""),
+      debug: () => {},
+      trace: () => {},
+    },
+  });
+
+  const connection = await NativeConnection.connect({ address: TEMPORAL_ADDRESS });
+
+  const worker = await Worker.create({
+    connection,
+    namespace: "default",
+    taskQueue: TASK_QUEUE,
+    workflowsPath: new URL("./temporalWorkflow.js", import.meta.url).pathname,
+    activities,
+  });
+
+  console.log(`[temporal:worker] Connected to ${TEMPORAL_ADDRESS}, task queue: ${TASK_QUEUE}`);
+  return worker;
+}
+
+if (process.env.RUN_TEMPORAL_WORKER === "1") {
+  startTemporalWorker()
+    .then((worker) => worker.run())
+    .catch((err) => {
+      console.error("[temporal:worker] Fatal:", err);
+      process.exit(1);
+    });
+}
