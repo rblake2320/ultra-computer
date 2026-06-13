@@ -21,7 +21,7 @@ Nothing in testing or verification may be faked, mocked, simulated, or represent
 | Area | Status | Evidence |
 | --- | --- | --- |
 | Build and type safety | STATIC ONLY passing | `npm run check`, `npm run build` |
-| Unit tests | UNIT-LEVEL ONLY passing | 39 passing tests in the latest local gate |
+| Unit tests | UNIT-LEVEL ONLY passing | 45 passing tests in the latest local gate |
 | Policy evaluator/redaction | UNIT-LEVEL ONLY passing | `tests/unit/policyEngine.test.ts`; does not prove live external tool execution |
 | Coverage capture | UNIT-LEVEL ONLY passing | `npm run test:coverage` |
 | Dependency audit | STATIC ONLY passing | `npm run audit` exits 0 |

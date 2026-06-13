@@ -84,8 +84,8 @@ Evidence:
 
 | Item | Status | Evidence | Disposition |
 | --- | --- | --- | --- |
-| OAuth/model token exchange egress | GAP ACCEPTED | Direct `fetch()` exists in `server/routes.ts`, `server/oauthFlow.ts`, `server/modelConnections.ts` | Needs shared outbound HTTP client with policy enforcement. |
-| Messaging/webhook delivery egress | GAP ACCEPTED | Direct `fetch()` exists in `server/messagingHub.ts` | Needs shared outbound HTTP client with policy enforcement and delivery audit correlation. |
+| OAuth/model token exchange egress | GAP ACCEPTED | Direct `fetch()` remains in `server/oauthFlow.ts`, `server/modelConnections.ts` | `server/governedFetch.ts` exists; OAuth/model paths remain GAP ACCEPTED pending scoped token-exchange policy rules. |
+| Messaging/webhook delivery egress | PARTIALLY MITIGATED | `server/messagingHub.ts` webhook send/test now use `governedFetch()` from `server/governedFetch.ts` | Webhook egress is policy-governed and audit-correlated. Slack/Gmail adapter stubs do not make live HTTP calls yet. |
 | Policy helper duplication | GAP ACCEPTED | Inline `evaluatePolicy()` + `writePolicyAudit()` repeated across routes | Refactor to shared `enforcePolicy()` helpers before adding many more domains. |
 | Audit durability | GAP ACCEPTED | JSONL file write only; write failure warns and returns false | Need production log collector/SIEM sink and alerting. |
 | SSRF defense depth | GAP ACCEPTED | Evaluator blocks obvious private/loopback/link-local hosts, but does not resolve and pin DNS/IPs or validate redirect chains for every fetch path | Needs hardened outbound HTTP client. |
@@ -133,8 +133,8 @@ Evidence:
 | Hyper-V VM deployment | BLOCKED | Hyper-V commands require unavailable Windows authorization | Needs elevated/admin VM rights. |
 | Azure VM deployment | BLOCKED | Azure CLI not logged in | Needs `az login`, subscription selection, and approved spend controls. |
 | Live GitHub/MCP/A2A/OpenAI | NOT VERIFIED | No real credentials/services exercised | Needs explicit live test plan and scoped credentials. |
-| OAuth/model egress policy | GAP ACCEPTED | Direct fetches identified | Owner: platform/security; follow-up: shared governed HTTP client. |
-| Messaging egress policy | GAP ACCEPTED | Direct fetches identified | Owner: platform/security; follow-up: shared governed HTTP client. |
+| OAuth/model egress policy | GAP ACCEPTED | Direct fetches identified in `oauthFlow.ts`, `modelConnections.ts` | `server/governedFetch.ts` exists; OAuth/model paths remain GAP ACCEPTED pending scoped token-exchange policy rules. |
+| Messaging egress policy | PARTIALLY MITIGATED | Webhook send/test use `governedFetch()` via `server/governedFetch.ts` | Webhook egress is policy-governed. Slack/Gmail stubs remain non-HTTP. |
 | Audit alerting/retention | GAP ACCEPTED | File-only audit | Owner: operations; follow-up: log collector/SIEM integration. |
 | GitHub Actions immutable pinning | GAP ACCEPTED | Workflow actions use version tags, not reviewed commit SHAs | Owner: platform/security; follow-up: pin or document trusted-action exception policy. |
 

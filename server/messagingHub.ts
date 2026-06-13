@@ -9,6 +9,7 @@
 
 import { v4 as uuidv4 } from "uuid";
 import { EventEmitter } from "events";
+import { governedFetch, PolicyDeniedError } from "./governedFetch.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Core Data Types
@@ -743,19 +744,26 @@ class WebhookAdapter implements ChannelAdapter {
     };
 
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "UltraComputer/1.0",
-          "X-Ultra-Computer-Event": payload.metadata?.notificationType ?? "message",
-          ...(payload.metadata?.webhookSecret
-            ? { "X-Webhook-Secret": payload.metadata.webhookSecret }
-            : {}),
+      const sessionId = payload.metadata?.sessionId ?? `webhook-${payload.id}`;
+      const response = await governedFetch(
+        url,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "UltraComputer/1.0",
+            "X-Ultra-Computer-Event": payload.metadata?.notificationType ?? "message",
+            ...(payload.metadata?.webhookSecret
+              ? { "X-Webhook-Secret": payload.metadata.webhookSecret }
+              : {}),
+          },
+          body: JSON.stringify(envelope),
+          signal: AbortSignal.timeout(10_000),
         },
-        body: JSON.stringify(envelope),
-        signal: AbortSignal.timeout(10_000),
-      });
+        sessionId,
+        "network",
+        "webhook_send",
+      );
 
       if (!response.ok) {
         const body = await response.text().catch(() => "");
@@ -771,6 +779,9 @@ class WebhookAdapter implements ChannelAdapter {
         messageId: `webhook-${uuidv4()}`,
       };
     } catch (err: any) {
+      if (err instanceof PolicyDeniedError) {
+        return { ok: false, error: err.message, retryable: false };
+      }
       const isTimeout = err.name === "TimeoutError" || err.name === "AbortError";
       return {
         ok: false,
@@ -890,16 +901,22 @@ class WebhookAdapter implements ChannelAdapter {
     };
 
     try {
-      const response = await fetch(config.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "UltraComputer/1.0",
-          "X-Ultra-Computer-Event": "ping",
+      const response = await governedFetch(
+        config.url,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "UltraComputer/1.0",
+            "X-Ultra-Computer-Event": "ping",
+          },
+          body: JSON.stringify(pingPayload),
+          signal: AbortSignal.timeout(8_000),
         },
-        body: JSON.stringify(pingPayload),
-        signal: AbortSignal.timeout(8_000),
-      });
+        `webhook-test-${pingPayload.id}`,
+        "network",
+        "webhook_test",
+      );
 
       if (!response.ok) {
         return {
@@ -910,6 +927,9 @@ class WebhookAdapter implements ChannelAdapter {
 
       return { ok: true };
     } catch (err: any) {
+      if (err instanceof PolicyDeniedError) {
+        return { ok: false, error: err.message };
+      }
       const isTimeout = err.name === "TimeoutError" || err.name === "AbortError";
       return {
         ok: false,

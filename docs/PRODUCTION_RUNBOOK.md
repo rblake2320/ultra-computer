@@ -23,7 +23,7 @@ Set these values in the deployment environment, never in committed files:
 
 ## Preflight
 
-1. Confirm Node.js 20+.
+1. Confirm Node.js 20+. Note: local development may use Node 20-24. CI enforces Node 20.x (`actions/setup-node@v4`). Confirm your local Node version matches CI before reporting a smoke result as CI-equivalent.
 2. Run `npm ci`.
 3. Review `policies/*-access.json` for the release. They are deny-by-default; do not add broad allow rules for launch convenience.
 4. Run `npm run test:unit -- --run tests/unit/policyEngine.test.ts`.

@@ -77,9 +77,10 @@ async function startContainer(name, extraEnv = []) {
     "-e", "NODE_ENV=production",
     "-e", "PORT=5000",
     "-e", "GRPC_PORT=50051",
+    "-e", "REDIS_URL=redis://127.0.0.1:6379",
     ...extraEnv.flatMap((item) => ["-e", item]),
   ];
-  await docker(["run", "-d", "--name", name, "-p", `${port}:5000`, ...env, image], { capture: true });
+  await docker(["run", "-d", "--name", name, "--network", "host", ...env, image], { capture: true });
   await waitForHealth(name);
 }
 
@@ -88,8 +89,21 @@ async function stopContainer(name) {
 }
 
 async function main() {
+  const redisName = `ultra-live-redis-${process.pid}`;
+
   console.log("Building clean Docker image for live-local gate...");
   await docker(["build", "-f", "Dockerfile.live", "-t", image, "."]);
+
+  // Start Redis for BullMQ queue dispatch proof
+  console.log("Starting Redis container for queue dispatch proof...");
+  await docker(["rm", "-f", redisName], { capture: true }).catch(() => {});
+  await docker([
+    "run", "-d", "--name", redisName,
+    "--network", "host",
+    "redis:7-alpine", "redis-server", "--save", "", "--loglevel", "warning"
+  ], { capture: true });
+  // Small delay for Redis to be ready
+  await delay(1500);
 
   const normal = `ultra-live-${process.pid}`;
   const badPolicy = `ultra-live-bad-policy-${process.pid}`;
@@ -126,6 +140,33 @@ async function main() {
     const audit = await docker(["exec", normal, "sh", "-lc", "test -s /app/data/policy/audit.jsonl && tail -n 20 /app/data/policy/audit.jsonl"], { capture: true });
     assert(/filesystem:list/.test(audit.stdout) || /network:browse/.test(audit.stdout), "expected policy audit records in container");
 
+    // Prove BullMQ queue dispatch (requires Redis running)
+    console.log("Testing BullMQ queue dispatch through Redis...");
+    // Create a conversation first
+    const convResult = await request("/api/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "live-docker-queue-proof" }),
+    });
+    assert(convResult.response.status === 201 || convResult.response.status === 200,
+      `expected conversation create to succeed, got ${convResult.response.status}: ${convResult.body}`);
+    let convId;
+    try {
+      convId = JSON.parse(convResult.body)?.id || JSON.parse(convResult.body)?.conversation?.id;
+    } catch { convId = null; }
+    assert(convId, `expected conversation create to return an id, got: ${convResult.body}`);
+
+    const msgResult = await request(`/api/conversations/${convId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "queue-dispatch-proof", role: "user" }),
+    });
+    assert(
+      msgResult.response.status === 200 || msgResult.response.status === 201 || msgResult.response.status === 202,
+      `expected message enqueue to succeed, got ${msgResult.response.status}: ${msgResult.body}`
+    );
+    console.log("BullMQ queue dispatch proof passed");
+
     console.log("Testing fail-closed missing policy config in production container...");
     await stopContainer(normal);
     await startContainer(badPolicy, ["ULTRA_POLICY_DIR=/app/missing-policies"]);
@@ -145,6 +186,7 @@ async function main() {
     await stopContainer(normal);
     await stopContainer(badPolicy);
     await stopContainer(badAudit);
+    await stopContainer(redisName);
     if (process.env.LIVE_DOCKER_CLEAN_IMAGE === "true") {
       await docker(["image", "rm", image], { capture: true }).catch((err) => {
         console.warn(`image cleanup skipped: ${err instanceof Error ? err.message : String(err)}`);

@@ -1,3 +1,8 @@
+NOTE: This snapshot was taken after the initial hardening pass (commit aa3c748).
+Four additional test files were added in subsequent passes (policyEngine, skillProposalEngine,
+durableExecution, taskQueue), bringing the current total to 45 tests across 8 files.
+See reports/durable-execution-readiness.md for the latest verification status.
+
 COMMAND: npm run test:unit -- --run
 
 > rest-express@1.0.0 test:unit

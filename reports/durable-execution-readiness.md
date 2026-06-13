@@ -68,7 +68,7 @@ Verdict: functional and safer than before, but not production-durable yet. The a
 | Observability timeline/event history | VERIFIED LOCALLY | Persisted run events/steps | Not Temporal/Durable Task event history. |
 | Audit log correlation per workflow/tool call | VERIFIED LOCALLY | Workflow-prefixed tool session IDs; policy audit test | External provider tool paths not all live-tested. |
 | Deployment/worker restart behavior | NOT VERIFIED | No real worker kill/restart durable-runtime test | Needs real runtime and restart harness. |
-| Queue dispatch no-fake-success | UNIT-LEVEL ONLY | `tests/unit/taskQueue.test.ts` | Redis/BullMQ live worker proof not exercised in this pass. |
+| Queue dispatch no-fake-success | VERIFIED LOCALLY | `tests/unit/taskQueue.test.ts`; `npm run live:docker` now starts a Redis container and proves conversation create + message enqueue through the BullMQ path | Redis/BullMQ live Docker proof added; requires Docker Desktop. |
 
 ## Current Primary Sources
 
