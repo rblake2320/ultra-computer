@@ -27,7 +27,7 @@
     "temporal:namespace": "docker exec codex-ultra-computer-temporal-1 sh -c 'tctl --address $(hostname -i | awk \"{print $1}\"):7233 namespace register --retention 1 default 2>/dev/null || echo already-registered'"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.101.0",
+    "@anthropic-ai/sdk": "^0.104.1",
     "@google/generative-ai": "^0.24.1",
     "@grpc/grpc-js": "^1.14.3",
     "@grpc/proto-loader": "^0.8.0",
@@ -68,7 +68,7 @@
     "@temporalio/workflow": "^1.18.1",
     "@types/multer": "^2.1.0",
     "better-sqlite3": "^11.10.0",
-    "bullmq": "^5.73.4",
+    "bullmq": "^5.78.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -124,7 +124,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.0",
     "@types/express-session": "^1.18.0",
-    "@types/node": "20.19.27",
+    "@types/node": "^22.19.21",
     "@types/passport": "^1.0.16",
     "@types/passport-local": "^1.0.38",
     "@types/react": "^18.3.11",
