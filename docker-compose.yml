@@ -1,16 +1,19 @@
 version: "3.9"
 
-# Ultra Computer — full local stack with durable execution
+# Ultra Computer — full local stack with durable execution + Cloudflare Tunnel
 #
-# Starts: Redis (BullMQ queue), PostgreSQL (Temporal state), Temporal server, Temporal UI, and the app.
-# Use this to verify durable execution including crash-at-step-N resume.
+# Starts: Redis, PostgreSQL (Temporal state), Temporal server, Temporal UI, app, cloudflared.
+# cloudflared exposes the app at https://ultra.ultrarag.app via Cloudflare's network.
 #
 # Quick start:
-#   docker compose up -d
-#   npm run temporal:worker   # in a separate terminal (after npm run temporal:install)
+#   1. Get a tunnel token: Cloudflare Dashboard → Zero Trust → Networks → Tunnels → Create
+#      Name: ultra-computer  |  Public hostname: <your-domain> → http://app:5000
+#   2. Add TUNNEL_TOKEN=<token> to .env
+#   3. docker compose up -d
+#   4. npm run temporal:namespace   (first time only — registers default namespace)
 #
-# Durable execution proof:
-#   See docs/DURABLE_EXECUTION_VERIFICATION.md
+# Durable execution proof:  See docs/DURABLE_EXECUTION_VERIFICATION.md
+# Cloudflare tunnel docs:   docs/CLOUDFLARE_SETUP.md
 
 services:
   redis:
@@ -103,3 +106,21 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  # Cloudflare Tunnel — exposes the app at https://ultra.ultrarag.app
+  # Set TUNNEL_TOKEN in .env (see docs/CLOUDFLARE_SETUP.md)
+  # If TUNNEL_TOKEN is not set the service exits cleanly and the rest of the stack runs fine.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
+    depends_on:
+      app:
+        condition: service_started
+    # Only run if TUNNEL_TOKEN is set; cloudflared exits with code 1 without it.
+    # Use `docker compose --profile tunnel up -d` to ensure it only starts when intended,
+    # or simply set TUNNEL_TOKEN in .env.
+    profiles:
+      - tunnel
