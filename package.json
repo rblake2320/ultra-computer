@@ -15,6 +15,7 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "audit": "npm audit --audit-level=moderate",
     "sbom": "cyclonedx-npm --package-lock-only --output-reproducible --output-file reports/sbom.cdx.json",
     "smoke:prod": "node script/smoke-prod.mjs",

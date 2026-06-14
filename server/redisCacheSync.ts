@@ -83,15 +83,15 @@ export async function warmEntries(
   onEntry: (key: string, entry: PersistedEntry, ttlRemainingMs: number) => void,
 ): Promise<number> {
   if (!process.env.REDIS_CACHE_PERSIST) return 0;
-  const c = client() ?? _client;
-  if (!c) {
-    // Give the lazy connection a moment to become ready then retry once
-    await new Promise(r => setTimeout(r, 500));
-    if (!_ready || !_client) return 0;
+  // Trigger lazy connection if not already started
+  client();
+  // If _ready is false, the connection was just initiated — wait up to 600ms for it
+  if (!_ready) {
+    await new Promise(r => setTimeout(r, 600));
   }
-  if (!_ready) return 0;
+  if (!_ready || !_client) return 0;
 
-  const redis = _client!;
+  const redis = _client;
   let loaded = 0;
   let cursor = "0";
 
