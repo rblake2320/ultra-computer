@@ -14,7 +14,11 @@ import {
   deserializeEmbedding,
   isEmbeddingAvailable,
   prewarmEmbeddingModel,
+  MODEL_VERSION,
 } from "./embeddingEngine.js";
+
+/** Prefix written into skills.embeddings for versioned float32 entries. */
+export const EMBEDDING_PREFIX = `f32:v${MODEL_VERSION}:`;
 
 // ─── TF-IDF Term Vectors ──────────────────────────────────────────────────────
 
@@ -86,22 +90,24 @@ export function buildSkillVector(skill: Pick<Skill, "name" | "description" | "tr
 export async function upgradeSkillEmbedding(skillId: string, skill: Pick<Skill, "name" | "description" | "triggerKeywords" | "content">): Promise<void> {
   const vec = await embedText(skillToText(skill));
   if (!vec) return;
-  storage.updateSkill(skillId, { embeddings: "f32:" + serializeEmbedding(vec) });
+  storage.updateSkill(skillId, { embeddings: EMBEDDING_PREFIX + serializeEmbedding(vec) });
 }
 
 /**
- * Attempt to upgrade all skills to real embeddings in the background.
- * Called once after the embedding model finishes loading.
+ * Upgrade all skills to current-version real embeddings.
+ * Skips only skills already at the current version prefix — any skill at an
+ * older version (or with TF-IDF JSON) is re-computed. This runs automatically
+ * when MODEL_VERSION is bumped.
  */
 async function upgradeAllSkillEmbeddings(): Promise<void> {
   const skills = storage.getSkills();
   let upgraded = 0;
   for (const skill of skills) {
-    if (skill.embeddings?.startsWith("f32:")) continue; // already upgraded
+    if (skill.embeddings?.startsWith(EMBEDDING_PREFIX)) continue;
     await upgradeSkillEmbedding(skill.id, skill);
     upgraded++;
   }
-  if (upgraded > 0) console.log(`[skillSystem] Upgraded ${upgraded} skill(s) to semantic embeddings`);
+  if (upgraded > 0) console.log(`[skillSystem] Upgraded ${upgraded} skill(s) to semantic embeddings (v${MODEL_VERSION})`);
 }
 
 // ─── Skill Matcher ────────────────────────────────────────────────────────────
@@ -119,14 +125,14 @@ class SkillMatcher {
     const scored = skills.map(skill => {
       const emb = skill.embeddings;
 
-      // Semantic path: both skill and message have real float32 embeddings
-      if (emb?.startsWith("f32:") && msgF32) {
-        const skillF32 = deserializeEmbedding(emb.slice(4));
+      // Semantic path: skill has current-version float32 embedding and message is embedded
+      if (emb?.startsWith(EMBEDDING_PREFIX) && msgF32) {
+        const skillF32 = deserializeEmbedding(emb.slice(EMBEDDING_PREFIX.length));
         if (skillF32) return { skill, score: cosineSimF32(msgF32, skillF32) };
       }
 
-      // TF-IDF path: skill has pre-computed term vector
-      if (emb && !emb.startsWith("f32:") && hasMsg) {
+      // TF-IDF path: skill has pre-computed term vector (or stale f32 version)
+      if (emb && !emb.startsWith(EMBEDDING_PREFIX) && !emb.startsWith("f32:") && hasMsg) {
         try {
           const skillVec = JSON.parse(emb) as TermVector;
           return { skill, score: cosineSim(msgVec, skillVec) };

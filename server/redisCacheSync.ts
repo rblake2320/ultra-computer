@@ -56,8 +56,14 @@ export interface PersistedEntry {
 
 // ─── Write ────────────────────────────────────────────────────────────────────
 
-/** Fire-and-forget. Never throws. */
+/**
+ * Fire-and-forget. Never throws.
+ * Opt-in: set REDIS_CACHE_PERSIST=true to enable. Off by default because
+ * conversational LLM responses almost never repeat exactly (SHA-256 match),
+ * so writes without this flag are overhead with near-zero hit rate.
+ */
 export function persistEntry(key: string, entry: PersistedEntry, ttlMs: number): void {
+  if (!process.env.REDIS_CACHE_PERSIST) return;
   const c = client() ?? _client;
   if (!c || !_ready) return;
   const ttlSec = Math.max(1, Math.ceil(ttlMs / 1_000));
@@ -71,10 +77,12 @@ export function persistEntry(key: string, entry: PersistedEntry, ttlMs: number):
 /**
  * SCAN Redis for persisted exact-cache entries and call `onEntry` for each.
  * Returns the number of entries loaded. Intended to run once at startup.
+ * No-op when REDIS_CACHE_PERSIST is not set (nothing was persisted).
  */
 export async function warmEntries(
   onEntry: (key: string, entry: PersistedEntry, ttlRemainingMs: number) => void,
 ): Promise<number> {
+  if (!process.env.REDIS_CACHE_PERSIST) return 0;
   const c = client() ?? _client;
   if (!c) {
     // Give the lazy connection a moment to become ready then retry once

@@ -14,6 +14,13 @@
 // Model ID — sentence-transformers/all-MiniLM-L6-v2 (HuggingFace Hub)
 const MODEL = "Xenova/all-MiniLM-L6-v2";
 
+/**
+ * Bump this when switching to a different model or revision.
+ * Stored embeddings whose version tag doesn't match are automatically
+ * re-computed by upgradeAllSkillEmbeddings() on next server start.
+ */
+export const MODEL_VERSION = "1";
+
 let _pipeline: any | null = null;
 let _loading: Promise<any | null> | null = null;
 let _available: boolean | null = null; // null = untested, true/false = settled
