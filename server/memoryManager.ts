@@ -30,9 +30,10 @@ class MemoryManager {
   // Scoped to the current session so cross-session memory poisoning is blocked.
   recallForPrompt(prompt: string, limit = 5, sessionId?: string): string {
     const all = storage.getMemories(200);
-    // Prefer session-scoped memories; fall back to global if session has < 10 entries
-    const sessionMemories = sessionId ? all.filter(m => m.sessionId === sessionId) : all;
-    const recent = sessionMemories.length >= 10 ? sessionMemories : all;
+    // Session-scoped recall: when a sessionId is provided, ONLY use memories from
+    // that session. Never fall back to the global pool — cross-session memories are
+    // untrusted and could carry poisoned content from other users/conversations.
+    const recent = sessionId ? all.filter(m => m.sessionId === sessionId) : all;
     if (recent.length === 0) return "";
 
     // Use advancedMemorySearch for TF-IDF + Jaccard ranking

@@ -549,8 +549,35 @@ export function registerMessagingRoutes(app: Express): void {
   /**
    * POST /api/messaging/webhook/gmail
    * Gmail Pub/Sub push notification handler.
+   * Secured via a shared token embedded in the Pub/Sub subscription push URL
+   * (e.g. ?token=...). Set GMAIL_PUSH_TOKEN in the environment and configure
+   * the same value in the Google Cloud Pub/Sub subscription URL.
    */
   app.post("/api/messaging/webhook/gmail", async (req, res) => {
+    const gmailPushToken = process.env.GMAIL_PUSH_TOKEN;
+
+    if (!gmailPushToken) {
+      if (process.env.NODE_ENV !== "development") {
+        return res.status(503).json({ error: "Webhook endpoint not configured" });
+      }
+      console.warn("[messaging] GMAIL_PUSH_TOKEN is not set — Gmail push verification is DISABLED. Set this variable in production.");
+    } else {
+      // Verify token present in query string (Pub/Sub push URL carries it)
+      const providedToken = req.query.token as string | undefined;
+      if (!providedToken) {
+        return res.status(403).json({ error: "Missing webhook token" });
+      }
+      // Timing-safe comparison to prevent timing oracle
+      const expectedBuf = Buffer.from(gmailPushToken);
+      const providedBuf = Buffer.from(providedToken);
+      if (
+        expectedBuf.length !== providedBuf.length ||
+        !require("crypto").timingSafeEqual(expectedBuf, providedBuf)
+      ) {
+        return res.status(403).json({ error: "Invalid webhook token" });
+      }
+    }
+
     try {
       const payload = req.body ?? {};
 

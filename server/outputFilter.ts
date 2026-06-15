@@ -59,8 +59,10 @@ export function filterOutput(text: string, context?: string): FilterResult {
     };
   }
 
-  // 3. Suspiciously large base64 blob — hard block above threshold
-  const b64Matches = text.match(BASE64_BLOB_RE);
+  // 3. Suspiciously large base64 blob — hard block above threshold.
+  // Also check whitespace-stripped text to catch evasion via whitespace-split blobs.
+  const stripped = text.replace(/\s/g, "");
+  const b64Matches = text.match(BASE64_BLOB_RE) ?? stripped.match(BASE64_BLOB_RE);
   const largestB64 = b64Matches ? Math.max(...b64Matches.map(m => m.length)) : 0;
   if (largestB64 > 500) {
     flags.push(`large-b64-blob(${largestB64})`);
@@ -72,8 +74,10 @@ export function filterOutput(text: string, context?: string): FilterResult {
     };
   }
 
-  // 4. URL with large query string (data beacon / exfiltration pattern) — hard block
-  const urlMatches = text.match(EXFIL_URL_RE);
+  // 4. URL with large query string (data beacon / exfiltration pattern) — hard block.
+  // Also check whitespace-collapsed text to catch newline-split URL evasion.
+  const singleLine = text.replace(/\s+/g, " ");
+  const urlMatches = text.match(EXFIL_URL_RE) ?? singleLine.match(EXFIL_URL_RE);
   if (urlMatches) {
     flags.push(`exfil-url-pattern(${urlMatches.length})`);
     _logAnomaly(flags, context);

@@ -63,6 +63,9 @@ const insertKnowledgeEntrySchema = z.object({
 // ─── OAuth state signing (HMAC-SHA256) ───────────────────────────────────────
 // Prevents forged state parameters in OAuth CSRF attacks.
 const OAUTH_STATE_SECRET = process.env.ENCRYPTION_KEY || process.env.ULTRA_API_KEY || "oauth-state-dev-secret-not-for-production";
+if (!process.env.ENCRYPTION_KEY && !process.env.ULTRA_API_KEY && process.env.NODE_ENV === "production") {
+  console.error("[FATAL] OAuth HMAC secret is using the insecure dev fallback in production. Set ENCRYPTION_KEY or ULTRA_API_KEY.");
+}
 
 function signOAuthState(payload: object): string {
   const data = JSON.stringify(payload);

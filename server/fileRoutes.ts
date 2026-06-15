@@ -174,7 +174,15 @@ export function registerFileRoutes(app: Express) {
 
   // ─── POST /api/sandbox/files/upload ───────────────────────────────────────
   // Must be registered BEFORE wildcard routes to avoid collision
-  app.post("/api/sandbox/files/upload", upload.array("files"), (req, res) => {
+  app.post("/api/sandbox/files/upload", (req, res, next) => {
+    upload.array("files")(req, res, (err) => {
+      if (err) {
+        // multer errors include fileFilter rejections — return 400, not 500
+        return res.status(400).json({ error: err.message || "Upload rejected" });
+      }
+      next();
+    });
+  }, (req, res) => {
     const files = (req.files as Express.Multer.File[]) || [];
     const uploaded = files.map(f => path.relative(SANDBOX_DIR, f.path));
     res.json({ ok: true, uploaded });

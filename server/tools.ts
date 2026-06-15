@@ -417,6 +417,16 @@ async function executeFetchUrl(url: string, extractText: boolean, start: number)
 
     clearTimeout(timeout);
 
+    // SSRF redirect protection: verify the final URL after any server-side redirects
+    if (response.url && response.url !== url) {
+      try {
+        const finalParsed = new URL(response.url);
+        if (isPrivateHost(finalParsed.hostname)) {
+          return { success: false, output: "", error: "URL redirected to a private/internal network address", durationMs: Date.now() - start };
+        }
+      } catch { /* ignore unparseable URLs */ }
+    }
+
     const contentType = response.headers.get("content-type") || "";
 
     // Reject non-text content types to avoid loading binary data

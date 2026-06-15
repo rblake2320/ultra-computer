@@ -466,6 +466,18 @@ async function executeBrowseUrl(
     // Navigate with 30-second timeout
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30_000 });
 
+    // SSRF redirect protection: check where Playwright actually landed after redirects
+    const finalUrl = page.url();
+    if (finalUrl && finalUrl !== url && finalUrl !== "about:blank") {
+      try {
+        const finalParsed = new URL(finalUrl);
+        if (isPrivateHost(finalParsed.hostname)) {
+          await page.close();
+          return { success: false, output: "", error: "URL redirected to a private/internal network address", durationMs: Date.now() - start };
+        }
+      } catch { /* ignore unparseable URLs */ }
+    }
+
     // Optionally wait for a selector
     if (wait_for) {
       try {
