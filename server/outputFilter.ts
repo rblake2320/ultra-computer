@@ -59,16 +59,29 @@ export function filterOutput(text: string, context?: string): FilterResult {
     };
   }
 
-  // 3. Suspiciously long base64 blob
+  // 3. Suspiciously large base64 blob — hard block above threshold
   const b64Matches = text.match(BASE64_BLOB_RE);
-  if (b64Matches && b64Matches.some(m => m.length > 500)) {
-    flags.push(`large-b64-blob(${b64Matches[0].length})`);
+  const largestB64 = b64Matches ? Math.max(...b64Matches.map(m => m.length)) : 0;
+  if (largestB64 > 500) {
+    flags.push(`large-b64-blob(${largestB64})`);
+    _logAnomaly(flags, context);
+    return {
+      clean: false,
+      flags,
+      redacted: "[Response redacted: anomalous data encoding detected]",
+    };
   }
 
-  // 4. URL with large query string (data beacon pattern)
+  // 4. URL with large query string (data beacon / exfiltration pattern) — hard block
   const urlMatches = text.match(EXFIL_URL_RE);
   if (urlMatches) {
     flags.push(`exfil-url-pattern(${urlMatches.length})`);
+    _logAnomaly(flags, context);
+    return {
+      clean: false,
+      flags,
+      redacted: "[Response redacted: potential data exfiltration URL detected]",
+    };
   }
 
   if (flags.length > 0) {

@@ -9,10 +9,30 @@ import { storage } from "./storage.js";
 import { chat } from "./modelRouter.js";
 import { advancedMemorySearch, extractEntities, calculateImportance, deduplicateMemories } from "./memoryUpgrades.js";
 
+// Patterns that should never appear in stored memory content.
+// These are prompt-injection payloads that an attacker might try to bake in.
+const INJECTION_PATTERNS = [
+  /ignore (all )?(previous|prior|above) instructions?/i,
+  /you are now/i,
+  /system prompt/i,
+  /\beval\s*\(/i,
+  /<script[\s>]/i,
+  /\bexec\s*\(/i,
+];
+
+function isSafeMemoryContent(content: string): boolean {
+  if (!content || content.length > 2000) return false;
+  return !INJECTION_PATTERNS.some(re => re.test(content));
+}
+
 class MemoryManager {
-  // Recall relevant memories for a prompt — uses TF-IDF ranking from memoryUpgrades
-  recallForPrompt(prompt: string, limit = 5): string {
-    const recent = storage.getMemories(200);
+  // Recall relevant memories for a prompt — uses TF-IDF ranking from memoryUpgrades.
+  // Scoped to the current session so cross-session memory poisoning is blocked.
+  recallForPrompt(prompt: string, limit = 5, sessionId?: string): string {
+    const all = storage.getMemories(200);
+    // Prefer session-scoped memories; fall back to global if session has < 10 entries
+    const sessionMemories = sessionId ? all.filter(m => m.sessionId === sessionId) : all;
+    const recent = sessionMemories.length >= 10 ? sessionMemories : all;
     if (recent.length === 0) return "";
 
     // Use advancedMemorySearch for TF-IDF + Jaccard ranking
@@ -75,6 +95,12 @@ Output ONLY valid JSON.`,
 
       for (const fact of facts) {
         if (!fact.content) continue;
+
+        // Reject content that looks like a prompt injection payload
+        if (!isSafeMemoryContent(fact.content)) {
+          console.warn("[MemoryManager] Rejected potentially injected memory content");
+          continue;
+        }
 
         // Use calculateImportance from memoryUpgrades to compute a better importance score
         const computedImportance = calculateImportance(fact.content, existingMemories);

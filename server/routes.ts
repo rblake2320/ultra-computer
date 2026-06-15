@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { Server } from "http";
 import { v4 as uuidv4 } from "uuid";
+import crypto from "crypto";
 import { z } from "zod";
 import { storage } from "./storage.js";
 import { conversationService } from "./services/conversationService.js";
@@ -58,6 +59,27 @@ const insertKnowledgeEntrySchema = z.object({
   priority: z.number().int().min(0).max(100).optional(),
   tierPolicy: z.string().max(50).optional(),
 });
+
+// ─── OAuth state signing (HMAC-SHA256) ───────────────────────────────────────
+// Prevents forged state parameters in OAuth CSRF attacks.
+const OAUTH_STATE_SECRET = process.env.ENCRYPTION_KEY || process.env.ULTRA_API_KEY || "oauth-state-dev-secret-not-for-production";
+
+function signOAuthState(payload: object): string {
+  const data = JSON.stringify(payload);
+  const hmac = crypto.createHmac("sha256", OAUTH_STATE_SECRET).update(data).digest("hex");
+  return Buffer.from(JSON.stringify({ d: data, h: hmac })).toString("base64url");
+}
+
+function verifyOAuthState(state: string): { connectorId: string; ts: number } | null {
+  try {
+    const { d, h } = JSON.parse(Buffer.from(state, "base64url").toString());
+    const expected = crypto.createHmac("sha256", OAUTH_STATE_SECRET).update(d).digest("hex");
+    if (!crypto.timingSafeEqual(Buffer.from(h), Buffer.from(expected))) return null;
+    return JSON.parse(d);
+  } catch {
+    return null;
+  }
+}
 
 export async function registerRoutes(httpServer: Server, app: Express) {
   // ─── Seed on startup ──────────────────────────────────────────────────────
@@ -686,7 +708,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       });
       if (!updated) return res.status(404).json({ error: "Not found" });
       // Build OAuth authorization URL
-      const state = Buffer.from(JSON.stringify({ connectorId: req.params.id, ts: Date.now() })).toString("base64url");
+      const state = signOAuthState({ connectorId: req.params.id, ts: Date.now() });
       const redirectUri = `${req.protocol}://${req.get("host")}/api/connectors/oauth/callback`;
       const authUrl = new URL(def.oauthAuthUrl!);
       authUrl.searchParams.set("client_id", client_id);
@@ -718,15 +740,13 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       return res.redirect("/?connector_error=missing_code_or_state");
     }
     let connectorId: string;
-    try {
-      const decoded = JSON.parse(Buffer.from(String(state), "base64url").toString());
-      connectorId = decoded.connectorId;
-      // Check state is not older than 10 minutes
-      if (Date.now() - decoded.ts > 10 * 60 * 1000) {
-        return res.redirect("/?connector_error=state_expired");
-      }
-    } catch {
+    const decoded = verifyOAuthState(String(state));
+    if (!decoded) {
       return res.redirect("/?connector_error=invalid_state");
+    }
+    connectorId = decoded.connectorId;
+    if (Date.now() - decoded.ts > 10 * 60 * 1000) {
+      return res.redirect("/?connector_error=state_expired");
     }
     const connector = storage.getConnector(connectorId);
     if (!connector) return res.redirect("/?connector_error=connector_not_found");

@@ -22,6 +22,13 @@ declare module "http" {
   }
 }
 
+// Trust proxy: set to the number of reverse-proxy hops in front of this server.
+// Required for req.ip to reflect the real client IP for rate limiting and honeypot tracking.
+// In production behind nginx/Cloudflare/load-balancer set TRUST_PROXY=1 (or the hop count).
+// Defaults to false (direct connection — no proxy) which is safe and correct for local dev.
+const trustProxy = process.env.TRUST_PROXY ? parseInt(process.env.TRUST_PROXY, 10) || true : false;
+app.set("trust proxy", trustProxy);
+
 // CORS — use explicit ALLOWED_ORIGIN env var or wildcard; never derive from request host
 app.use((req, res, next) => {
   const origin = req.headers.origin;

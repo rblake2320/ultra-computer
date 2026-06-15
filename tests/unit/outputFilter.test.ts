@@ -66,24 +66,29 @@ describe("filterOutput — instruction echo (flag only, no block)", () => {
   });
 });
 
-describe("filterOutput — large base64 blob (flag only)", () => {
-  it("flags a 500+ char base64 string", () => {
-    const big = "A".repeat(600); // not real b64 but matches regex
+describe("filterOutput — large base64 blob (hard block)", () => {
+  it("blocks and redacts a 500+ char base64 string", () => {
+    const big = "A".repeat(600);
     const r = filterOutput(`Data: ${big}`);
-    // Should flag it
+    expect(r.clean).toBe(false);
     expect(r.flags.some(f => f.startsWith("large-b64-blob"))).toBe(true);
+    expect(r.redacted).toContain("redacted");
+    expect(r.redacted).not.toContain("AAAAAA");
   });
 });
 
-describe("filterOutput — exfil URL pattern (flag only)", () => {
-  it("flags URL with long query string (data beacon pattern)", () => {
+describe("filterOutput — exfil URL pattern (hard block)", () => {
+  it("blocks and redacts URL with long query string (data beacon pattern)", () => {
     const url = "https://evil.com/collect?data=" + "x".repeat(60);
     const r = filterOutput(`Result: ${url}`);
+    expect(r.clean).toBe(false);
     expect(r.flags.some(f => f.startsWith("exfil-url-pattern"))).toBe(true);
+    expect(r.redacted).toContain("redacted");
   });
 
-  it("does NOT flag a short legitimate URL", () => {
+  it("does NOT block a short legitimate URL", () => {
     const r = filterOutput("See https://docs.example.com/guide for details.");
+    expect(r.clean).toBe(true);
     expect(r.flags.some(f => f.startsWith("exfil-url-pattern"))).toBe(false);
   });
 });

@@ -139,9 +139,28 @@ export function registerFileRoutes(app: Express) {
     },
   });
 
+  // Block executable and server-side script extensions that should never be uploaded
+  const BLOCKED_EXTENSIONS = new Set([
+    ".exe", ".dll", ".so", ".dylib",
+    ".sh", ".bash", ".zsh", ".fish",
+    ".bat", ".cmd", ".ps1", ".psm1",
+    ".php", ".php3", ".php4", ".php5", ".phtml",
+    ".jsp", ".jspx", ".asp", ".aspx",
+    ".cgi", ".pl", ".py", ".rb",          // scripts with exec permission risk
+    ".jar", ".war", ".ear",
+    ".msi", ".deb", ".rpm",
+  ]);
+
   const upload = multer({
     storage,
     limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB
+    fileFilter: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      if (BLOCKED_EXTENSIONS.has(ext)) {
+        return cb(new Error(`File type '${ext}' is not allowed for upload`));
+      }
+      cb(null, true);
+    },
   });
 
   // ─── GET /api/sandbox/files ────────────────────────────────────────────────
