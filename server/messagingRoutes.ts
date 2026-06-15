@@ -425,6 +425,9 @@ export function registerMessagingRoutes(app: Express): void {
     const slackSigningSecret = process.env.SLACK_SIGNING_SECRET;
 
     if (!slackSigningSecret) {
+      if (process.env.NODE_ENV !== "development") {
+        return res.status(503).json({ error: "Webhook endpoint not configured" });
+      }
       console.warn("[messaging] SLACK_SIGNING_SECRET is not set — Slack webhook signature verification is DISABLED. Set this variable in production.");
     } else {
       // Verify the Slack-signed request.
@@ -604,6 +607,9 @@ export function registerMessagingRoutes(app: Express): void {
     const githubSecret = process.env.GITHUB_WEBHOOK_SECRET;
 
     if (!githubSecret) {
+      if (process.env.NODE_ENV !== "development") {
+        return res.status(503).json({ error: "Webhook endpoint not configured" });
+      }
       console.warn("[messaging] GITHUB_WEBHOOK_SECRET is not set — GitHub webhook signature verification is DISABLED. Set this variable in production.");
     } else {
       // Verify the GitHub-signed request using X-Hub-Signature-256.

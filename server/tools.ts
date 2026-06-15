@@ -18,6 +18,7 @@ import { IMAGE_GEN_TOOL_SCHEMAS, executeImageGenTool } from "./imageGenTool.js";
 import { resolveInside } from "./pathSafety.js";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 import { redactString } from "./redaction.js";
+import { isPrivateHost } from "./networkSecurity.js";
 
 const execAsync = promisify(exec);
 
@@ -237,7 +238,9 @@ async function executeBashDocker(command: string, start: number, sessionId: stri
       durationMs: Date.now() - start,
     };
   } catch (err: any) {
-    // If Docker fails, fall back to host process for this command
+    if (process.env.DOCKER_SANDBOX_ONLY === "true") {
+      return { success: false, output: "", error: `Docker sandbox required but unavailable: ${redactString(err.message)}`, durationMs: Date.now() - start };
+    }
     console.warn(`[tools/bash] Docker exec failed, falling back to host: ${redactString(err.message)}`);
     return executeBashHost(command, start);
   }
@@ -396,19 +399,7 @@ async function executeFetchUrl(url: string, extractText: boolean, start: number)
   }
 
   // SSRF protection: block private/loopback/link-local addresses
-  const hostname = parsedUrl.hostname.toLowerCase();
-  const isPrivate = (
-    hostname === 'localhost' ||
-    hostname.endsWith('.local') ||
-    /^127\./.test(hostname) ||
-    /^10\./.test(hostname) ||
-    /^192\.168\./.test(hostname) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
-    hostname === '::1' ||
-    hostname === '[::1]' ||
-    /^169\.254\./.test(hostname) // link-local
-  );
-  if (isPrivate) {
+  if (isPrivateHost(parsedUrl.hostname)) {
     return { success: false, output: "", error: "Fetching private/internal network addresses is not allowed", durationMs: Date.now() - start };
   }
 

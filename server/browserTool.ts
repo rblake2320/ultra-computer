@@ -11,6 +11,7 @@
 import fs from "fs";
 import path from "path";
 import type { ToolSchema, ToolResult } from "./tools.js";
+import { isPrivateHost } from "./networkSecurity.js";
 
 // ─── Sandbox directories ──────────────────────────────────────────────────────
 
@@ -438,6 +439,11 @@ async function executeBrowseUrl(
   }
   if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
     return { success: false, output: "", error: `URL scheme '${parsedUrl.protocol}' is not allowed. Only http: and https: are permitted.`, durationMs: Date.now() - start };
+  }
+
+  // SSRF protection: block private/loopback/link-local addresses.
+  if (isPrivateHost(parsedUrl.hostname)) {
+    return { success: false, output: "", error: "Browsing private/internal network addresses is not allowed", durationMs: Date.now() - start };
   }
 
   let page: any;

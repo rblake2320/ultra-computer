@@ -11,6 +11,7 @@ import { createGrpcWebBridge } from "./grpcWebBridge.js";
 import { sqlite, db } from "./storage.js";
 import { sql } from "drizzle-orm";
 import { logger, httpLogger } from "./logger.js";
+import { registerHoneypot } from "./honeypot.js";
 
 const app = express();
 const httpServer = createServer(app);
@@ -144,20 +145,13 @@ app.get("/api/health", (_req, res) => {
   checks.grpc = { ok: true, detail: `port ${process.env.GRPC_PORT || 5001}` };
 
   const allOk = Object.values(checks).every((c) => c.ok);
-  const mem = process.memoryUsage();
 
   res.status(allOk ? 200 : 503).json({
     status: allOk ? "ok" : "degraded",
-    uptime: process.uptime(),
+    uptime: Math.round(process.uptime()),
     timestamp: new Date().toISOString(),
     version: "1.0.0",
-    nodeVersion: process.version,
-    checks,
-    memory: {
-      heapUsed: Math.round(mem.heapUsed / 1024 / 1024) + "MB",
-      heapTotal: Math.round(mem.heapTotal / 1024 / 1024) + "MB",
-      rss: Math.round(mem.rss / 1024 / 1024) + "MB",
-    },
+    checks: Object.fromEntries(Object.entries(checks).map(([k, v]) => [k, { ok: v.ok }])),
     latencyMs: Date.now() - start,
   });
 });
@@ -199,6 +193,9 @@ app.use((req, res, next) => {
 
 (async () => {
   try {
+  // Honeypot: register canary routes before real routes — any hit is an attacker probe
+  registerHoneypot(app);
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

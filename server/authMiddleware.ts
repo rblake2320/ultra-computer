@@ -19,6 +19,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { verifyApiKey, extractApiKey } from "./auth.js";
 import { authLogger } from "./logger.js";
+import { trackAuthFailure } from "./honeypot.js";
 
 // Routes that must remain publicly accessible regardless of auth config.
 const EXEMPT_ROUTES: Array<{ method: string; path: string }> = [
@@ -70,10 +71,12 @@ export function createAuthMiddleware() {
     const suppliedKey = extractApiKey(authHeader, xApiKey) || queryApiKey;
 
     if (!suppliedKey) {
+      trackAuthFailure(req.ip ?? req.socket?.remoteAddress ?? "unknown");
       return res.status(401).json({ error: "Unauthorized" });
     }
 
     if (!verifyApiKey(suppliedKey)) {
+      trackAuthFailure(req.ip ?? req.socket?.remoteAddress ?? "unknown");
       return res.status(401).json({ error: "Unauthorized" });
     }
 
