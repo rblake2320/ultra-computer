@@ -34,6 +34,7 @@ import {
   workflowIdFromMessage,
 } from "./durableExecution.js";
 import type { Task } from "@shared/schema";
+import { filterOutput } from "./outputFilter.js";
 
 // IPC directory for filesystem-based inter-agent communication
 const IPC_DIR = path.join(process.cwd(), "ipc");
@@ -224,11 +225,13 @@ export async function runOrchestrator(
 
       // Synthesize results from all completed tasks
       const allResults = Array.from(swarmResults.values()).filter(Boolean);
-      const finalResponse = allResults.length === 1
+      const rawSwarmResponse = allResults.length === 1
         ? allResults[0]
         : allResults.length === 0
           ? "The swarm completed but produced no results."
           : allResults.join("\n\n---\n\n");
+      const { redacted: finalResponse, flags: swarmFlags } = filterOutput(rawSwarmResponse, `swarm:${conversationId}`);
+      if (swarmFlags.length > 0) console.warn(`[orchestrator] output filter flags on swarm response: ${swarmFlags.join(", ")}`);
 
       // Save assistant message
       const msgId = uuidv4();
@@ -340,7 +343,7 @@ export async function runOrchestrator(
     // 7. Synthesize final response
     emit(conversationId, { type: "status", status: "synthesizing", message: "Synthesizing results..." });
     recordDurableStep({ workflowId, stepId: "synthesis", status: "started", idempotencyKey: `${workflowId}:synthesis` });
-    const finalResponse = await synthesizeResults(
+    const rawFinalResponse = await synthesizeResults(
       userMessage,
       results,
       memories,
@@ -349,6 +352,8 @@ export async function runOrchestrator(
       conversationId
     );
     recordDurableStep({ workflowId, stepId: "synthesis", status: "completed", idempotencyKey: `${workflowId}:synthesis` });
+    const { redacted: finalResponse, flags: dagFlags } = filterOutput(rawFinalResponse, `dag:${conversationId}`);
+    if (dagFlags.length > 0) console.warn(`[orchestrator] output filter flags on DAG response: ${dagFlags.join(", ")}`);
 
     // 8. Save assistant message
     const msgId = uuidv4();
