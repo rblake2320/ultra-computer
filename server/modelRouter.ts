@@ -25,12 +25,19 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface ToolDef {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
 export interface RouterOptions {
   taskType?: TaskType;
   modelId?: string;       // override: use specific model
   stream?: boolean;
   maxTokens?: number;
   temperature?: number;
+  tools?: ToolDef[];      // native tool calling (OpenAI function format)
 }
 
 export interface LLMResponse {
@@ -202,7 +209,7 @@ export async function* chatStream(
     case "perplexity":
     case "lmstudio":
     case "nvidia":
-      yield* streamOpenAICompat(model, messages, maxTokens, temperature);
+      yield* streamOpenAICompat(model, messages, maxTokens, temperature, options.tools);
       break;
     case "anthropic":
       yield* streamAnthropic(model, messages, maxTokens, temperature);
@@ -239,8 +246,9 @@ async function chatOpenAICompat(
   if (!res.choices?.length) {
     throw new Error("No response from model");
   }
+  const msg = res.choices[0]?.message as any;
   return {
-    content: res.choices[0]?.message?.content || "",
+    content: msg?.content || msg?.reasoning || msg?.reasoning_content || "",
     model: model.name,
     modelId: model.id,
     usage: res.usage ? {
@@ -255,19 +263,86 @@ async function* streamOpenAICompat(
   model: Model,
   msgs: ChatMessage[],
   maxTokens: number,
-  temperature: number
+  temperature: number,
+  tools?: ToolDef[]
 ): AsyncGenerator<string> {
   const client = makeOpenAIClient(model);
-  const stream = await client.chat.completions.create({
+
+  // Build request — include native tools if provided
+  const createParams: any = {
     model: model.modelId,
     messages: msgs,
     max_tokens: maxTokens,
     temperature,
     stream: true,
-  });
+  };
+
+  if (tools && tools.length > 0) {
+    createParams.tools = tools.map((t) => ({
+      type: "function" as const,
+      function: { name: t.name, description: t.description, parameters: t.parameters },
+    }));
+  }
+
+  const stream = await client.chat.completions.create(createParams);
+
+  let contentBuffer = "";
+  let reasoningBuffer = "";
+  // Accumulate native tool calls from stream deltas
+  const toolCallAccum: Map<number, { name: string; args: string }> = new Map();
+
   for await (const chunk of stream) {
-    const delta = chunk.choices[0]?.delta?.content;
-    if (delta) yield delta;
+    const choice = chunk.choices[0];
+    const delta = choice?.delta as any;
+
+    // Content tokens
+    const text = delta?.content || "";
+    if (text) {
+      contentBuffer += text;
+      yield text;
+    }
+
+    // Reasoning tokens (qwen3, deepseek-r1)
+    const reasoning = delta?.reasoning || delta?.reasoning_content || "";
+    if (reasoning) reasoningBuffer += reasoning;
+
+    // Native tool call deltas
+    if (delta?.tool_calls) {
+      for (const tc of delta.tool_calls) {
+        const idx = tc.index ?? 0;
+        if (!toolCallAccum.has(idx)) {
+          toolCallAccum.set(idx, { name: "", args: "" });
+        }
+        const acc = toolCallAccum.get(idx)!;
+        if (tc.function?.name) acc.name += tc.function.name;
+        if (tc.function?.arguments) acc.args += tc.function.arguments;
+      }
+    }
+  }
+
+  // If model returned native tool calls, convert to <tool_call> format for the orchestrator
+  if (toolCallAccum.size > 0) {
+    for (const [, tc] of toolCallAccum) {
+      try {
+        const args = JSON.parse(tc.args || "{}");
+        const block = `\n<tool_call>\n${JSON.stringify({ name: tc.name, args })}\n</tool_call>`;
+        yield block;
+      } catch {
+        // If args aren't valid JSON, emit raw
+        yield `\n<tool_call>\n${JSON.stringify({ name: tc.name, args: {} })}\n</tool_call>`;
+      }
+    }
+  }
+  // Fallback for reasoning-only models with no content and no native tool calls
+  else if (reasoningBuffer && !contentBuffer) {
+    // Extract tool_call blocks from reasoning text
+    const toolCallPattern = /<tool_call>\s*[\s\S]*?<\/tool_call>/g;
+    const matches = reasoningBuffer.match(toolCallPattern);
+    if (matches) {
+      yield "\n" + matches.join("\n");
+    } else {
+      yield reasoningBuffer;
+    }
   }
 }
 

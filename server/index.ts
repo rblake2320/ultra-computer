@@ -131,6 +131,7 @@ const chatLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Chat rate limit exceeded. Please wait before sending more messages." },
+  validate: { xForwardedForHeader: false, ip: false, trustProxy: false, default: false },
   keyGenerator: normalizeIp,
 });
 app.use("/api/conversations/:id/messages", chatLimiter);
@@ -256,7 +257,7 @@ app.use((req, res, next) => {
   httpServer.listen(
     {
       port,
-      host: "0.0.0.0",
+      host: process.env.HOST || "0.0.0.0",
       reusePort: process.platform !== "win32",
     },
     () => {

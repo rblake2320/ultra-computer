@@ -11,7 +11,9 @@ import {
   ChevronLeft, ChevronRight, Trash2, BookOpen,
   Container, Library, Settings, FolderOpen, BarChart3, Globe, Store, Activity,
   MessageSquare, Zap, Shield, Database, FileText, Bug,
+  MoreHorizontal, Pencil, Archive, Check, X as XIcon,
 } from "lucide-react";
+import { Input } from "./ui/input";
 import { MobileSidebar, MobileMenuButton } from "./MobileSidebar";
 import { NotificationCenter } from "./NotificationCenter";
 import { useToast } from "../hooks/use-toast";
@@ -49,6 +51,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const { data: conversations = [], isError: convsError } = useQuery<Conversation[]>({ queryKey: ["/api/conversations"] });
 
@@ -110,14 +113,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
     };
     const handleToggleSidebar = () => setCollapsed(c => !c);
 
+    const handleClickOutside = (e: MouseEvent) => {
+      if (!(e.target as Element).closest('[data-session-menu]')) {
+        setOpenMenuId(null);
+      }
+    };
     window.addEventListener("ultra:new-session", handleNewSession);
     window.addEventListener("ultra:navigate", handleNavigate);
     window.addEventListener("ultra:toggle-sidebar", handleToggleSidebar);
+    document.addEventListener("mousedown", handleClickOutside);
 
     return () => {
       window.removeEventListener("ultra:new-session", handleNewSession);
       window.removeEventListener("ultra:navigate", handleNavigate);
       window.removeEventListener("ultra:toggle-sidebar", handleToggleSidebar);
+      document.removeEventListener("mousedown", handleClickOutside);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -150,15 +160,81 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* Conversations */}
       <ScrollArea className="flex-1 px-2">
         <div className="space-y-0.5 pb-2">
-          {conversations.map(conv => (
-            <div
-              key={conv.id}
-              className={`group flex items-center gap-2 rounded-md px-2 py-1.5 cursor-pointer hover:bg-muted/60 transition-colors ${location === `/chat/${conv.id}` ? "bg-muted" : ""}`}
-              onClick={() => setLocation(`/chat/${conv.id}`)}
-            >
-              <p className="text-xs font-medium truncate flex-1 min-w-0">{conv.title}</p>
-            </div>
-          ))}
+          {conversations.map(conv => {
+            const isActive = location === `/chat/${conv.id}`;
+            const isRenaming = renamingId === conv.id;
+            const menuOpen = openMenuId === conv.id;
+            const status = (conv as any).status || "idle";
+            return (
+              <div
+                key={conv.id}
+                className={`group relative flex items-center gap-1.5 rounded-md px-2 py-1.5 cursor-pointer hover:bg-muted/60 transition-colors ${isActive ? "bg-muted" : ""}`}
+                onClick={() => { if (!isRenaming && !menuOpen) setLocation(`/chat/${conv.id}`); }}
+              >
+                {/* Title / rename input */}
+                <div className="flex-1 min-w-0">
+                  {isRenaming ? (
+                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                      <Input
+                        ref={renameInputRef}
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === "Enter") commitRename();
+                          if (e.key === "Escape") cancelRename();
+                        }}
+                        className="h-6 text-xs px-1 py-0"
+                        autoFocus
+                      />
+                      <button onClick={commitRename} className="text-green-400 hover:text-green-300 shrink-0"><Check className="w-3 h-3" /></button>
+                      <button onClick={cancelRename} className="text-muted-foreground hover:text-foreground shrink-0"><XIcon className="w-3 h-3" /></button>
+                    </div>
+                  ) : (
+                    <p className="text-xs font-medium truncate">{conv.title}</p>
+                  )}
+                  <span className={`text-[10px] px-1 rounded ${statusColors[status] || "text-muted-foreground"}`}>{status}</span>
+                </div>
+
+                {/* 3-dot menu button — visible on hover or when menu open */}
+                {!isRenaming && (
+                  <div className="relative" data-session-menu onClick={e => e.stopPropagation()}>
+                    <button
+                      className={`p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity ${menuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                      onClick={() => setOpenMenuId(menuOpen ? null : conv.id)}
+                      title="Session options"
+                    >
+                      <MoreHorizontal className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* Dropdown */}
+                    {menuOpen && (
+                      <div className="absolute right-0 top-6 z-50 w-40 bg-popover border border-border rounded-lg shadow-lg py-1 text-xs" data-session-menu>
+                        <button
+                          className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-muted transition-colors text-left"
+                          onClick={() => { setOpenMenuId(null); startRename(conv); }}
+                        >
+                          <Pencil className="w-3 h-3 text-muted-foreground" /> Rename
+                        </button>
+                        <button
+                          className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-muted transition-colors text-left text-muted-foreground"
+                          onClick={() => { setOpenMenuId(null); toast({ title: "Archive coming soon" }); }}
+                        >
+                          <Archive className="w-3 h-3" /> Archive
+                        </button>
+                        <div className="border-t border-border my-1" />
+                        <button
+                          className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-destructive/10 text-destructive transition-colors text-left"
+                          onClick={() => { setOpenMenuId(null); deleteConv.mutate(conv.id); }}
+                        >
+                          <Trash2 className="w-3 h-3" /> Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
           {conversations.length === 0 && !convsError && (
             <p className="text-xs text-muted-foreground text-center py-4">No sessions yet</p>
           )}
@@ -242,62 +318,86 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {!collapsed && (
           <ScrollArea className="flex-1 px-2">
             <div className="space-y-0.5 pb-2">
-              {conversations.map(conv => (
-                <div
-                  key={conv.id}
-                  className={`group flex items-center gap-2 rounded-md px-2 py-1.5 cursor-pointer hover:bg-muted/60 transition-colors ${location === `/chat/${conv.id}` ? "bg-muted" : ""}`}
-                  data-testid={`conv-item-${conv.id}`}
-                  role="listitem"
-                >
-                  {renamingId === conv.id ? (
-                    <input
-                      ref={renameInputRef}
-                      className="flex-1 min-w-0 bg-transparent border-0 border-b border-primary text-xs font-medium outline-none text-foreground"
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") commitRename();
-                        if (e.key === "Escape") cancelRename();
-                      }}
-                      onBlur={commitRename}
-                      data-testid={`input-rename-${conv.id}`}
-                      autoFocus
-                    />
-                  ) : (
-                    <div
-                      className="flex-1 min-w-0"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Open conversation: ${conv.title}`}
-                      onClick={() => setLocation(`/chat/${conv.id}`)}
-                      onDoubleClick={() => startRename(conv)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          setLocation(`/chat/${conv.id}`);
-                        }
-                      }}
-                    >
-                      <p className="text-xs font-medium truncate">{conv.title}</p>
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusColors[conv.status] || "bg-muted text-muted-foreground"}`}>
-                          {conv.status}
-                        </span>
-                      </div>
+              {conversations.map(conv => {
+                const isActive = location === `/chat/${conv.id}`;
+                const isRenaming = renamingId === conv.id;
+                const menuOpen = openMenuId === conv.id;
+                return (
+                  <div
+                    key={conv.id}
+                    className={`group relative flex items-center gap-1.5 rounded-md px-2 py-1.5 cursor-pointer hover:bg-muted/60 transition-colors ${isActive ? "bg-muted" : ""}`}
+                    data-testid={`conv-item-${conv.id}`}
+                    role="listitem"
+                    onClick={() => { if (!isRenaming && !menuOpen) setLocation(`/chat/${conv.id}`); }}
+                  >
+                    {/* Title / rename */}
+                    <div className="flex-1 min-w-0">
+                      {isRenaming ? (
+                        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                          <Input
+                            ref={renameInputRef}
+                            value={renameValue}
+                            onChange={e => setRenameValue(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") commitRename();
+                              if (e.key === "Escape") cancelRename();
+                            }}
+                            className="h-6 text-xs px-1 py-0"
+                            autoFocus
+                            data-testid={`input-rename-${conv.id}`}
+                          />
+                          <button onClick={commitRename} className="text-green-400 hover:text-green-300 shrink-0"><Check className="w-3 h-3" /></button>
+                          <button onClick={cancelRename} className="text-muted-foreground hover:text-foreground shrink-0"><XIcon className="w-3 h-3" /></button>
+                        </div>
+                      ) : (
+                        <>
+                          <p className="text-xs font-medium truncate">{conv.title}</p>
+                          <span className={`text-[10px] px-1 rounded ${statusColors[conv.status] || "text-muted-foreground"}`}>{conv.status}</span>
+                        </>
+                      )}
                     </div>
-                  )}
-                  {renamingId !== conv.id && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); deleteConv.mutate(conv.id); }}
-                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
-                      aria-label={`Delete conversation: ${conv.title}`}
-                      title="Delete conversation"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
-              ))}
+
+                    {/* 3-dot menu */}
+                    {!isRenaming && (
+                      <div className="relative shrink-0" data-session-menu onClick={e => e.stopPropagation()}>
+                        <button
+                          className={`p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity ${menuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                          onClick={() => setOpenMenuId(menuOpen ? null : conv.id)}
+                          title="Session options"
+                          data-testid={`menu-btn-${conv.id}`}
+                        >
+                          <MoreHorizontal className="w-3.5 h-3.5" />
+                        </button>
+
+                        {menuOpen && (
+                          <div className="absolute right-0 top-6 z-50 w-40 bg-popover border border-border rounded-lg shadow-lg py-1 text-xs" data-session-menu>
+                            <button
+                              className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-muted transition-colors text-left"
+                              onClick={() => { setOpenMenuId(null); startRename(conv); }}
+                            >
+                              <Pencil className="w-3 h-3 text-muted-foreground" /> Rename
+                            </button>
+                            <button
+                              className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-muted transition-colors text-left text-muted-foreground"
+                              onClick={() => { setOpenMenuId(null); toast({ title: "Archive coming soon" }); }}
+                            >
+                              <Archive className="w-3 h-3" /> Archive
+                            </button>
+                            <div className="border-t border-border my-1" />
+                            <button
+                              className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-destructive/10 text-destructive transition-colors text-left"
+                              onClick={() => { setOpenMenuId(null); deleteConv.mutate(conv.id); }}
+                              data-testid={`delete-conv-${conv.id}`}
+                            >
+                              <Trash2 className="w-3 h-3" /> Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               {conversations.length === 0 && (
                 <p className="text-xs text-muted-foreground text-center py-4">No sessions yet</p>
               )}

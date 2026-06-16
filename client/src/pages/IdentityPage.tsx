@@ -732,7 +732,8 @@ function DirectoryTab({ myCryptoId }: { myCryptoId: string | null }) {
       ) : identities.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-2">
           <Users className="w-10 h-10" />
-          <p>No identities found.</p>
+          <p>No verified identities found.</p>
+          <p className="text-xs">Directory only shows verified, premium, enterprise, and admin tier identities.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1407,8 +1408,18 @@ function AuditLogTab({ cryptoId }: { cryptoId: string | null }) {
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export function IdentityPage() {
-  const [cryptoId, setCryptoId] = useState<string | null>(null);
+  const [cryptoId, setCryptoId] = useState<string | null>(() => {
+    const stored = localStorage.getItem("uc_identity_cryptoId");
+    // Guard against a stale "undefined" string written by older buggy versions
+    return stored && stored !== "undefined" ? stored : null;
+  });
   const [activeTab, setActiveTab] = useState("identity");
+
+  const handleRegistered = (id: string) => {
+    setCryptoId(id);
+    localStorage.setItem("uc_identity_cryptoId", id);
+    setActiveTab("identity");
+  };
 
   return (
     <div className="flex flex-col h-full bg-background text-foreground">
@@ -1462,7 +1473,7 @@ export function IdentityPage() {
             <TabsContent value="identity" className="mt-0 p-6 h-full">
               <MyIdentityTab
                 cryptoId={cryptoId}
-                onRegistered={(id) => { setCryptoId(id); setActiveTab("identity"); }}
+                onRegistered={handleRegistered}
               />
             </TabsContent>
 

@@ -192,9 +192,16 @@ export function registerIdentityRoutes(app: Express): void {
         displayName,
         Object.keys(options).length ? options : undefined
       );
-      res.status(201).json(identity);
+      // Flatten the nested crypto object so the response shape matches GET /api/identity/:cryptoId
+      const { crypto: cryptoFields, ...rest } = identity as any;
+      const flat = cryptoFields
+        ? { cryptoId: cryptoFields.cryptoId, fingerprint: cryptoFields.fingerprint, ...rest }
+        : identity;
+      res.status(201).json(flat);
     } catch (err: any) {
-      res.status(500).json({ error: err.message ?? "Failed to register identity" });
+      const msg: string = err.message ?? "Failed to register identity";
+      const isDuplicate = msg.toLowerCase().includes("already") || msg.toLowerCase().includes("taken") || msg.toLowerCase().includes("duplicate");
+      res.status(isDuplicate ? 409 : 500).json({ error: msg });
     }
   });
 
@@ -221,7 +228,7 @@ export function registerIdentityRoutes(app: Express): void {
       const requests = identityEngine.identityEngine.getVerificationRequests(
         Object.keys(filters).length ? filters : undefined
       );
-      res.json(requests);
+      res.json({ requests, total: requests.length });
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to fetch verification requests" });
     }
@@ -404,7 +411,7 @@ export function registerIdentityRoutes(app: Express): void {
       const log = identityEngine.identityEngine.getAuditLog(
         cryptoId ?? undefined
       );
-      res.json(log);
+      res.json({ entries: log, total: log.length });
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to fetch audit log" });
     }

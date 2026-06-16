@@ -52,9 +52,9 @@ class MemoryManager {
   }
 
   // Extract durable facts from a conversation turn and store them
-  async extractAndStore(userMessage: string, assistantResponse: string, sessionId: string): Promise<void> {
+  async extractAndStore(userMessage: string, assistantResponse: string, sessionId: string, overrideModelId?: string): Promise<void> {
     try {
-      const orchModel = storage.getOrchestratorModel() || storage.getDefaultModel();
+      const orchModel = (overrideModelId && storage.getModel(overrideModelId)) || storage.getOrchestratorModel() || storage.getDefaultModel();
       if (!orchModel) return;
 
       const extraction = await chat([

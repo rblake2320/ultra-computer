@@ -7,7 +7,11 @@ import { Textarea } from "../components/ui/textarea";
 import { Card } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { useToast } from "../hooks/use-toast";
-import { Plus, Trash2, BookOpen, Lock, ToggleLeft, ToggleRight, Zap } from "lucide-react";
+import { Plus, Trash2, BookOpen, Lock, ToggleLeft, ToggleRight, Zap, X } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from "../components/ui/dialog";
+import { ScrollArea } from "../components/ui/scroll-area";
 import type { Skill } from "../../../shared/schema";
 import { safeJsonParse } from "../lib/safeJson";
 
@@ -16,6 +20,7 @@ export function SkillsPage() {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", content: "", triggerKeywords: "" });
+  const [detailSkill, setDetailSkill] = useState<Skill | null>(null);
 
   const { data: skills = [], isLoading: skillsLoading, isError: skillsError } = useQuery<Skill[]>({ queryKey: ["/api/skills"] });
 
@@ -63,6 +68,43 @@ export function SkillsPage() {
   }
 
   return (
+    <>
+    {/* Skill detail dialog */}
+    <Dialog open={!!detailSkill} onOpenChange={(open) => { if (!open) setDetailSkill(null); }}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {detailSkill?.name}
+            {detailSkill?.isBuiltIn && <Badge variant="secondary" className="text-[10px]">built-in</Badge>}
+          </DialogTitle>
+        </DialogHeader>
+        {detailSkill && (
+          <div className="space-y-4">
+            {detailSkill.description && (
+              <p className="text-sm text-muted-foreground">{detailSkill.description}</p>
+            )}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Trigger Keywords</p>
+              <div className="flex flex-wrap gap-1">
+                {safeJsonParse(detailSkill.triggerKeywords, [] as string[]).map((kw: string) => (
+                  <span key={kw} className="text-[11px] px-2 py-0.5 bg-muted rounded-full text-muted-foreground">{kw}</span>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Content</p>
+              <ScrollArea className="h-64 rounded border border-border bg-muted/30">
+                <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-words">{detailSkill.content}</pre>
+              </ScrollArea>
+            </div>
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <span>Used <strong className="text-foreground">{detailSkill.usageCount}x</strong></span>
+              <span>Status: <strong className={detailSkill.enabled ? "text-green-500" : "text-red-500"}>{detailSkill.enabled ? "Enabled" : "Disabled"}</strong></span>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card/50">
         <BookOpen className="w-4 h-4 text-primary" />
@@ -125,7 +167,7 @@ export function SkillsPage() {
             </div>
             <div className="space-y-2">
               {builtIn.map(skill => (
-                <Card key={skill.id} className={`p-3 ${!skill.enabled ? "opacity-50" : ""}`} data-testid={`skill-card-${skill.id}`}>
+                <Card key={skill.id} className={`p-3 cursor-pointer hover:bg-muted/40 transition-colors ${!skill.enabled ? "opacity-50" : ""}`} data-testid={`skill-card-${skill.id}`} onClick={() => setDetailSkill(skill)}>
                   <div className="flex items-start gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
@@ -144,7 +186,7 @@ export function SkillsPage() {
                         ))}
                       </div>
                     </div>
-                    <button onClick={() => toggleSkill.mutate({ id: skill.id, enabled: !skill.enabled })}
+                    <button onClick={(e) => { e.stopPropagation(); toggleSkill.mutate({ id: skill.id, enabled: !skill.enabled }); }}
                       className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
                       title={skill.enabled ? "Disable" : "Enable"}>
                       {skill.enabled ? <ToggleRight className="w-5 h-5 text-primary" /> : <ToggleLeft className="w-5 h-5" />}
@@ -170,7 +212,7 @@ export function SkillsPage() {
           ) : (
             <div className="space-y-2">
               {custom.map(skill => (
-                <Card key={skill.id} className={`p-3 ${!skill.enabled ? "opacity-50" : ""}`}>
+                <Card key={skill.id} className={`p-3 cursor-pointer hover:bg-muted/40 transition-colors ${!skill.enabled ? "opacity-50" : ""}`} onClick={() => setDetailSkill(skill)}>
                   <div className="flex items-start gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
@@ -182,12 +224,12 @@ export function SkillsPage() {
                       <p className="text-xs text-muted-foreground">{skill.description}</p>
                     </div>
                     <div className="flex gap-1 shrink-0">
-                      <button onClick={() => toggleSkill.mutate({ id: skill.id, enabled: !skill.enabled })}
+                      <button onClick={(e) => { e.stopPropagation(); toggleSkill.mutate({ id: skill.id, enabled: !skill.enabled }); }}
                         className="text-muted-foreground hover:text-foreground transition-colors">
                         {skill.enabled ? <ToggleRight className="w-5 h-5 text-primary" /> : <ToggleLeft className="w-5 h-5" />}
                       </button>
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0 hover:text-destructive"
-                        onClick={() => deleteSkill.mutate(skill.id)}>
+                        onClick={(e) => { e.stopPropagation(); deleteSkill.mutate(skill.id); }}>
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>
@@ -199,5 +241,6 @@ export function SkillsPage() {
         </div>
       </div>
     </div>
+    </>
   );
 }

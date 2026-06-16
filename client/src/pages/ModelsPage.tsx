@@ -15,7 +15,7 @@ import {
   Wind, Users, Layers, Bot, Settings,
 } from "lucide-react";
 import type { Model } from "../../../shared/schema";
-import { safeJsonParse } from "../lib/safeJson";
+import { safeJsonParse, parseCapabilities } from "../lib/safeJson";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -314,14 +314,19 @@ export function ModelsPage() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <StatusDot status={status} />
                           <span className="font-semibold text-sm">{model.name}</span>
+                          {model.isDefault && model.isOrchestrator && (
+                            <Badge className="text-[10px] gap-1 bg-amber-500 hover:bg-amber-500 text-black font-bold px-2">
+                              <Brain className="w-2.5 h-2.5" />ACTIVE BRAIN
+                            </Badge>
+                          )}
                           <Badge variant="secondary" className="text-[10px]">{prov?.name || model.provider}</Badge>
                           <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">
                             {model.modelId}
                           </code>
-                          {model.isDefault && (
+                          {model.isDefault && !model.isOrchestrator && (
                             <Badge className="text-[10px] gap-1"><Star className="w-2.5 h-2.5" />Default</Badge>
                           )}
-                          {model.isOrchestrator && (
+                          {model.isOrchestrator && !model.isDefault && (
                             <Badge variant="secondary" className="text-[10px] gap-1"><Brain className="w-2.5 h-2.5" />Orchestrator</Badge>
                           )}
                           {model.speedTier === "fast" && (
@@ -337,7 +342,7 @@ export function ModelsPage() {
                         </div>
                         <div className="flex items-center gap-3 mt-0.5">
                           <p className="text-xs text-muted-foreground">
-                            {safeJsonParse(model.capabilities, [] as string[]).join(", ")} · {model.contextWindow.toLocaleString()} ctx
+                            {parseCapabilities(model.capabilities).join(", ")} · {model.contextWindow.toLocaleString()} ctx
                           </p>
                           <Badge variant="outline" className="text-[9px] gap-1 px-1.5 py-0">
                             {authMethod === "api_key" && <><Key className="w-2 h-2" /> API Key</>}
@@ -656,7 +661,7 @@ export function ModelsPage() {
                           </Badge>
                         </div>
                         <p className="text-[10px] text-muted-foreground mt-0.5">
-                          {preset.description} · {preset.capabilities.join(", ")} · {preset.contextWindow.toLocaleString()} ctx
+                          {preset.description} · {parseCapabilities(preset.capabilities).join(", ")} · {preset.contextWindow.toLocaleString()} ctx
                         </p>
                       </div>
                       {!alreadyAdded && (

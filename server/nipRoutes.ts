@@ -151,7 +151,7 @@ export function registerNIPRoutes(app: Express): void {
       const session = nipEngine.nipEngine.createSession(
         instructorProfile,
         executorProfile,
-        taskScope ?? null,
+        taskScope ?? {},
         (accessTier as NIPAccessTier) ?? "public"
       );
       res.status(201).json(session);

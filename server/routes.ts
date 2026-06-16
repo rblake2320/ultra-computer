@@ -274,9 +274,10 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (isDefault) storage.getModels().forEach(m => storage.updateModel(m.id, { isDefault: false }));
     if (isOrchestrator) storage.getModels().forEach(m => storage.updateModel(m.id, { isOrchestrator: false }));
     // Whitelist allowed fields to prevent mass assignment
-    const { name, enabled, speedTier, notes, isDefault: _isDefault, isOrchestrator: _isOrch, contextWindow, capabilities } = input;
+    const { name, modelId, enabled, speedTier, notes, isDefault: _isDefault, isOrchestrator: _isOrch, contextWindow, capabilities } = input;
     const allowedUpdate: Record<string, any> = {};
     if (name !== undefined) allowedUpdate.name = name;
+    if (modelId !== undefined) allowedUpdate.modelId = modelId;
     if (enabled !== undefined) allowedUpdate.enabled = enabled;
     if (speedTier !== undefined) allowedUpdate.speedTier = speedTier;
     if (notes !== undefined) allowedUpdate.notes = notes;
@@ -862,7 +863,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   // ─── Settings ─────────────────────────────────────────────────────────────
   app.get("/api/settings", (req, res) => {
-    const keys = ["theme", "default_model_id", "system_name", "max_tool_iterations", "sandbox_auto_enable"];
+    const keys = ["theme", "default_model_id", "system_name", "max_tool_iterations", "sandbox_auto_enable",
+      "model_for_decomposition", "model_for_workers", "model_for_swarm", "model_for_synthesis", "model_for_memory"];
     const result: Record<string, string> = {};
     for (const k of keys) {
       const v = storage.getSetting(k);
@@ -875,7 +877,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
       return res.status(400).json({ error: "Request body must be a plain object" });
     }
-    const ALLOWED_SETTINGS = new Set(["theme", "default_model_id", "system_name", "max_tool_iterations", "sandbox_auto_enable", "sandbox_config"]);
+    const ALLOWED_SETTINGS = new Set(["theme", "default_model_id", "system_name", "max_tool_iterations", "sandbox_auto_enable", "sandbox_config",
+      "model_for_decomposition", "model_for_workers", "model_for_swarm", "model_for_synthesis", "model_for_memory"]);
     for (const [k, v] of Object.entries(req.body)) {
       if (!ALLOWED_SETTINGS.has(k)) continue; // silently skip unknown keys
       if (typeof v === "string" && v.length <= 10_000) storage.setSetting(k, v);

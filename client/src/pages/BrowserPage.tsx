@@ -126,12 +126,19 @@ export function BrowserPage() {
     queryKey: ["/api/browser/sessions"],
     refetchInterval: 5000,
   });
-  // Backend returns { sessions: [...] } — unwrap it, with fallback for safety
-  const sessions: BrowserSession[] = Array.isArray(rawSessions)
+  // Backend returns { sessions: [{key, url, title, viewport:{width,height}}] }
+  // Normalize to BrowserSession {id, url, width, height}
+  const rawSessionList: any[] = Array.isArray(rawSessions)
     ? rawSessions
     : Array.isArray((rawSessions as any)?.sessions)
       ? (rawSessions as any).sessions
       : [];
+  const sessions: BrowserSession[] = rawSessionList.map((s) => ({
+    id: s.key ?? s.id,
+    url: s.url,
+    width: s.viewport?.width ?? s.width,
+    height: s.viewport?.height ?? s.height,
+  }));
 
   // Auto-select first available session
   useEffect(() => {
@@ -143,13 +150,16 @@ export function BrowserPage() {
     }
   }, [sessions, activeSession]);
 
-  // Sync viewport from active session
+  // Sync URL only when active session ID changes (not on every 5s poll)
   useEffect(() => {
     const s = sessions.find((s) => s.id === activeSession);
-    if (s) {
-      setViewport({ w: s.width, h: s.height });
-      if (s.url) setUrlInput(s.url);
-    }
+    if (s?.url) setUrlInput(s.url);
+  }, [activeSession]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync viewport on both session change and poll updates
+  useEffect(() => {
+    const s = sessions.find((s) => s.id === activeSession);
+    if (s) setViewport({ w: s.width, h: s.height });
   }, [activeSession, sessions]);
 
   // ─── Screenshot refresh ───────────────────────────────────────────────────
@@ -183,7 +193,8 @@ export function BrowserPage() {
     onMutate: () => setStatus("loading"),
     onSuccess: (data) => {
       setStatus("idle");
-      if (data?.session) setActiveSession(data.session);
+      // Backend always uses "default" session key — set it directly
+      setActiveSession(data?.session ?? "default");
       log({
         type: "navigate",
         message: `Navigated to ${urlInput}`,

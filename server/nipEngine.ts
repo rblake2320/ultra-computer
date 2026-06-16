@@ -739,19 +739,19 @@ export class NIPEngine extends EventEmitter {
     });
 
     // --- Capability Response (executor → instructor) ---
-    const toolOverlap = instructorProfile.supportedTools.filter((t) =>
-      executorProfile.supportedTools.includes(t)
-    );
-    const relevantSpecializations = executorProfile.specializations.join(", ") || "general purpose";
+    const instrTools = instructorProfile.supportedTools ?? [];
+    const execTools = executorProfile.supportedTools ?? [];
+    const toolOverlap = instrTools.filter((t) => execTools.includes(t));
+    const relevantSpecializations = (executorProfile.specializations ?? []).join(", ") || "general purpose";
     const capResponseContent =
       `Understood, ${instructorProfile.agentName}. Here is my capability summary for this session. ` +
       `Supported tools (overlap with requested): ${toolOverlap.length > 0 ? toolOverlap.join(", ") : "none from the requested list, but I can adapt"}. ` +
-      `Full tool list: ${executorProfile.supportedTools.join(", ") || "none declared"}. ` +
-      `Context window: ${executorProfile.maxContextWindow.toLocaleString()} tokens. ` +
+      `Full tool list: ${execTools.join(", ") || "none declared"}. ` +
+      `Context window: ${(executorProfile.maxContextWindow ?? 0).toLocaleString() || "unspecified"} tokens. ` +
       `Model: ${executorProfile.modelProvider}/${executorProfile.modelId} (${executorProfile.modelTier} tier). ` +
       `Specialisations: ${relevantSpecializations}. ` +
-      `Languages: ${executorProfile.languages.join(", ") || "English"}. ` +
-      `Trust score: ${executorProfile.trustScore}/100. ` +
+      `Languages: ${(executorProfile.languages ?? []).join(", ") || "English"}. ` +
+      `Trust score: ${executorProfile.trustScore ?? "unset"}/100. ` +
       `I prefer receiving instructions with clear success criteria and explicit scope boundaries. ` +
       `I will ask questions when requirements are ambiguous. Ready to proceed.`;
 
@@ -1507,8 +1507,8 @@ export class NIPEngine extends EventEmitter {
       };
     }
 
-    // Empty allowedScopes means unrestricted
-    if (party.allowedScopes.length > 0) {
+    // Empty allowedScopes OR wildcard "*" means unrestricted
+    if (party.allowedScopes.length > 0 && !party.allowedScopes.includes("*")) {
       const lowerScope = requestedScope.toLowerCase();
       const scopeWords = lowerScope.split(/[\s,_\-/|]+/);
 
@@ -1862,7 +1862,7 @@ export class NIPEngine extends EventEmitter {
     }
 
     // Adapt to context window
-    if (executor.maxContextWindow < 8192) {
+    if ((executor.maxContextWindow ?? 0) > 0 && executor.maxContextWindow < 8192) {
       notes.push(
         `Executor context window is small (${executor.maxContextWindow.toLocaleString()} tokens) — ` +
         "I will keep instructions concise and avoid large data payloads."
@@ -1870,9 +1870,9 @@ export class NIPEngine extends EventEmitter {
     }
 
     // Adapt to language
-    const sharedLanguages = instructor.languages.filter((l) =>
-      executor.languages.includes(l)
-    );
+    const instrLangs = instructor.languages ?? [];
+    const execLangs = executor.languages ?? [];
+    const sharedLanguages = instrLangs.filter((l) => execLangs.includes(l));
     if (sharedLanguages.length === 0) {
       notes.push(
         "No shared language detected — defaulting to English and watching for translation needs."
@@ -1880,14 +1880,16 @@ export class NIPEngine extends EventEmitter {
     }
 
     // Adapt to specialisation gap
-    const executorSpecializations = executor.specializations.join(", ").toLowerCase();
+    const execSpecs = executor.specializations ?? [];
+    const instrSpecs = instructor.specializations ?? [];
+    const executorSpecializations = execSpecs.join(", ").toLowerCase();
     if (
       executorSpecializations &&
       !executorSpecializations.includes("general") &&
-      instructor.specializations.length > 0
+      instrSpecs.length > 0
     ) {
       notes.push(
-        `Executor specialises in: ${executor.specializations.join(", ")}. I will frame instructions to align with these strengths.`
+        `Executor specialises in: ${execSpecs.join(", ")}. I will frame instructions to align with these strengths.`
       );
     }
 

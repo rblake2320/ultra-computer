@@ -20,6 +20,13 @@ import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 import { redactString } from "./redaction.js";
 import { isPrivateHost } from "./networkSecurity.js";
 
+// Lazy import to avoid circular dependency (mcpProtocol imports from tools)
+let _mcpModule: typeof import("./mcpProtocol.js") | null = null;
+async function getMCPModule() {
+  if (!_mcpModule) _mcpModule = await import("./mcpProtocol.js");
+  return _mcpModule;
+}
+
 const execAsync = promisify(exec);
 
 // All agent-created files live here — mounted into Docker containers as /workspace
@@ -149,6 +156,83 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   },
 ];
 
+// ─── MCP Tool Bridge ─────────────────────────────────────────────────────────
+// Dynamically includes tools from connected MCP servers so worker agents can use them.
+
+/** Convert an MCP tool schema to our ToolSchema format. Prefix name with mcp_<serverId>_ */
+function mcpToolToSchema(tool: { name: string; description: string; inputSchema: any }, serverName: string, serverId: string): ToolSchema {
+  const props: Record<string, { type: string; description: string; enum?: string[] }> = {};
+  if (tool.inputSchema?.properties) {
+    const entries = Object.entries(tool.inputSchema.properties) as Array<[
+      string,
+      { type?: string; description?: string; enum?: string[] },
+    ]>;
+    for (const [k, v] of entries) {
+      props[k] = {
+        type: v.type || "string",
+        description: v.description || k,
+        ...(v.enum ? { enum: v.enum } : {}),
+      };
+    }
+  }
+  return {
+    name: `mcp__${serverId}__${tool.name}`,
+    description: `[MCP: ${serverName}] ${tool.description}`,
+    parameters: {
+      type: "object",
+      properties: props,
+      required: tool.inputSchema?.required || [],
+    },
+  };
+}
+
+/** Get all tool schemas including connected MCP servers */
+export function getAllToolSchemas(): ToolSchema[] {
+  const mcpSchemas: ToolSchema[] = [];
+  try {
+    // Lazy access — _mcpModule is populated after first async call
+    if (_mcpModule) {
+      for (const server of _mcpModule.listConnectedServers()) {
+        for (const tool of server.tools) {
+          mcpSchemas.push(mcpToolToSchema(tool, server.name, server.id));
+        }
+      }
+    }
+  } catch { /* MCP not ready yet */ }
+  return [...TOOL_SCHEMAS, ...mcpSchemas];
+}
+
+/** Eagerly load the MCP module so getAllToolSchemas works synchronously after boot */
+setTimeout(() => getMCPModule().catch(() => {}), 1000);
+
+/** Execute an MCP tool by its prefixed name */
+async function executeMCPTool(prefixedName: string, args: Record<string, string>, start: number): Promise<ToolResult> {
+  // Parse mcp__<serverId>__<toolName>
+  const parts = prefixedName.split("__");
+  if (parts.length < 3 || parts[0] !== "mcp") {
+    return { success: false, output: "", error: `Invalid MCP tool name: ${prefixedName}`, durationMs: Date.now() - start };
+  }
+  const serverId = parts[1];
+  const toolName = parts.slice(2).join("__"); // tool name might contain __
+
+  try {
+    const mcp = await getMCPModule();
+    const result = await mcp.callRemoteTool(serverId, toolName, args);
+    const textParts = result.content
+      .filter((c): c is { type: "text"; text: string } => c.type === "text")
+      .map((c) => c.text);
+    const output = textParts.join("\n") || "(no text output)";
+    return {
+      success: !result.isError,
+      output: output.slice(0, 50_000),
+      error: result.isError ? output.slice(0, 1000) : undefined,
+      durationMs: Date.now() - start,
+    };
+  } catch (err: any) {
+    return { success: false, output: "", error: `MCP tool error: ${err.message}`, durationMs: Date.now() - start };
+  }
+}
+
 // ─── Tool Executors ──────────────────────────────────────────────────────────
 
 export async function executeTool(name: string, args: Record<string, string>, sessionId: string = "default"): Promise<ToolResult> {
@@ -158,6 +242,11 @@ export async function executeTool(name: string, args: Record<string, string>, se
     const decision = evaluatePolicy(context);
     writePolicyAudit(context, decision);
     if (!decision.allowed) return policyDeniedResult(decision.reason, start);
+
+    // Check if this is an MCP tool call (mcp__<serverId>__<toolName>)
+    if (name.startsWith("mcp__")) {
+      return await executeMCPTool(name, args, start);
+    }
 
     switch (name) {
       case "bash": return await executeBash(args.command, start, sessionId);

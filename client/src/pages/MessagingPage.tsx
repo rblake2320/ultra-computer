@@ -84,8 +84,12 @@ interface LiveEvent {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function relativeTime(ts: number): string {
-  const diff = Math.floor((Date.now() - ts) / 1000);
+function relativeTime(ts: number | string | undefined): string {
+  if (!ts) return "—";
+  const ms = typeof ts === "string" ? new Date(ts).getTime() : ts;
+  if (isNaN(ms)) return "—";
+  const diff = Math.floor((Date.now() - ms) / 1000);
+  if (diff < 0) return "just now";
   if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
@@ -395,7 +399,7 @@ function MessagesTab() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [dirFilter, setDirFilter] = useState<"" | "inbound" | "outbound">("");
-  const [channelFilter, setChannelFilter] = useState("");
+  const [channelFilter, setChannelFilter] = useState("__all__");
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sendChannel, setSendChannel] = useState("");
@@ -406,7 +410,8 @@ function MessagesTab() {
 
   const { data: channels = [] } = useQuery<Channel[]>({ queryKey: ["/api/messaging/channels"] });
 
-  const historyKey = `/api/messaging/history?limit=50${dirFilter ? `&direction=${dirFilter}` : ""}${channelFilter ? `&channelId=${channelFilter}` : ""}`;
+  const activeChannelFilter = channelFilter === "__all__" ? "" : channelFilter;
+  const historyKey = `/api/messaging/history?limit=50${dirFilter ? `&direction=${dirFilter}` : ""}${activeChannelFilter ? `&channelId=${activeChannelFilter}` : ""}`;
   const { data: messages = [], isLoading: msgsLoading, isError: msgsError, refetch } = useQuery<Message[]>({
     queryKey: [historyKey],
   });
@@ -463,7 +468,7 @@ function MessagesTab() {
             <SelectValue placeholder="All channels" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All channels</SelectItem>
+            <SelectItem value="__all__">All channels</SelectItem>
             {channels.map((c) => (
               <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
             ))}

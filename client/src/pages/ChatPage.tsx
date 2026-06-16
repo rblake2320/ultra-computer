@@ -14,8 +14,85 @@ import {
   Send, Loader2, CheckCircle2, Circle, XCircle,
   ChevronDown, ChevronRight, Zap, Network, Cpu,
   Terminal, FileText, Globe, Calculator, Search, FolderOpen, Container, Shield,
-  Library, BookmarkPlus, Bot, Clock, Hash, Wrench, Download
+  Library, BookmarkPlus, Bot, Clock, Hash, Wrench, Download,
+  Paperclip, Image, Music, X as XIcon, File
 } from "lucide-react";
+
+// ─── Attachment types ──────────────────────────────────────────────────────
+type AttachmentKind = "image" | "audio" | "text" | "file";
+interface Attachment {
+  id: string;
+  name: string;
+  kind: AttachmentKind;
+  dataUrl: string;   // base64 data URL for images/audio
+  text?: string;     // extracted text for text files and audio transcripts
+  size: number;
+  mimeType: string;
+}
+
+const TEXT_EXTS = new Set([
+  "txt","md","py","js","ts","jsx","tsx","json","yaml","yml","toml","env",
+  "sh","bash","zsh","csv","xml","html","css","scss","sql","rs","go","java",
+  "c","cpp","h","hpp","rb","php","swift","kt","r","m","tf","dockerfile",
+]);
+
+function attachmentKind(file: File): AttachmentKind {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("audio/") || file.type.startsWith("video/")) return "audio";
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (TEXT_EXTS.has(ext) || file.type.startsWith("text/")) return "text";
+  return "file";
+}
+
+async function readAttachment(file: File): Promise<Attachment> {
+  const kind = attachmentKind(file);
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    if (kind === "text") {
+      reader.readAsText(file);
+      reader.onload = () => resolve({
+        id: crypto.randomUUID(),
+        name: file.name,
+        kind,
+        dataUrl: "",
+        text: reader.result as string,
+        size: file.size,
+        mimeType: file.type || "text/plain",
+      });
+    } else {
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve({
+        id: crypto.randomUUID(),
+        name: file.name,
+        kind,
+        dataUrl: reader.result as string,
+        text: undefined,
+        size: file.size,
+        mimeType: file.type,
+      });
+    }
+    reader.onerror = reject;
+  });
+}
+
+function buildMessageWithAttachments(text: string, attachments: Attachment[]): string {
+  if (attachments.length === 0) return text;
+  const parts: string[] = [];
+  if (text.trim()) parts.push(text);
+  for (const att of attachments) {
+    if (att.kind === "text") {
+      const ext = att.name.split(".").pop() ?? "txt";
+      parts.push(`\n--- Attached file: ${att.name} ---\n\`\`\`${ext}\n${att.text}\n\`\`\``);
+    } else if (att.kind === "image") {
+      parts.push(`\n[Attached image: ${att.name} (${(att.size/1024).toFixed(1)}KB)]\n${att.dataUrl}`);
+    } else if (att.kind === "audio") {
+      parts.push(`\n[Attached audio: ${att.name} (${(att.size/1024).toFixed(1)}KB)]${att.text ? `\nTranscript: ${att.text}` : ""}`);
+    } else {
+      parts.push(`\n[Attached file: ${att.name} (${(att.size/1024).toFixed(1)}KB)]`);
+    }
+  }
+  return parts.join("\n");
+}
 import type { Message, Task, Conversation } from "../../../shared/schema";
 
 // Sanitize a string for safe use as HTML text node
@@ -193,6 +270,9 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
   const [sseError, setSseError] = useState(false);
@@ -227,6 +307,11 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
   const { data: messages = [], isError: msgsError, refetch: refetchMessages } = useQuery<Message[]>({
     queryKey: [`/api/conversations/${conversationId}/messages`],
     enabled: !!conversationId,
+  });
+
+  const { data: configuredModels = [] } = useQuery<any[]>({
+    queryKey: ["/api/models"],
+    staleTime: 30_000,
   });
 
   const handleEvent = useCallback((event: any) => {
@@ -399,7 +484,10 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
   }, [messages, streamingContent, toolCalls]);
 
   const sendMessage = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/conversations/${conversationId}/messages`, { content: input }),
+    mutationFn: () => {
+      const content = buildMessageWithAttachments(input, attachments);
+      return apiRequest("POST", `/api/conversations/${conversationId}/messages`, { content });
+    },
     onMutate: () => {
       setIsStreaming(true);
       setStreamingContent("");
@@ -410,6 +498,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
     },
     onSuccess: () => {
       setInput("");
+      setAttachments([]);
       refetchMessages();
     },
     onError: (err: any) => {
@@ -419,9 +508,30 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
   });
 
   const handleSend = () => {
-    if (!input.trim() || isStreaming) return;
+    if ((!input.trim() && attachments.length === 0) || isStreaming) return;
     sendMessage.mutate();
   };
+
+  const addFiles = useCallback(async (files: FileList | File[]) => {
+    const list = Array.from(files).slice(0, 10); // max 10
+    const read = await Promise.all(list.map(readAttachment));
+    setAttachments(prev => [...prev, ...read].slice(0, 10));
+  }, []);
+
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.length) addFiles(e.target.files);
+    e.target.value = "";
+  };
+
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = () => setIsDragging(false);
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files);
+  };
+
+  const removeAttachment = (id: string) => setAttachments(prev => prev.filter(a => a.id !== id));
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -485,7 +595,8 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
     general: "text-muted-foreground",
   };
 
-  const hasNoModels = !isStreaming && messages.length === 0;
+  const isEmptySession = !isStreaming && messages.length === 0;
+  const hasNoModels = isEmptySession && configuredModels.filter(m => m.enabled).length === 0;
 
   // Compute tool call counts per task for the task graph progress
   const toolCallsPerTask = toolCalls.reduce<Record<string, number>>((acc, tc) => {
@@ -671,17 +782,17 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
                 )}
                 <div className="mt-6 grid grid-cols-2 gap-2 max-w-md">
                   {[
-                    "Write a Python script that calculates Fibonacci numbers and run it",
-                    "Fetch the HN front page and summarize the top 5 stories",
-                    "Create a bash script that counts lines of code in a directory",
-                    "Calculate the compound interest on $10,000 at 7% for 10 years",
-                  ].map(prompt => (
+                    { label: "⚡ Self-improve", prompt: "Research what AI models and tools are available to improve your capabilities. Check what Ollama models are installed, what the latest models are, analyze your current setup, then take concrete action to upgrade — pull better models if available, optimize settings, and report what was improved." },
+                    { label: "🌐 Browse & summarize", prompt: "Fetch the HN front page and summarize the top 5 stories" },
+                    { label: "🐍 Write & run Python", prompt: "Write a Python script that prints the first 20 prime numbers and run it" },
+                    { label: "💻 System report", prompt: "Check my system: CPU, RAM, GPU, disk space, running processes, and Ollama models loaded. Give me a full health report." },
+                  ].map(({ label, prompt }) => (
                     <button
-                      key={prompt}
+                      key={label}
                       onClick={() => setInput(prompt)}
                       className="text-left text-xs p-2.5 rounded-lg bg-card border border-border hover:border-primary/50 hover:bg-muted transition-colors"
                     >
-                      {prompt}
+                      {label}
                     </button>
                   ))}
                 </div>
@@ -882,28 +993,95 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
 
         {/* Input */}
         <div className="shrink-0 border-t border-border bg-card/50 p-3">
-          <div className="flex gap-2 max-w-4xl mx-auto">
-            <Textarea
-              ref={textareaRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Give Ultra Computer a task... (Shift+Enter for new line)"
-              className="min-h-[44px] max-h-[200px] resize-none text-sm"
-              rows={1}
-              disabled={isStreaming}
-              data-testid="input-message"
-            />
-            <Button
-              onClick={handleSend}
-              disabled={!input.trim() || isStreaming}
-              size="icon"
-              className="shrink-0 h-11 w-11"
-              data-testid="button-send"
-              aria-label={isStreaming ? "Sending message" : "Send message"}
-            >
-              {isStreaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            </Button>
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept="image/*,audio/*,video/*,text/*,.py,.js,.ts,.tsx,.jsx,.json,.yaml,.yml,.toml,.env,.sh,.csv,.xml,.html,.css,.scss,.sql,.rs,.go,.java,.c,.cpp,.h,.md,.txt,.rb,.php,.tf"
+            className="hidden"
+            onChange={handleFileInput}
+          />
+
+          <div
+            className={`max-w-4xl mx-auto rounded-xl border transition-colors ${isDragging ? "border-primary bg-primary/5" : "border-border bg-background"}`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            {/* Attachment previews */}
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 p-2 pb-0">
+                {attachments.map(att => (
+                  <div key={att.id} className="relative flex items-center gap-1.5 bg-muted rounded-lg px-2 py-1 text-xs max-w-[160px] group">
+                    {att.kind === "image" && att.dataUrl ? (
+                      <img src={att.dataUrl} alt={att.name} className="w-8 h-8 rounded object-cover shrink-0" />
+                    ) : att.kind === "audio" ? (
+                      <Music className="w-4 h-4 text-purple-400 shrink-0" />
+                    ) : att.kind === "text" ? (
+                      <FileText className="w-4 h-4 text-blue-400 shrink-0" />
+                    ) : (
+                      <File className="w-4 h-4 text-muted-foreground shrink-0" />
+                    )}
+                    <span className="truncate text-[11px]">{att.name}</span>
+                    <span className="text-[9px] text-muted-foreground shrink-0">
+                      {att.size > 1024*1024 ? `${(att.size/1024/1024).toFixed(1)}MB` : `${(att.size/1024).toFixed(0)}KB`}
+                    </span>
+                    <button
+                      onClick={() => removeAttachment(att.id)}
+                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <XIcon className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Textarea row */}
+            <div className="flex items-end gap-1 p-1.5">
+              {/* Attach button */}
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="shrink-0 h-9 w-9 text-muted-foreground hover:text-primary"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isStreaming}
+                title="Attach files, images, audio"
+              >
+                <Paperclip className="w-4 h-4" />
+              </Button>
+
+              <Textarea
+                ref={textareaRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={isDragging ? "Drop files here..." : "Give Ultra Computer a task... (Shift+Enter for new line)"}
+                className="min-h-[40px] max-h-[200px] resize-none text-sm border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 px-1"
+                rows={1}
+                disabled={isStreaming}
+                data-testid="input-message"
+              />
+
+              <Button
+                onClick={handleSend}
+                disabled={(!input.trim() && attachments.length === 0) || isStreaming}
+                size="icon"
+                className="shrink-0 h-9 w-9"
+                data-testid="button-send"
+                aria-label={isStreaming ? "Sending message" : "Send message"}
+              >
+                {isStreaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              </Button>
+            </div>
+
+            {isDragging && (
+              <div className="text-center text-xs text-primary pb-2 animate-pulse">
+                Drop files, images, or audio here
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-3 mt-1.5 px-1 max-w-4xl mx-auto">
             <SandboxIndicator />

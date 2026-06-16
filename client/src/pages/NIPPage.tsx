@@ -386,7 +386,7 @@ function SessionsTab() {
                       <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
                         <div><span className="font-medium text-foreground">Allowed: </span>{session.taskScope.allowedActions.join(", ") || "none"}</div>
                         <div><span className="font-medium text-foreground">Forbidden: </span>{session.taskScope.forbiddenActions.join(", ") || "none"}</div>
-                        <div><span className="font-medium text-foreground">Max Duration: </span>{session.taskScope.maxDuration}m</div>
+                        <div><span className="font-medium text-foreground">Max Duration: </span>{Math.round(session.taskScope.maxDuration / 60_000)}m</div>
                         <div><span className="font-medium text-foreground">Max Messages: </span>{session.taskScope.maxMessages}</div>
                       </div>
                     </div>
@@ -447,34 +447,72 @@ function SessionsTab() {
 function NewSessionForm({ onSuccess }: { onSuccess: () => void }) {
   const { toast } = useToast();
   const [form, setForm] = useState({
-    instructorAgentName: "", instructorOrgName: "", instructorProvider: "", instructorModelId: "", instructorModelTier: "standard",
-    executorAgentName: "", executorOrgName: "", executorProvider: "", executorModelId: "", executorModelTier: "standard",
+    instructorAgentId: "", instructorAgentName: "", instructorOrgId: "", instructorOrgName: "", instructorProvider: "", instructorModelId: "", instructorModelTier: "standard",
+    executorAgentId: "", executorAgentName: "", executorOrgId: "", executorOrgName: "", executorProvider: "", executorModelId: "", executorModelTier: "standard",
     objective: "", allowedActions: "", forbiddenActions: "", maxDuration: "60", maxMessages: "100",
     accessTier: "verified" as AccessTier,
   });
 
   const createMut = useMutation({
     mutationFn: async (data: typeof form) => {
+      const now = Date.now();
+      const instructorOrgId = data.instructorOrgId || `org-instructor-${now}`;
+      const executorOrgId = data.executorOrgId || `org-executor-${now}`;
+      // Use "public" as the tier for trusted-party registration since the access tier
+      // enum on the party endpoint is the same as on the session.
+      const partyTier = (["public","verified","corporate","private"].includes(data.accessTier)
+        ? data.accessTier : "public") as string;
+
+      // Auto-register and approve both organizations as trusted parties
+      async function ensureTrustedParty(orgId: string, orgName: string, tier: string) {
+        const parties: any[] = await apiRequest("GET", "/api/nip/trusted-parties");
+        let party = parties.find((p: any) => p.organizationId === orgId);
+        if (!party) {
+          party = await apiRequest("POST", "/api/nip/trusted-parties", {
+            organizationId: orgId,
+            organizationName: orgName,
+            accessTier: tier,
+            allowedScopes: ["*"],
+            maxConcurrentSessions: 10,
+          });
+        }
+        if (!party.approved) {
+          party = await apiRequest("POST", `/api/nip/trusted-parties/${party.id}/approve`, {
+            approvedBy: "system-auto",
+          });
+        }
+        return party;
+      }
+
+      await Promise.all([
+        ensureTrustedParty(instructorOrgId, data.instructorOrgName || instructorOrgId, partyTier),
+        ensureTrustedParty(executorOrgId, data.executorOrgName || executorOrgId, partyTier),
+      ]);
+
       const session = await apiRequest("POST", "/api/nip/sessions", {
         instructorProfile: {
+          agentId: data.instructorAgentId || `instructor-${now}`,
           agentName: data.instructorAgentName,
-          organizationName: data.instructorOrgName,
-          modelProvider: data.instructorProvider,
-          modelId: data.instructorModelId,
-          modelTier: data.instructorModelTier,
+          organizationId: instructorOrgId,
+          organizationName: data.instructorOrgName || instructorOrgId,
+          modelProvider: data.instructorProvider || "local",
+          modelId: data.instructorModelId || "unknown",
+          modelTier: data.instructorModelTier || "standard",
         },
         executorProfile: {
+          agentId: data.executorAgentId || `executor-${now}`,
           agentName: data.executorAgentName,
-          organizationName: data.executorOrgName,
-          modelProvider: data.executorProvider,
-          modelId: data.executorModelId,
-          modelTier: data.executorModelTier,
+          organizationId: executorOrgId,
+          organizationName: data.executorOrgName || executorOrgId,
+          modelProvider: data.executorProvider || "local",
+          modelId: data.executorModelId || "unknown",
+          modelTier: data.executorModelTier || "standard",
         },
         taskScope: {
           objective: data.objective,
           allowedActions: data.allowedActions.split(",").map(s => s.trim()).filter(Boolean),
           forbiddenActions: data.forbiddenActions.split(",").map(s => s.trim()).filter(Boolean),
-          maxDuration: parseInt(data.maxDuration) || 60,
+          maxDuration: (parseInt(data.maxDuration) || 60) * 60_000,
           maxMessages: parseInt(data.maxMessages) || 100,
         },
         accessTier: data.accessTier,
@@ -506,8 +544,10 @@ function NewSessionForm({ onSuccess }: { onSuccess: () => void }) {
       <div>
         <h3 className="text-sm font-semibold text-indigo-400 mb-3">Instructor Agent</h3>
         <div className="grid grid-cols-2 gap-3">
+          {field("instructorAgentId", "Agent ID", "instructor-agent-001")}
           {field("instructorAgentName", "Agent Name", "InstructorBot-v2")}
-          {field("instructorOrgName", "Organization", "Acme Corp")}
+          {field("instructorOrgId", "Org ID", "acme-corp")}
+          {field("instructorOrgName", "Org Name", "Acme Corp")}
           {field("instructorProvider", "Model Provider", "openai")}
           {field("instructorModelId", "Model ID", "gpt-4o")}
           <div className="space-y-1">
@@ -526,8 +566,10 @@ function NewSessionForm({ onSuccess }: { onSuccess: () => void }) {
       <div>
         <h3 className="text-sm font-semibold text-emerald-400 mb-3">Executor Agent</h3>
         <div className="grid grid-cols-2 gap-3">
+          {field("executorAgentId", "Agent ID", "executor-agent-001")}
           {field("executorAgentName", "Agent Name", "ExecutorBot-v1")}
-          {field("executorOrgName", "Organization", "Beta LLC")}
+          {field("executorOrgId", "Org ID", "beta-llc")}
+          {field("executorOrgName", "Org Name", "Beta LLC")}
           {field("executorProvider", "Model Provider", "anthropic")}
           {field("executorModelId", "Model ID", "claude-3-5-sonnet")}
           <div className="space-y-1">
@@ -583,7 +625,7 @@ function NewSessionForm({ onSuccess }: { onSuccess: () => void }) {
       <Button
         className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
         onClick={() => createMut.mutate(form)}
-        disabled={createMut.isPending || !form.objective}
+        disabled={createMut.isPending || !form.objective || !form.instructorAgentName || !form.executorAgentName}
       >
         {createMut.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating…</> : <>Create & Negotiate</>}
       </Button>

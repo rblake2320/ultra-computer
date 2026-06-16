@@ -212,6 +212,7 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     defaultBaseUrl: "http://localhost:11434/v1",
     envVarNames: [],
     models: [
+      { name: "Qwen 3.6 27B", modelId: "qwen3.6:27b", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "Qwen 3.6 27B — local reasoning + tool use (brain)" },
       { name: "Llama 4 Scout", modelId: "llama4:scout", speedTier: "powerful", capabilities: ["chat", "code", "vision"], contextWindow: 131072, description: "MoE 17B active, multimodal", recommended: true },
       { name: "Qwen 3 32B", modelId: "qwen3:32b", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "Dense 32B, dual-mode reasoning" },
       { name: "Llama 3.3 70B", modelId: "llama3.3:70b", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 128000, description: "Meta Llama 3.3 local" },
@@ -235,6 +236,7 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
       { name: "GPT-5.4 (via OR)", modelId: "openai/gpt-5.4", speedTier: "powerful", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "OpenAI GPT-5.4 via OpenRouter" },
       { name: "Gemini 3.1 Pro (via OR)", modelId: "google/gemini-3.1-pro-preview", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1000000, description: "Google Gemini 3.1 Pro via OpenRouter" },
       { name: "Llama 4 Maverick (via OR)", modelId: "meta-llama/llama-4-maverick", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1048000, description: "Meta Llama 4 MoE via OpenRouter" },
+      { name: "DeepSeek V3 (via OR)", modelId: "deepseek/deepseek-chat-v3-0324", speedTier: "fast", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "DeepSeek V3 — cheapest cloud brain ($0.14/$0.28 per M)", recommended: true },
       { name: "DeepSeek R1 (via OR)", modelId: "deepseek/deepseek-r1", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "DeepSeek reasoning via OpenRouter" },
       { name: "Qwen 3 235B (via OR)", modelId: "qwen/qwen3-235b-a22b", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "Alibaba Qwen 3 MoE via OpenRouter" },
       { name: "Mistral Large 3 (via OR)", modelId: "mistralai/mistral-large", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 256000, description: "Mistral Large 3 via OpenRouter" },

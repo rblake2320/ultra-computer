@@ -147,7 +147,7 @@ export function NotificationCenter(): JSX.Element {
 
       switch (event.type) {
         case "agent_complete": {
-          const taskTitle = event.task?.title ?? event.taskId ?? "task";
+          const taskTitle = event.task?.title ?? "Task";
           addNotification({
             type: "success",
             title: `Task completed`,

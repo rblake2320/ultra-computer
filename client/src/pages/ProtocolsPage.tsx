@@ -489,7 +489,7 @@ function MCPTab({ dashboard }: { dashboard: DashboardData | undefined }) {
           <p className="text-xs text-muted-foreground text-center py-4">No MCP servers connected</p>
         ) : (
           <div className="space-y-2">
-            {mcpData.servers.map(server => (
+            {[...new Map(mcpData.servers.map(s => [s.id, s])).values()].map(server => (
               <div key={server.id} className="border border-border rounded-lg overflow-hidden">
                 <div className="flex items-center justify-between p-3 bg-muted/20">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
