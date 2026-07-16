@@ -3,18 +3,79 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import rateLimit from "express-rate-limit";
-import helmet from "helmet";
 import { createAuthMiddleware } from "./authMiddleware";
+import { createSecurityHeaders } from "./securityHeaders.js";
 import { createYogaMiddleware } from "./graphql/yoga.js";
-import { startGrpcServer, shutdownGrpcServer } from "./grpc/server.js";
+import {
+  isGrpcServerRunning,
+  startGrpcServer,
+  shutdownGrpcServer,
+} from "./grpc/server.js";
 import { createGrpcWebBridge } from "./grpcWebBridge.js";
 import { sqlite, db } from "./storage.js";
 import { sql } from "drizzle-orm";
 import { logger, httpLogger } from "./logger.js";
 import { registerHoneypot } from "./honeypot.js";
+import { assertProductionEnvironment } from "./productionConfig.js";
+import { taskQueue } from "./taskQueue.js";
+import { cacheEngine } from "./cacheEngine.js";
+import { dockerSandbox } from "./tools.js";
+import { shutdownBrowser } from "./browserTool.js";
+import { stopWatchdog } from "./processWatchdog.js";
+import { buildRuntimeHealth, type RuntimeCheckState } from "./runtimeHealth.js";
+import { shutdownRuntime } from "./lifecycle.js";
 
+assertProductionEnvironment();
 const app = express();
 const httpServer = createServer(app);
+
+let shutdownPromise: Promise<void> | null = null;
+function shutdown(reason: string, exitCode: number): Promise<void> {
+  if (shutdownPromise) return shutdownPromise;
+  shutdownPromise = (async () => {
+    logger.info(`[shutdown] Received ${reason}, starting graceful shutdown`);
+    stopWatchdog();
+
+    const result = await shutdownRuntime({
+      server: httpServer,
+      drainTimeoutMs: 10_000,
+      tasks: [
+        { name: "gRPC", close: shutdownGrpcServer },
+        { name: "task queue", close: () => taskQueue.shutdown() },
+        { name: "browser", close: shutdownBrowser },
+        { name: "Docker sandbox", close: () => dockerSandbox.shutdown() },
+        { name: "cache", close: () => cacheEngine.shutdown() },
+        { name: "SQLite", close: () => sqlite.close() },
+      ],
+    });
+
+    for (const failure of result.failures) {
+      logger.error(
+        { err: failure.error, resource: failure.name },
+        "[shutdown] Resource close failed",
+      );
+    }
+    if (!result.drained) {
+      logger.error("[shutdown] HTTP drain deadline exceeded");
+    }
+
+    const failed = !result.drained || result.failures.length > 0;
+    logger.info("[shutdown] Shutdown complete");
+    process.exit(failed ? 1 : exitCode);
+  })();
+  return shutdownPromise;
+}
+
+process.once("SIGTERM", () => void shutdown("SIGTERM", 0));
+process.once("SIGINT", () => void shutdown("SIGINT", 0));
+process.on("uncaughtException", (err) => {
+  logger.error({ err }, "[uncaughtException]");
+  void shutdown("uncaughtException", 1);
+});
+process.on("unhandledRejection", (reason) => {
+  logger.error({ reason }, "[unhandledRejection]");
+  void shutdown("unhandledRejection", 1);
+});
 
 declare module "http" {
   interface IncomingMessage {
@@ -88,10 +149,7 @@ app.use(express.urlencoded({
 }));
 
 // ─── Security headers ─────────────────────────────────────────────────────
-app.use(helmet({
-  contentSecurityPolicy: false, // Managed by the SPA
-  crossOriginEmbedderPolicy: false, // Allow iframe embedding
-}));
+app.use(createSecurityHeaders());
 
 // ─── GraphQL (graphql-yoga) ───────────────────────────────────────────────
 // Mounted before rate limiting so yoga's own streaming/WebSocket handling
@@ -139,27 +197,42 @@ app.use("/api/conversations/:id/messages", chatLimiter);
 // ─── Health check (no auth, no rate limit) ────────────────────────────────
 app.get("/api/health", (_req, res) => {
   const start = Date.now();
-  const checks: Record<string, { ok: boolean; detail?: string }> = {};
+  let databaseState: RuntimeCheckState = "ready";
 
   // Check SQLite — run a trivial synchronous query
   try {
     db.run(sql`SELECT 1`);
-    checks.database = { ok: true };
-  } catch (e: any) {
-    checks.database = { ok: false, detail: e.message };
+  } catch {
+    databaseState = "unavailable";
   }
 
-  // gRPC port liveness (passive check — just report configured port)
-  checks.grpc = { ok: true, detail: `port ${process.env.GRPC_PORT || 5001}` };
+  const requireQueue =
+    process.env.REQUIRE_TASK_QUEUE === "1" ||
+    (process.env.NODE_ENV === "production" &&
+      process.env.REQUIRE_TASK_QUEUE !== "0");
+  const temporalState: RuntimeCheckState =
+    process.env.RUN_TEMPORAL_WORKER === "1" ||
+    process.env.TEMPORAL_ADDRESS ? "external" :
+    "disabled";
+  const health = buildRuntimeHealth({
+    database: { state: databaseState, required: true },
+    grpc: {
+      state: isGrpcServerRunning() ? "ready" : "unavailable",
+      required: process.env.DISABLE_GRPC !== "1",
+    },
+    taskQueue: {
+      state: taskQueue.isAvailable() ? "ready" : "unavailable",
+      required: requireQueue,
+    },
+    temporalWorker: { state: temporalState, required: false },
+  });
 
-  const allOk = Object.values(checks).every((c) => c.ok);
-
-  res.status(allOk ? 200 : 503).json({
-    status: allOk ? "ok" : "degraded",
+  res.status(health.status === "ok" ? 200 : 503).json({
+    status: health.status,
     uptime: Math.round(process.uptime()),
     timestamp: new Date().toISOString(),
     version: "1.0.0",
-    checks: Object.fromEntries(Object.entries(checks).map(([k, v]) => [k, { ok: v.ok }])),
+    checks: health.checks,
     latencyMs: Date.now() - start,
   });
 });
@@ -237,88 +310,40 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
-  if (process.env.NODE_ENV === "production") {
-    const missing: string[] = [];
-    if (!process.env.ULTRA_API_KEY) missing.push("ULTRA_API_KEY");
-    if (!process.env.SLACK_SIGNING_SECRET) missing.push("SLACK_SIGNING_SECRET");
-    if (!process.env.GITHUB_WEBHOOK_SECRET) missing.push("GITHUB_WEBHOOK_SECRET");
-    if (!process.env.ENCRYPTION_KEY) missing.push("ENCRYPTION_KEY");
-    if (missing.length > 0) {
-      console.error(`[FATAL] Production mode requires: ${missing.join(", ")}`);
-      process.exit(1);
-    }
-  }
-
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(
-    {
-      port,
-      host: process.env.HOST || "0.0.0.0",
-      reusePort: process.platform !== "win32",
-    },
-    () => {
-      logger.info(`serving on port ${port}`);
-    },
-  );
-
   // Start gRPC server on a separate port (default 5001)
   const grpcPort = parseInt(process.env.GRPC_PORT || "5001", 10);
-  startGrpcServer(grpcPort).catch((err) => {
-    logger.error({ err }, "[gRPC] Failed to start");
-  });
-
-  // ─── Graceful Shutdown ──────────────────────────────────────────────────────
-  const shutdown = async (signal: string) => {
-    logger.info(`[shutdown] Received ${signal}, starting graceful shutdown...`);
-
-    // 1. Stop accepting new HTTP connections
-    httpServer.close((err) => {
-      if (err) logger.error({ err }, "[shutdown] HTTP server close error");
-      else logger.info("[shutdown] HTTP server closed");
-    });
-
-    // 2. Shut down gRPC server
+  if (process.env.DISABLE_GRPC !== "1") {
     try {
-      await shutdownGrpcServer();
-      logger.info("[shutdown] gRPC server closed");
-    } catch (e) {
-      logger.error({ err: e }, "[shutdown] gRPC shutdown error");
+      await startGrpcServer(grpcPort);
+    } catch (err) {
+      logger.error({ err }, "[gRPC] Failed to start");
+      if (process.env.NODE_ENV === "production") throw err;
     }
+  }
 
-    // 3. Close SQLite connection
-    try {
-      sqlite.close();
-      logger.info("[shutdown] SQLite closed");
-    } catch (e) {
-      logger.error({ err: e }, "[shutdown] SQLite close error");
-    }
-
-    // 4. Force-exit after 10 seconds if something hangs
-    setTimeout(() => {
-      logger.error("[shutdown] Forced exit after timeout");
-      process.exit(1);
-    }, 10_000).unref();
-
-    logger.info("[shutdown] Graceful shutdown complete");
-    process.exit(0);
-  };
-
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("uncaughtException", (err) => {
-    logger.error({ err }, "[uncaughtException]");
-    shutdown("uncaughtException");
-  });
-  process.on("unhandledRejection", (reason) => {
-    logger.error({ reason }, "[unhandledRejection]");
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once("error", reject);
+    httpServer.listen(
+      {
+        port,
+        host: process.env.HOST || "0.0.0.0",
+        reusePort: process.platform !== "win32",
+      },
+      () => {
+        httpServer.off("error", reject);
+        logger.info(`serving on port ${port}`);
+        resolve();
+      },
+    );
   });
 
   } catch (err) {
     logger.error({ err }, "[fatal] Failed to start server");
-    process.exit(1);
+    await shutdown("startup failure", 1);
   }
 })();

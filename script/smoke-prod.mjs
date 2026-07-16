@@ -4,7 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 const port = process.env.SMOKE_PORT ?? process.env.PORT ?? "5099";
 const grpcPort = process.env.SMOKE_GRPC_PORT ?? process.env.GRPC_PORT ?? "5100";
-const apiKey = process.env.ULTRA_API_KEY ?? "test-smoke-key";
+const apiKey = process.env.ULTRA_API_KEY ?? `smoke-${randomBytes(24).toString("hex")}`;
 const env = {
   ...process.env,
   NODE_ENV: "production",

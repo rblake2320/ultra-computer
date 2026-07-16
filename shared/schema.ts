@@ -32,6 +32,45 @@ export const insertModelSchema = createInsertSchema(models).omit({ createdAt: tr
 export type InsertModel = z.infer<typeof insertModelSchema>;
 export type Model = typeof models.$inferSelect;
 
+// ─── Provider model catalog ──────────────────────────────────────────────────
+// Discovery evidence is deliberately separate from configured models. Seeing a
+// provider model does not enable it or prove that the active adapter supports it.
+export const modelCatalog = sqliteTable("model_catalog", {
+  id: text("id").primaryKey(),
+  provider: text("provider").notNull(),
+  modelId: text("model_id").notNull(),
+  displayName: text("display_name").notNull(),
+  capabilities: text("capabilities").notNull().default("[]"),
+  lifecycle: text("lifecycle").notNull().default("unknown"),
+  source: text("source").notNull().default("provider"),
+  compatibility: text("compatibility").notNull().default("unverified"),
+  contextWindow: integer("context_window"),
+  maxOutputTokens: integer("max_output_tokens"),
+  metadata: text("metadata").notNull().default("{}"),
+  firstSeenAt: integer("first_seen_at").notNull(),
+  lastSeenAt: integer("last_seen_at").notNull(),
+  retiredAt: integer("retired_at"),
+});
+
+export const insertModelCatalogSchema = createInsertSchema(modelCatalog);
+export type InsertModelCatalog = z.infer<typeof insertModelCatalogSchema>;
+export type ModelCatalogEntry = typeof modelCatalog.$inferSelect;
+
+export const modelProbeResults = sqliteTable("model_probe_results", {
+  id: text("id").primaryKey(),
+  catalogId: text("catalog_id").notNull(),
+  status: text("status").notNull(), // compatible | incompatible | failed
+  capabilities: text("capabilities").notNull().default("[]"),
+  evidence: text("evidence").notNull().default("{}"),
+  error: text("error"),
+  latencyMs: integer("latency_ms"),
+  probedAt: integer("probed_at").notNull(),
+});
+
+export const insertModelProbeResultSchema = createInsertSchema(modelProbeResults);
+export type InsertModelProbeResult = z.infer<typeof insertModelProbeResultSchema>;
+export type ModelProbeResult = typeof modelProbeResults.$inferSelect;
+
 // ─── Skills ───────────────────────────────────────────────────────────────────
 export const skills = sqliteTable("skills", {
   id: text("id").primaryKey(),

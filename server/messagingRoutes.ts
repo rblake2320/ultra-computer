@@ -11,7 +11,7 @@
  */
 
 import type { Express } from "express";
-import { messagingHub } from "./messagingHub.js";
+import { messagingHub, redactSecrets } from "./messagingHub.js";
 import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 
@@ -44,24 +44,18 @@ function broadcastSseEvent(event: object): void {
 
 // Wire into messagingHub events if the hub exposes an event emitter
 function initSseBridge(): void {
-  try {
-    if (typeof messagingHub.on === "function") {
-      messagingHub.on("message_received", (data: any) => {
-        broadcastSseEvent({ type: "message_received", ...data, ts: Date.now() });
-      });
-      messagingHub.on("message_sent", (data: any) => {
-        broadcastSseEvent({ type: "message_sent", ...data, ts: Date.now() });
-      });
-      messagingHub.on("delivery_update", (data: any) => {
-        broadcastSseEvent({ type: "delivery_update", ...data, ts: Date.now() });
-      });
-      messagingHub.on("channel_status_change", (data: any) => {
-        broadcastSseEvent({ type: "channel_status_change", ...data, ts: Date.now() });
-      });
-    }
-  } catch {
-    // Hub may not support event emitter; SSE still works for push from routes
-  }
+  messagingHub.on("message_received", (data: any) => {
+    broadcastSseEvent({ type: "message_received", ...data, ts: Date.now() });
+  });
+  messagingHub.on("message_sent", (data: any) => {
+    broadcastSseEvent({ type: "message_sent", ...data, ts: Date.now() });
+  });
+  messagingHub.on("delivery_update", (data: any) => {
+    broadcastSseEvent({ type: "delivery_update", ...data, ts: Date.now() });
+  });
+  messagingHub.on("channel_status_change", (data: any) => {
+    broadcastSseEvent({ type: "channel_status_change", ...data, ts: Date.now() });
+  });
 }
 
 // ─── Input Validation Helpers ─────────────────────────────────────────────────
@@ -85,6 +79,10 @@ function validateEnum<T extends string>(value: unknown, field: string, allowed: 
   return null;
 }
 
+function publicChannel(channel: any): any {
+  return { ...channel, config: redactSecrets(channel.config ?? {}) };
+}
+
 // ─── Route Registration ───────────────────────────────────────────────────────
 
 export function registerMessagingRoutes(app: Express): void {
@@ -102,7 +100,7 @@ export function registerMessagingRoutes(app: Express): void {
   app.get("/api/messaging/channels", (_req, res) => {
     try {
       const channels = messagingHub.getChannels();
-      res.json(channels);
+      res.json(channels.map(publicChannel));
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to list channels" });
     }
@@ -117,7 +115,7 @@ export function registerMessagingRoutes(app: Express): void {
       const channels = messagingHub.getChannels();
       const channel = channels.find((c: any) => c.id === req.params.id);
       if (!channel) return res.status(404).json({ error: "Channel not found" });
-      res.json(channel);
+      res.json(publicChannel(channel));
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to get channel" });
     }
@@ -151,7 +149,7 @@ export function registerMessagingRoutes(app: Express): void {
         createdAt: new Date().toISOString(),
       });
 
-      res.status(201).json(channel);
+      res.status(201).json(publicChannel(channel));
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to register channel" });
     }
@@ -183,7 +181,7 @@ export function registerMessagingRoutes(app: Express): void {
       if (config !== undefined) updates.config = config;
 
       const updated = messagingHub.updateChannel(id, updates);
-      res.json(updated);
+      res.json(publicChannel(updated));
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to update channel" });
     }
@@ -317,14 +315,21 @@ export function registerMessagingRoutes(app: Express): void {
         timestamp: new Date().toISOString(),
       });
 
-      broadcastSseEvent({
-        type: "message_sent",
-        messageId,
-        channelId,
-        ts: Date.now(),
-      });
+      if (result.ok) {
+        broadcastSseEvent({
+          type: "message_queued",
+          messageId,
+          deliveryId: result.deliveryId,
+          channelId,
+          ts: Date.now(),
+        });
+      }
 
-      res.json({ messageId, ...result, ok: true });
+      res.status(result.ok ? 202 : 502).json({
+        messageId,
+        status: result.ok ? "queued" : "rejected",
+        ...result,
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message ?? "Failed to send message" });
     }

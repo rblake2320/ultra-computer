@@ -246,7 +246,10 @@ function TokensByModelChart({ runs, loading }: TokensByModelChartProps) {
                 width={48}
               />
               <Tooltip
-                formatter={(value: number) => [formatNumber(value), "Tokens"]}
+                formatter={(value) => [
+                  formatNumber(typeof value === "number" ? value : Number(value ?? 0)),
+                  "Tokens",
+                ]}
                 labelFormatter={(label, payload) =>
                   payload?.[0]?.payload?.fullModel ?? label
                 }

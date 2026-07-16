@@ -1,11 +1,19 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
+import { pipeline, Transform } from "stream";
+import { randomUUID } from "crypto";
 import { resolveInside } from "./pathSafety.js";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 
 const SANDBOX_DIR = path.join(process.cwd(), "sandbox");
+const MAX_FILE_SIZE = 100 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+const MAX_UPLOAD_FILES = 8;
+const MAX_UPLOAD_FIELDS = 4;
+const MAX_UPLOAD_PARTS = MAX_UPLOAD_FILES + MAX_UPLOAD_FIELDS;
+const MAX_DIRECTORY_ENTRIES = 10_000;
 
 function ensureSandboxDir() {
   if (!fs.existsSync(SANDBOX_DIR)) {
@@ -54,17 +62,35 @@ interface FileEntry {
   ext: string;
 }
 
-function walkDir(dir: string, baseDir: string, depth = 0, maxDepth = 10): FileEntry[] {
-  const entries: FileEntry[] = [];
-  if (depth > maxDepth) return entries;
+interface StagedUpload extends Express.Multer.File {
+  finalPath: string;
+}
+
+interface WalkState {
+  entries: FileEntry[];
+  truncated: boolean;
+}
+
+function walkDir(
+  dir: string,
+  baseDir: string,
+  state: WalkState,
+  depth = 0,
+  maxDepth = 10,
+): void {
+  if (depth > maxDepth || state.truncated) return;
   let items: fs.Dirent[];
   try {
     items = fs.readdirSync(dir, { withFileTypes: true });
   } catch {
-    return entries;
+    return;
   }
 
   for (const item of items) {
+    if (state.entries.length >= MAX_DIRECTORY_ENTRIES) {
+      state.truncated = true;
+      return;
+    }
     const fullPath = path.join(dir, item.name);
     const relativePath = path.relative(baseDir, fullPath);
     let stat: fs.Stats;
@@ -75,7 +101,7 @@ function walkDir(dir: string, baseDir: string, depth = 0, maxDepth = 10): FileEn
     }
 
     if (item.isDirectory()) {
-      entries.push({
+      state.entries.push({
         path: relativePath,
         name: item.name,
         type: "dir",
@@ -83,9 +109,9 @@ function walkDir(dir: string, baseDir: string, depth = 0, maxDepth = 10): FileEn
         modified: stat.mtime.toISOString(),
         ext: "",
       });
-      entries.push(...walkDir(fullPath, baseDir, depth + 1, maxDepth));
+      walkDir(fullPath, baseDir, state, depth + 1, maxDepth);
     } else if (item.isFile()) {
-      entries.push({
+      state.entries.push({
         path: relativePath,
         name: item.name,
         type: "file",
@@ -95,7 +121,6 @@ function walkDir(dir: string, baseDir: string, depth = 0, maxDepth = 10): FileEn
       });
     }
   }
-  return entries;
 }
 
 const TEXT_EXTS = new Set([
@@ -114,30 +139,73 @@ function isTextFile(ext: string, filename: string): boolean {
   return TEXT_EXTS.has(ext.toLowerCase());
 }
 
-export function registerFileRoutes(app: Express) {
-  ensureSandboxDir();
+export interface FileRouteOptions {
+  maxUploadBytes?: number;
+}
 
-  // Dynamic multer storage: respect `destination` field in multipart
-  const storage = multer.diskStorage({
-    destination: (req, _file, cb) => {
+export function registerFileRoutes(app: Express, options: FileRouteOptions = {}) {
+  ensureSandboxDir();
+  const maxUploadBytes = options.maxUploadBytes ?? MAX_UPLOAD_BYTES;
+  if (!Number.isSafeInteger(maxUploadBytes) || maxUploadBytes <= 0) {
+    throw new Error("maxUploadBytes must be a positive safe integer");
+  }
+
+  const uploadBytes = new WeakMap<Request, number>();
+  const storage: multer.StorageEngine = {
+    _handleFile: (req, file, cb) => {
       ensureSandboxDir();
       const dest = (req.body?.destination as string) || "";
       let targetDir = SANDBOX_DIR;
       if (dest) {
         const resolved = resolveSafe(dest);
-        if (!resolved) return cb(new Error("Invalid destination path"), "");
+        if (!resolved) return cb(new Error("Invalid destination path"));
         targetDir = resolved;
       }
       const allowed = isFilesystemAllowed("filesystem:write", targetDir, { destination: dest || "." });
-      if (!allowed.ok) return cb(new Error(`Policy denied: ${allowed.reason}`), "");
+      if (!allowed.ok) return cb(new Error(`Policy denied: ${allowed.reason}`));
       fs.mkdirSync(targetDir, { recursive: true });
-      cb(null, targetDir);
-    },
-    filename: (_req, file, cb) => {
       const safe = path.basename(file.originalname).replace(/[^a-zA-Z0-9._\-]/g, '_');
-      cb(null, safe);
+      const finalPath = path.join(targetDir, safe);
+      const stagedPath = path.join(targetDir, `.ultra-upload-${randomUUID()}.part`);
+      const output = fs.createWriteStream(stagedPath, { flags: "wx" });
+      file.path = stagedPath;
+      (file as StagedUpload).finalPath = finalPath;
+
+      const aggregateLimit = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          const nextTotal = (uploadBytes.get(req) ?? 0) + chunk.length;
+          uploadBytes.set(req, nextTotal);
+          if (nextTotal > maxUploadBytes) {
+            callback(new Error(`Upload exceeds ${maxUploadBytes} byte aggregate limit`));
+            return;
+          }
+          callback(null, chunk);
+        },
+      });
+
+      pipeline(file.stream, aggregateLimit, output, (error) => {
+        if (error) {
+          fs.rm(stagedPath, { force: true }, () => cb(error));
+          return;
+        }
+        cb(null, {
+          destination: targetDir,
+          filename: safe,
+          path: stagedPath,
+          size: output.bytesWritten,
+          finalPath,
+        } as Partial<StagedUpload>);
+      });
     },
-  });
+    _removeFile: (_req, file, cb) => {
+      const filePath = file.path;
+      if (!filePath) {
+        cb(null);
+        return;
+      }
+      fs.rm(filePath, { force: true }, cb);
+    },
+  };
 
   // Block executable and server-side script extensions that should never be uploaded
   const BLOCKED_EXTENSIONS = new Set([
@@ -153,7 +221,18 @@ export function registerFileRoutes(app: Express) {
 
   const upload = multer({
     storage,
-    limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB
+    limits: {
+      fieldNameSize: 100,
+      fieldSize: 4 * 1024,
+      fields: MAX_UPLOAD_FIELDS,
+      fileSize: MAX_FILE_SIZE,
+      files: MAX_UPLOAD_FILES,
+      parts: MAX_UPLOAD_PARTS,
+      headerPairs: 32,
+      // Multer 2.2 blocks deeply nested field names before append-field parses
+      // them. The current DefinitelyTyped declaration has not added this yet.
+      fieldNestingDepth: 2,
+    } as NonNullable<multer.Options["limits"]> & { fieldNestingDepth: number },
     fileFilter: (_req, file, cb) => {
       const ext = path.extname(file.originalname).toLowerCase();
       if (BLOCKED_EXTENSIONS.has(ext)) {
@@ -168,8 +247,9 @@ export function registerFileRoutes(app: Express) {
     ensureSandboxDir();
     const allowed = isFilesystemAllowed("filesystem:list", SANDBOX_DIR);
     if (!allowed.ok) return res.status(403).json({ error: `Policy denied: ${allowed.reason}` });
-    const entries = walkDir(SANDBOX_DIR, SANDBOX_DIR);
-    res.json({ files: entries, sandboxDir: SANDBOX_DIR });
+    const state: WalkState = { entries: [], truncated: false };
+    walkDir(SANDBOX_DIR, SANDBOX_DIR, state);
+    res.json({ files: state.entries, sandboxDir: SANDBOX_DIR, truncated: state.truncated });
   });
 
   // ─── POST /api/sandbox/files/upload ───────────────────────────────────────
@@ -177,14 +257,47 @@ export function registerFileRoutes(app: Express) {
   app.post("/api/sandbox/files/upload", (req, res, next) => {
     upload.array("files")(req, res, (err) => {
       if (err) {
-        // multer errors include fileFilter rejections — return 400, not 500
-        return res.status(400).json({ error: err.message || "Upload rejected" });
+        const message = err.message || "Upload rejected";
+        const tooLarge = err.code === "LIMIT_FILE_SIZE"
+          || message.includes("aggregate limit");
+        return res.status(tooLarge ? 413 : 400).json({
+          error: message,
+          ...(err.code ? { code: err.code } : {}),
+        });
       }
       next();
     });
   }, (req, res) => {
-    const files = (req.files as Express.Multer.File[]) || [];
-    const uploaded = files.map(f => path.relative(SANDBOX_DIR, f.path));
+    const files = ((req.files as StagedUpload[]) || []);
+    const finalPaths = files.map((file) => file.finalPath);
+    const duplicateTarget = finalPaths.find((filePath, index) => finalPaths.indexOf(filePath) !== index);
+    const existingTarget = finalPaths.find((filePath) => fs.existsSync(filePath));
+    if (duplicateTarget || existingTarget) {
+      for (const file of files) fs.rmSync(file.path, { force: true });
+      return res.status(409).json({
+        error: duplicateTarget
+          ? `Duplicate upload target '${path.basename(duplicateTarget)}'`
+          : `File '${path.basename(existingTarget!)}' already exists`,
+      });
+    }
+
+    const promoted: string[] = [];
+    try {
+      for (const file of files) {
+        // Hard-link promotion is atomic and fails if a concurrent request
+        // created the target after the preflight existence check.
+        fs.linkSync(file.path, file.finalPath);
+        fs.unlinkSync(file.path);
+        promoted.push(file.finalPath);
+      }
+    } catch (error) {
+      for (const filePath of promoted) fs.rmSync(filePath, { force: true });
+      for (const file of files) fs.rmSync(file.path, { force: true });
+      const message = error instanceof Error ? error.message : String(error);
+      return res.status(500).json({ error: `Upload commit failed: ${message}` });
+    }
+
+    const uploaded = promoted.map((filePath) => path.relative(SANDBOX_DIR, filePath));
     res.json({ ok: true, uploaded });
   });
 

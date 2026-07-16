@@ -5,7 +5,7 @@
  * request to supply a matching key via:
  *   - Authorization: Bearer <key>
  *   - X-API-Key: <key>
- *   - api_key query parameter for GET/EventSource endpoints only
+ * Browser EventSource requests use short-lived, exact-path stream tokens.
  *
  * Exempted routes (no auth required even when key is set):
  *   GET  /api/health
@@ -20,6 +20,7 @@ import type { Request, Response, NextFunction } from "express";
 import { verifyApiKey, extractApiKey } from "./auth.js";
 import { authLogger } from "./logger.js";
 import { trackAuthFailure } from "./honeypot.js";
+import { verifyStreamToken } from "./streamAuth.js";
 
 // Routes that must remain publicly accessible regardless of auth config.
 const EXEMPT_ROUTES: Array<{ method: string; path: string }> = [
@@ -65,10 +66,11 @@ export function createAuthMiddleware() {
     const rawXApiKey = req.headers["x-api-key"];
     const xApiKey = typeof rawXApiKey === "string" ? rawXApiKey : undefined;
 
-    const queryApiKey = req.method === "GET" && typeof req.query.api_key === "string"
-      ? req.query.api_key
+    const streamToken = req.method === "GET" && typeof req.query.stream_token === "string"
+      ? req.query.stream_token
       : undefined;
-    const suppliedKey = extractApiKey(authHeader, xApiKey) || queryApiKey;
+    if (streamToken && verifyStreamToken(streamToken, req.path)) return next();
+    const suppliedKey = extractApiKey(authHeader, xApiKey);
 
     if (!suppliedKey) {
       trackAuthFailure(req.ip ?? req.socket?.remoteAddress ?? "unknown");

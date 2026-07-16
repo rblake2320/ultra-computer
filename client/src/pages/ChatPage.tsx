@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { apiRequest, getSSEUrl } from "../lib/queryClient";
+import { apiRequest, connectEventSource, getSSEUrl } from "../lib/queryClient";
 import { useLocation } from "wouter";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { Button } from "../components/ui/button";
@@ -172,7 +172,6 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const agentPanelRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const sseRef = useRef<EventSource | null>(null);
   // Ref always points to the latest handleEvent — avoids stale closure in the SSE effect
   const handleEventRef = useRef<(event: any) => void>(() => {});
 
@@ -343,22 +342,19 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
 
   // Connect SSE — uses ref so it never captures a stale handleEvent
   useEffect(() => {
-    if (sseRef.current) sseRef.current.close();
-    const url = getSSEUrl(`/api/conversations/${conversationId}/stream`);
-    const es = new EventSource(url);
-    sseRef.current = es;
-
-    es.onmessage = (e) => {
-      try {
-        const event = JSON.parse(e.data);
-        handleEventRef.current(event);
-      } catch {}
-    };
-
-    es.onerror = () => { setSseError(true); };
-    es.onopen = () => { setSseError(false); };
-
-    return () => { es.close(); sseRef.current = null; };
+    return connectEventSource(
+      `/api/conversations/${conversationId}/stream`,
+      {
+        onMessage: (e) => {
+        try {
+          const event = JSON.parse(e.data);
+          handleEventRef.current(event);
+        } catch {}
+        },
+        onError: () => setSseError(true),
+        onOpen: () => setSseError(false),
+      },
+    );
   }, [conversationId]);
 
   useEffect(() => {
@@ -566,7 +562,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
           <button
             onClick={async () => {
               try {
-                const res = await fetch(getSSEUrl(`/api/conversations/${conversationId}/export`));
+                const res = await fetch(await getSSEUrl(`/api/conversations/${conversationId}/export`));
                 if (!res.ok) throw new Error('Export failed');
                 const text = await res.text();
                 const blob = new Blob([text], { type: 'text/markdown' });

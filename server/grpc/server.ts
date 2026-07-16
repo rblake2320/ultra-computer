@@ -23,6 +23,10 @@ const LOADER_OPTIONS: protoLoader.Options = {
 // Holds the running gRPC server instance for graceful shutdown
 let _grpcServer: Server | null = null;
 
+export function isGrpcServerRunning(): boolean {
+  return _grpcServer !== null;
+}
+
 /** Gracefully shut down the gRPC server (waits for in-flight calls to finish) */
 export function shutdownGrpcServer(): Promise<void> {
   return new Promise((resolve) => {

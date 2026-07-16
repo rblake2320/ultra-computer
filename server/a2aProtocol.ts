@@ -12,7 +12,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { storage } from "./storage.js";
 import { runOrchestrator, subscribeToConversation, unsubscribeFromConversation } from "./orchestrator.js";
-import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
+import { governedFetch } from "./governedFetch.js";
 
 // ---------------------------------------------------------------------------
 // A2A Type Definitions
@@ -224,28 +224,6 @@ const agentRegistry = new Map<string, AgentCard>();
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function enforceA2ANetworkPolicy(
-  url: string,
-  httpMethod: "GET" | "POST",
-  operation: string,
-  metadata?: Record<string, unknown>
-): void {
-  const policyContext = {
-    domain: "network" as const,
-    action: "network:http_request",
-    tool: "a2a.remote",
-    toolName: operation,
-    url,
-    method: httpMethod,
-    metadata,
-  };
-  const policyDecision = evaluatePolicy(policyContext);
-  writePolicyAudit(policyContext, policyDecision);
-  if (!policyDecision.allowed) {
-    throw new Error(`Policy denied: ${policyDecision.reason}`);
-  }
-}
 
 /**
  * Constructs a JSON-RPC 2.0 success response envelope.
@@ -781,10 +759,9 @@ export async function discoverAgent(baseUrl: string): Promise<AgentCard> {
   const normalizedBase = baseUrl.replace(/\/$/, "");
   const cardUrl = `${normalizedBase}/.well-known/agent-card.json`;
 
-  enforceA2ANetworkPolicy(cardUrl, "GET", "discoverAgent", { baseUrl });
-  const resp = await fetch(cardUrl, {
+  const resp = await governedFetch(cardUrl, {
     headers: { Accept: "application/json" },
-  });
+  }, `a2a-discovery:${normalizedBase}`, "network", "network:http_request");
 
   if (!resp.ok) {
     throw new Error(
@@ -842,12 +819,11 @@ export async function sendMessage(
     params: { message: fullMessage },
   };
 
-  enforceA2ANetworkPolicy(normalizedBase, "POST", "message/send", { taskId, messageId: fullMessage.messageId });
-  const resp = await fetch(normalizedBase, {
+  const resp = await governedFetch(normalizedBase, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(rpcBody),
-  });
+  }, taskId ?? fullMessage.messageId, "network", "network:http_request");
 
   if (!resp.ok) {
     throw new Error(`Remote agent request failed: HTTP ${resp.status} ${resp.statusText}`);
@@ -901,15 +877,14 @@ export async function* streamMessage(
     params: { message: fullMessage },
   };
 
-  enforceA2ANetworkPolicy(normalizedBase, "POST", "message/stream", { taskId, messageId: fullMessage.messageId });
-  const resp = await fetch(normalizedBase, {
+  const resp = await governedFetch(normalizedBase, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
     },
     body: JSON.stringify(rpcBody),
-  });
+  }, taskId ?? fullMessage.messageId, "network", "network:http_request");
 
   if (!resp.ok) {
     throw new Error(`Remote agent stream request failed: HTTP ${resp.status} ${resp.statusText}`);
@@ -991,12 +966,11 @@ export async function getTask(agentUrl: string, taskId: string): Promise<A2ATask
     params: { taskId },
   };
 
-  enforceA2ANetworkPolicy(normalizedBase, "POST", "tasks/get", { taskId });
-  const resp = await fetch(normalizedBase, {
+  const resp = await governedFetch(normalizedBase, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(rpcBody),
-  });
+  }, taskId, "network", "network:http_request");
 
   if (!resp.ok) {
     throw new Error(`tasks/get request failed: HTTP ${resp.status} ${resp.statusText}`);
@@ -1027,12 +1001,11 @@ export async function cancelTask(agentUrl: string, taskId: string): Promise<A2AT
     params: { taskId },
   };
 
-  enforceA2ANetworkPolicy(normalizedBase, "POST", "tasks/cancel", { taskId });
-  const resp = await fetch(normalizedBase, {
+  const resp = await governedFetch(normalizedBase, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(rpcBody),
-  });
+  }, taskId, "network", "network:http_request");
 
   if (!resp.ok) {
     throw new Error(`tasks/cancel request failed: HTTP ${resp.status} ${resp.statusText}`);

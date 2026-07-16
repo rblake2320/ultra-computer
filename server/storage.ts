@@ -1,12 +1,17 @@
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { eq, desc, and, sql } from "drizzle-orm";
+import fs from "fs";
+import path from "path";
 import { encrypt, decrypt } from "./encryption.js";
 import {
-  models, conversations, messages, tasks, agentRuns, skills, connectors, memory, settings,
+  models, modelCatalog, modelProbeResults,
+  conversations, messages, tasks, agentRuns, skills, connectors, memory, settings,
   skillScripts, skillScriptVersions,
   marketplaceSkills, marketplaceVersions, marketplaceRatings, marketplaceInstalls,
   type Model, type InsertModel,
+  type ModelCatalogEntry, type InsertModelCatalog,
+  type ModelProbeResult, type InsertModelProbeResult,
   type Conversation, type InsertConversation,
   type Message, type InsertMessage,
   type Task, type InsertTask,
@@ -29,7 +34,12 @@ import {
   swarmTasks, type SwarmTask as SwarmTaskRow, type InsertSwarmTask,
 } from "@shared/schema";
 
-export const sqlite = new Database("ultra_computer.db");
+const databasePath = process.env.DATABASE_PATH
+  ?? (process.env.NODE_ENV === "production"
+    ? path.join(process.cwd(), "data", "ultra_computer.db")
+    : path.join(process.cwd(), "ultra_computer.db"));
+fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+export const sqlite = new Database(databasePath);
 export const db = drizzle(sqlite);
 
 // Enable WAL mode for better concurrency and durability
@@ -38,6 +48,10 @@ sqlite.pragma("foreign_keys = ON");
 
 // Create tables
 sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS schema_migrations (
+    id TEXT PRIMARY KEY,
+    applied_at INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS models (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -61,6 +75,39 @@ sqlite.exec(`
     last_test_latency INTEGER,
     created_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS model_catalog (
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    capabilities TEXT NOT NULL DEFAULT '[]',
+    lifecycle TEXT NOT NULL DEFAULT 'unknown',
+    source TEXT NOT NULL DEFAULT 'provider',
+    compatibility TEXT NOT NULL DEFAULT 'unverified',
+    context_window INTEGER,
+    max_output_tokens INTEGER,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    first_seen_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    retired_at INTEGER
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_model_catalog_provider_model
+    ON model_catalog(provider, model_id);
+  CREATE INDEX IF NOT EXISTS idx_model_catalog_lifecycle
+    ON model_catalog(provider, lifecycle);
+  CREATE TABLE IF NOT EXISTS model_probe_results (
+    id TEXT PRIMARY KEY,
+    catalog_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    capabilities TEXT NOT NULL DEFAULT '[]',
+    evidence TEXT NOT NULL DEFAULT '{}',
+    error TEXT,
+    latency_ms INTEGER,
+    probed_at INTEGER NOT NULL,
+    FOREIGN KEY (catalog_id) REFERENCES model_catalog(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_model_probe_catalog_time
+    ON model_probe_results(catalog_id, probed_at DESC);
   CREATE TABLE IF NOT EXISTS skills (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -379,6 +426,11 @@ sqlite.exec(`
   CREATE INDEX IF NOT EXISTS idx_swarm_tasks_session ON swarm_tasks(swarm_session_id);
 `);
 
+sqlite.prepare(`
+  INSERT OR IGNORE INTO schema_migrations (id, applied_at)
+  VALUES (?, ?)
+`).run("20260716_model_catalog_v1", Date.now());
+
 export interface IStorage {
   // Models
   getModels(): Model[];
@@ -388,6 +440,11 @@ export interface IStorage {
   deleteModel(id: string): void;
   getDefaultModel(): Model | undefined;
   getOrchestratorModel(): Model | undefined;
+  getModelCatalog(provider?: string): ModelCatalogEntry[];
+  getModelCatalogEntry(id: string): ModelCatalogEntry | undefined;
+  upsertModelCatalogEntry(data: InsertModelCatalog): ModelCatalogEntry;
+  createModelProbeResult(data: InsertModelProbeResult): ModelProbeResult;
+  getLatestModelProbe(catalogId: string): ModelProbeResult | undefined;
 
   // Conversations
   getConversations(): Conversation[];
@@ -552,6 +609,47 @@ export class SQLiteStorage implements IStorage {
   deleteModel(id: string): void { db.delete(models).where(eq(models.id, id)).run(); }
   getDefaultModel(): Model | undefined { return db.select().from(models).where(and(eq(models.isDefault, true), eq(models.enabled, true))).get(); }
   getOrchestratorModel(): Model | undefined { return db.select().from(models).where(and(eq(models.isOrchestrator, true), eq(models.enabled, true))).get(); }
+  getModelCatalog(provider?: string): ModelCatalogEntry[] {
+    const query = db.select().from(modelCatalog);
+    return provider
+      ? query.where(eq(modelCatalog.provider, provider)).orderBy(desc(modelCatalog.lastSeenAt)).all()
+      : query.orderBy(desc(modelCatalog.lastSeenAt)).all();
+  }
+  getModelCatalogEntry(id: string): ModelCatalogEntry | undefined {
+    return db.select().from(modelCatalog).where(eq(modelCatalog.id, id)).get();
+  }
+  upsertModelCatalogEntry(data: InsertModelCatalog): ModelCatalogEntry {
+    return db.insert(modelCatalog)
+      .values(data)
+      .onConflictDoUpdate({
+        target: modelCatalog.id,
+        set: {
+          displayName: data.displayName,
+          capabilities: data.capabilities,
+          lifecycle: data.lifecycle,
+          source: data.source,
+          compatibility: data.compatibility,
+          contextWindow: data.contextWindow,
+          maxOutputTokens: data.maxOutputTokens,
+          metadata: data.metadata,
+          lastSeenAt: data.lastSeenAt,
+          retiredAt: data.retiredAt,
+        },
+      })
+      .returning()
+      .get();
+  }
+  createModelProbeResult(data: InsertModelProbeResult): ModelProbeResult {
+    return db.insert(modelProbeResults).values(data).returning().get();
+  }
+  getLatestModelProbe(catalogId: string): ModelProbeResult | undefined {
+    return db.select()
+      .from(modelProbeResults)
+      .where(eq(modelProbeResults.catalogId, catalogId))
+      .orderBy(desc(modelProbeResults.probedAt))
+      .limit(1)
+      .get();
+  }
 
   getConversations(): Conversation[] { return db.select().from(conversations).orderBy(desc(conversations.updatedAt)).all(); }
   getConversation(id: string): Conversation | undefined { return db.select().from(conversations).where(eq(conversations.id, id)).get(); }

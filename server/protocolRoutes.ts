@@ -19,7 +19,11 @@ import * as a2aProtocol from "./a2aProtocol.js";
 import * as mcpProtocol from "./mcpProtocol.js";
 import * as cliToolEngine from "./cliToolEngine.js";
 import { resolveInside } from "./pathSafety.js";
-import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
+import {
+  governedFetch,
+  NetworkSecurityError,
+  PolicyDeniedError,
+} from "./governedFetch.js";
 
 // ─── In-memory registries (used for webhooks, agents, servers until persistence) ─
 
@@ -30,42 +34,6 @@ const webhookRegistry = new Map<string, { id: string; path: string; registeredAt
  * TODO: wire this up to cliToolEngine.webhookRegistry.dispatch() when needed.
  */
 const webhookHandlers = new Map<string, (payload: any) => void>();
-
-// ─── SSRF Protection Helpers —————————————————————————————————————————————————
-
-/**
- * Returns true if the URL is valid and does NOT point to a private/loopback IP range.
- * Blocks: 10.*, 172.16-31.*, 192.168.*, 127.*, 169.254.* (SSRF protection).
- */
-function isValidPublicUrl(urlStr: string): { ok: boolean; reason?: string } {
-  let parsed: URL;
-  try {
-    parsed = new URL(urlStr);
-  } catch {
-    return { ok: false, reason: "Invalid URL format" };
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    return { ok: false, reason: "URL must use http:// or https://" };
-  }
-  const hostname = parsed.hostname;
-  // Block loopback
-  if (hostname === "localhost" || hostname === "::1" || hostname.startsWith("127.")) {
-    return { ok: false, reason: "Private/loopback addresses are not permitted" };
-  }
-  // Block link-local
-  if (hostname.startsWith("169.254.")) {
-    return { ok: false, reason: "Link-local addresses are not permitted" };
-  }
-  // Parse dotted-decimal IPv4 for private range checks
-  const parts = hostname.split(".").map(Number);
-  if (parts.length === 4 && parts.every((n) => !isNaN(n) && n >= 0 && n <= 255)) {
-    const [a, b] = parts;
-    if (a === 10) return { ok: false, reason: "Private IP range 10.* is not permitted" };
-    if (a === 172 && b >= 16 && b <= 31) return { ok: false, reason: "Private IP range 172.16-31.* is not permitted" };
-    if (a === 192 && b === 168) return { ok: false, reason: "Private IP range 192.168.* is not permitted" };
-  }
-  return { ok: true };
-}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // REGISTER ALL PROTOCOL ROUTES
@@ -142,11 +110,6 @@ export function registerProtocolRoutes(app: Express) {
     if (!url || typeof url !== "string") {
       return res.status(400).json({ error: "url (string) is required" });
     }
-    // SSRF protection: validate URL is public
-    const urlCheck = isValidPublicUrl(url);
-    if (!urlCheck.ok) {
-      return res.status(400).json({ error: `Invalid agent URL: ${urlCheck.reason}` });
-    }
     try {
             const agent = await a2aProtocol.discoverAgent(url);
       res.json(agent);
@@ -166,11 +129,6 @@ export function registerProtocolRoutes(app: Express) {
     const registeredAgent = a2aProtocol.getAgent(id);
     if (!registeredAgent) {
       return res.status(400).json({ error: "Agent URL is not registered. Discover it first via /api/protocols/a2a/agents/discover" });
-    }
-    // Also validate the URL itself
-    const urlCheck = isValidPublicUrl(id);
-    if (!urlCheck.ok) {
-      return res.status(400).json({ error: `Invalid agent URL: ${urlCheck.reason}` });
     }
     try {
             const result = await a2aProtocol.sendMessage(id, (req.body ?? {}).message || (req.body ?? {}), (req.body ?? {}).taskId);
@@ -446,24 +404,12 @@ export function registerProtocolRoutes(app: Express) {
     if (!url || typeof url !== "string") {
       return res.status(400).json({ error: "url (string) is required" });
     }
-    // SSRF protection: block private/loopback IPs
-    const urlCheck = isValidPublicUrl(url);
-    if (!urlCheck.ok) {
-      return res.status(400).json({ error: `Blocked URL: ${urlCheck.reason}` });
-    }
     const allowedMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
     const resolvedMethod = (method || "GET").toUpperCase();
     if (!allowedMethods.includes(resolvedMethod)) {
       return res.status(400).json({ error: `method must be one of: ${allowedMethods.join(", ")}` });
     }
-    const policyContext = { domain: "network" as const, action: "network:http_request", tool: "protocol.http", url, method: resolvedMethod, metadata: { headers } };
-    const policyDecision = evaluatePolicy(policyContext);
-    writePolicyAudit(policyContext, policyDecision);
-    if (!policyDecision.allowed) {
-      return res.status(403).json({ error: `Policy denied: ${policyDecision.reason}` });
-    }
     try {
-      // Basic implementation using built-in fetch
       const fetchOptions: RequestInit = {
         method: resolvedMethod,
         headers: { "Content-Type": "application/json", ...(headers || {}) },
@@ -471,12 +417,14 @@ export function registerProtocolRoutes(app: Express) {
       if (body !== undefined && !["GET", "HEAD"].includes(resolvedMethod)) {
         fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
       }
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 30_000);
-      fetchOptions.signal = controller.signal;
-
-      const upstream = await fetch(url, fetchOptions);
-      clearTimeout(timer);
+      const requestId = String(req.headers["x-request-id"] ?? uuidv4());
+      const upstream = await governedFetch(
+        url,
+        fetchOptions,
+        requestId,
+        "network",
+        "network:http_request",
+      );
       const responseHeaders: Record<string, string> = {};
       upstream.headers.forEach((v, k) => { responseHeaders[k] = v; });
       const text = await upstream.text();
@@ -491,7 +439,10 @@ export function registerProtocolRoutes(app: Express) {
         ok: upstream.ok,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      const status = err instanceof PolicyDeniedError || err instanceof NetworkSecurityError
+        ? 403
+        : 502;
+      res.status(status).json({ error: err.message });
     }
   });
 

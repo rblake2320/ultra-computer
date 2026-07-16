@@ -4,6 +4,7 @@ coverage
 .git
 .env
 .env.*
+!.env.example
 reports/sbom.cdx.json
 data
 sandbox

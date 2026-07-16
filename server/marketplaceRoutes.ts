@@ -442,7 +442,7 @@ export function registerMarketplaceRoutes(app: Express) {
     const existing = storage.getMarketplaceSkills();
     if (existing.length > 0) return res.json({ message: "Already seeded", count: existing.length });
 
-    const sampleSkills = [
+    const builtInSkills = [
       {
         name: "API Security Auditor",
         description: "Scans API endpoints for OWASP Top 10 vulnerabilities, auth weaknesses, and rate-limit gaps.",
@@ -535,7 +535,7 @@ export function registerMarketplaceRoutes(app: Express) {
       },
     ];
 
-    for (const s of sampleSkills) {
+    for (const s of builtInSkills) {
       const id = uuidv4();
       const slug = slugify(s.name);
       storage.createMarketplaceSkill({
@@ -544,7 +544,7 @@ export function registerMarketplaceRoutes(app: Express) {
         name: s.name,
         description: s.description,
         longDescription: "",
-        authorName: s.authorName,
+        authorName: "Ultra Computer",
         authorEmail: null,
         authorAvatarUrl: null,
         category: s.category,
@@ -555,7 +555,7 @@ export function registerMarketplaceRoutes(app: Express) {
         visibility: "public",
         forkedFromId: null,
         featured: ["API Security Auditor", "SQL Query Optimizer", "Competitive Analysis Framework"].includes(s.name),
-        verified: ["API Security Auditor", "SQL Query Optimizer", "Git Commit Reviewer"].includes(s.name),
+        verified: false,
       });
 
       storage.createMarketplaceVersion({
@@ -570,20 +570,11 @@ export function registerMarketplaceRoutes(app: Express) {
         fileSize: Buffer.byteLength(s.content, "utf8"),
       });
 
-      // Add some fake install counts for realistic feel
-      const fakeInstalls = Math.floor(Math.random() * 500) + 10;
-      const fakeRatingCount = Math.floor(Math.random() * 50) + 3;
-      const fakeRatingSum = Math.floor(fakeRatingCount * (3.5 + Math.random() * 1.5));
-      storage.updateMarketplaceSkill(id, {
-        installCount: fakeInstalls,
-        ratingSum: fakeRatingSum,
-        ratingCount: fakeRatingCount,
-      } as any);
     }
 
     // Run scoring pipeline after seeding to compute real scores
     const scoringResult = runScoringPipeline();
 
-    res.json({ message: "Seeded marketplace", count: sampleSkills.length, scoring: scoringResult.tierDistribution });
+    res.json({ message: "Seeded built-in marketplace skills", count: builtInSkills.length, scoring: scoringResult.tierDistribution });
   });
 }

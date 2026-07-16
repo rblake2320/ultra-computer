@@ -21,8 +21,8 @@ jobs:
         node: [22.x, 24.x]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -32,19 +32,61 @@ jobs:
       - run: npm run test:coverage
       - name: Install gitleaks
         run: |
-          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.27.2/gitleaks_8.27.2_linux_x64.tar.gz | tar xz gitleaks
+          curl --fail --silent --show-error --location --output gitleaks.tar.gz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum --check
+          tar xzf gitleaks.tar.gz gitleaks
           sudo mv gitleaks /usr/local/bin/gitleaks
         if: runner.os == 'Linux'
       - name: Secret scan
-        run: gitleaks detect --no-banner --redact --source . --exit-code 1
+        run: gitleaks git --no-banner --redact --exit-code 1 .
         if: runner.os == 'Linux'
       - run: npm run build
       - run: npm run audit
       - run: npm run sbom
       - run: npm run smoke:prod
-      - run: npm run verify
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sbom-${{ matrix.os }}-node-${{ matrix.node }}
           path: reports/sbom.cdx.json
           if-no-files-found: error
+
+  service-integration:
+    runs-on: ubuntu-latest
+    env:
+      ALLOWED_ORIGIN: http://127.0.0.1:5000
+      REDIS_URL: redis://127.0.0.1:6379
+      REDIS_CACHE_PERSIST: "true"
+      TEMPORAL_ADDRESS: 127.0.0.1:7233
+      ULTRA_BASE_URL: http://127.0.0.1:5000
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - name: Generate ephemeral integration credentials
+        run: |
+          {
+            echo "ULTRA_API_KEY=$(openssl rand -hex 32)"
+            echo "ENCRYPTION_KEY=$(openssl rand -hex 32)"
+            echo "TEMPORAL_DB_PASSWORD=$(openssl rand -hex 24)"
+          } >> "$GITHUB_ENV"
+      - name: Start production-shaped services
+        run: docker compose up --detach --build --wait --wait-timeout 240 redis temporal-postgres temporal app temporal-worker
+      - name: Verify live Redis and Temporal paths
+        run: |
+          docker compose exec --no-TTY \
+            --env ULTRA_BASE_URL=http://app:5000 \
+            --env TEMPORAL_ADDRESS=temporal-frontend:7233 \
+            temporal-worker \
+            npx vitest run --configLoader runner --config vitest.integration.config.ts \
+              tests/integration/redis-queue-live.test.ts \
+              tests/integration/temporal-durable-live.test.ts
+      - name: Capture service logs
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+      - name: Stop services
+        if: always()
+        run: docker compose down --volumes --remove-orphans

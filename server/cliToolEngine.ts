@@ -17,6 +17,7 @@ import * as os from "os";
 import { v4 as uuidv4 } from "uuid";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 import { isSensitiveKey, redactEnv, redactString } from "./redaction.js";
+import { governedFetch } from "./governedFetch.js";
 
 const execAsync = promisify(exec);
 
@@ -756,81 +757,57 @@ export async function executeHttpRequest(
     responseType = "json",
   } = config;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
   const start = Date.now();
-  const policyContext = {
-    domain: "network" as const,
-    action: "network:http_request",
-    tool: "cli.http",
-    url,
-    method,
-    metadata: { headers },
-  };
-  const policyDecision = evaluatePolicy(policyContext);
-  writePolicyAudit(policyContext, policyDecision);
-  if (!policyDecision.allowed) {
-    clearTimeout(timer);
-    return {
-      status: 0,
-      headers: {},
-      body: { error: `Policy denied: ${policyDecision.reason}` },
-      duration: Date.now() - start,
-    };
+
+  let fetchBody: BodyInit | undefined;
+  const reqHeaders: Record<string, string> = { ...headers };
+
+  if (body !== undefined) {
+    if (typeof body === "string") {
+      fetchBody = body;
+    } else if (body instanceof FormData) {
+      fetchBody = body;
+      // Let fetch set the Content-Type with boundary for multipart
+    } else {
+      fetchBody = JSON.stringify(body);
+      reqHeaders["Content-Type"] ??= "application/json";
+    }
   }
 
-  try {
-    let fetchBody: BodyInit | undefined;
-    const reqHeaders: Record<string, string> = { ...headers };
+  const response = await governedFetch(url, {
+    method,
+    headers: reqHeaders,
+    body: fetchBody,
+  }, "cli-http", "network", "network:http_request", {
+    timeoutMs: timeout,
+    maxRedirects: followRedirects ? undefined : 0,
+  });
 
-    if (body !== undefined) {
-      if (typeof body === "string") {
-        fetchBody = body;
-      } else if (body instanceof FormData) {
-        fetchBody = body;
-        // Let fetch set the Content-Type with boundary for multipart
-      } else {
-        fetchBody = JSON.stringify(body);
-        reqHeaders["Content-Type"] ??= "application/json";
-      }
-    }
+  const respHeaders: Record<string, string> = {};
+  response.headers.forEach((value, key) => {
+    respHeaders[key] = value;
+  });
 
-    const response = await fetch(url, {
-      method,
-      headers: reqHeaders,
-      body: fetchBody,
-      signal: controller.signal,
-      redirect: followRedirects ? "follow" : "manual",
-    });
-
-    const respHeaders: Record<string, string> = {};
-    response.headers.forEach((value, key) => {
-      respHeaders[key] = value;
-    });
-
-    let respBody: unknown;
-    if (responseType === "json") {
-      try {
-        respBody = await response.json();
-      } catch {
-        respBody = await response.text();
-      }
-    } else if (responseType === "blob") {
-      const buf = await response.arrayBuffer();
-      respBody = Buffer.from(buf).toString("base64");
-    } else {
+  let respBody: unknown;
+  if (responseType === "json") {
+    try {
+      respBody = await response.json();
+    } catch {
       respBody = await response.text();
     }
-
-    return {
-      status: response.status,
-      headers: respHeaders,
-      body: respBody,
-      duration: Date.now() - start,
-    };
-  } finally {
-    clearTimeout(timer);
+  } else if (responseType === "blob") {
+    const buf = await response.arrayBuffer();
+    respBody = Buffer.from(buf).toString("base64");
+  } else {
+    respBody = await response.text();
   }
+
+  return {
+    status: response.status,
+    headers: respHeaders,
+    body: respBody,
+    duration: Date.now() - start,
+  };
 }
 
 // ---------------------------------------------------------------------------

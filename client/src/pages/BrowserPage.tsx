@@ -164,12 +164,13 @@ export function BrowserPage() {
 
   // ─── Screenshot refresh ───────────────────────────────────────────────────
 
-  const refreshScreenshot = useCallback(() => {
+  const refreshScreenshot = useCallback(async () => {
     if (!activeSession) return;
     setScreenshotTime(Date.now());
+    const screenshotUrl = await getSSEUrl(`/api/browser/screenshot/${activeSession}`);
+    const separator = screenshotUrl.includes("?") ? "&" : "?";
     setScreenshotSrc(
-      getSSEUrl(`/api/browser/screenshot/${activeSession}`) +
-        `?t=${Date.now()}`
+      `${screenshotUrl}${separator}t=${Date.now()}`
     );
   }, [activeSession]);
 

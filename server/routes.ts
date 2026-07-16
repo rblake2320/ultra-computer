@@ -33,6 +33,8 @@ import { initWatchdog, getHealthStatus } from "./processWatchdog.js";
 import { startCheckpointHeartbeats } from "./taskCheckpointing.js";
 import { workflowIdFromMessage } from "./durableExecution.js";
 import { startScheduler } from "./cronScheduler.js";
+import { createStreamToken } from "./streamAuth.js";
+import { governedFetch } from "./governedFetch.js";
 import { startLearningLoop } from "./selfLearning.js";
 import { startAutoImproveLoop } from "./skillAutoImprove.js";
 import { registerCacheRoutes } from "./cacheRoutes.js";
@@ -85,6 +87,19 @@ function verifyOAuthState(state: string): { connectorId: string; ts: number } | 
 }
 
 export async function registerRoutes(httpServer: Server, app: Express) {
+  app.post("/api/auth/stream-token", (req, res) => {
+    const path = typeof req.body?.path === "string" ? req.body.path.trim() : "";
+    try {
+      const token = createStreamToken(path);
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ token, expiresInMs: 60_000 });
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : "Invalid stream token request",
+      });
+    }
+  });
+
   // ─── Seed on startup ──────────────────────────────────────────────────────
   seedConnectors();
   seedBuiltInSkills();
@@ -123,7 +138,9 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   console.log("[identity] Identity engine linked to NIP protocol for session auth");
 
   // ─── Initialize autonomy systems ────────────────────────────────────────────
-  initWatchdog(httpServer);
+  // The entrypoint owns signals and fatal-error handling so shutdown closes
+  // every resource exactly once.
+  initWatchdog(httpServer, { installProcessHandlers: false });
   startCheckpointHeartbeats();
   startScheduler(async (job) => {
     console.log(`[cron] Executing job: ${job.name}`);
@@ -181,6 +198,23 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   // middleware is a pass-through, which is intentional and documented.
   app.get("/api/models/env-vars", (_req, res) => {
     res.json(modelService.discoverEnvVars());
+  });
+
+  app.get("/api/model-catalog", (req, res) => {
+    const provider = typeof req.query.provider === "string" ? req.query.provider : undefined;
+    res.json({ entries: modelService.getCatalog(provider) });
+  });
+
+  app.post("/api/model-catalog/sync", async (req, res) => {
+    const provider = typeof req.body?.provider === "string" ? req.body.provider.trim() : "";
+    if (!provider) return res.status(400).json({ error: "provider is required" });
+    try {
+      res.json(await modelService.syncCatalog(provider));
+    } catch (error: any) {
+      const message = error instanceof Error ? error.message : "Model catalog sync failed";
+      const status = /Unknown provider|No configured credentials/.test(message) ? 400 : 502;
+      res.status(status).json({ error: message });
+    }
   });
 
   app.get("/api/models/:id", (req, res) => {
@@ -760,7 +794,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     try { config = JSON.parse(connector.config || "{}"); } catch { config = {}; }
     try {
       const redirectUri = `${req.protocol}://${req.get("host")}/api/connectors/oauth/callback`;
-      const tokenRes = await fetch(def.oauthTokenUrl, {
+      const tokenRes = await governedFetch(def.oauthTokenUrl, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
         body: new URLSearchParams({
@@ -770,6 +804,9 @@ export async function registerRoutes(httpServer: Server, app: Express) {
           client_id: config.client_id || "",
           client_secret: config.client_secret || "",
         }).toString(),
+      }, `oauth-${connectorId}`, "network", "network:oauth_token_exchange", {
+        timeoutMs: 15_000,
+        maxResponseBytes: 1024 * 1024,
       });
       if (!tokenRes.ok) {
         const errText = await tokenRes.text();
@@ -1204,26 +1241,6 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       if (count <= 1) sseConnectionsPerIp.delete(clientIp);
       else sseConnectionsPerIp.set(clientIp, count - 1);
       cleanup();
-    });
-  });
-
-  // ─── Health ───────────────────────────────────────────────────────────────
-  app.get("/api/health", async (req, res) => {
-    const models = storage.getModels();
-    const hasOrch = !!storage.getOrchestratorModel();
-    const hasDefault = !!storage.getDefaultModel();
-    res.json({
-      status: "ok",
-      modelCount: models.length,
-      hasOrchestratorModel: hasOrch,
-      hasDefaultModel: hasDefault,
-      memoryCount: storage.getMemories(1000).length,
-      skillCount: storage.getSkills().length,
-      connectorCount: storage.getConnectors().length,
-      sandbox: dockerSandbox.getStatus(),
-      taskQueue: taskQueue.isAvailable(),
-      marketplaceSkillCount: storage.getMarketplaceSkills().length,
-      knowledgeBaseEntries: storage.getKnowledgeEntries().length,
     });
   });
 

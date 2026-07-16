@@ -10,7 +10,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useQuery } from "@tanstack/react-query";
-import { getSSEUrl } from "@/lib/queryClient";
+import { connectEventSource } from "@/lib/queryClient";
 import type { Conversation } from "@shared/schema";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -61,8 +61,7 @@ function useConversationSSE(
   conversationIds: string[],
   onEvent: (convId: string, event: any) => void
 ) {
-  // Track active EventSource connections keyed by conversationId
-  const sources = useRef<Map<string, EventSource>>(new Map());
+  const connections = useRef<Map<string, () => void>>(new Map());
   // Ref always holds the latest onEvent callback — prevents stale closure inside the effect
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
@@ -71,40 +70,37 @@ function useConversationSSE(
     const activeIds = new Set(conversationIds);
 
     // Remove connections for convs no longer active
-    for (const [id, es] of Array.from(sources.current.entries())) {
+    for (const [id, disconnect] of Array.from(connections.current.entries())) {
       if (!activeIds.has(id)) {
-        es.close();
-        sources.current.delete(id);
+        disconnect();
+        connections.current.delete(id);
       }
     }
 
     // Open new connections
     for (const id of conversationIds) {
-      if (!sources.current.has(id)) {
-        const url = getSSEUrl(`/api/conversations/${id}/stream`);
-        const es = new EventSource(url);
-
-        es.onmessage = (e) => {
-          try {
-            const data = JSON.parse(e.data);
-            onEventRef.current(id, data);
-          } catch {
-            /* ignore malformed */
-          }
-        };
-
-        es.onerror = () => {
-          // Silently reconnect — browser handles it automatically
-        };
-
-        sources.current.set(id, es);
+      if (!connections.current.has(id)) {
+        const disconnect = connectEventSource(
+          `/api/conversations/${id}/stream`,
+          {
+            onMessage: (e) => {
+            try {
+              const data = JSON.parse(e.data);
+              onEventRef.current(id, data);
+            } catch {
+              /* ignore malformed */
+            }
+            },
+          },
+        );
+        connections.current.set(id, disconnect);
       }
     }
 
     return () => {
       // Cleanup on unmount
-      for (const es of Array.from(sources.current.values())) es.close();
-      sources.current.clear();
+      for (const disconnect of Array.from(connections.current.values())) disconnect();
+      connections.current.clear();
     };
   }, [conversationIds.join(",")]);
 }

@@ -896,15 +896,40 @@ export function getProviderCatalog(): Array<{
   models: ProviderModelPreset[];
   hasBaseUrl: boolean;
 }> {
-  return Object.values(PROVIDER_REGISTRY).map(p => ({
-    id: p.id,
-    name: p.name,
-    icon: p.icon,
-    supportedAuth: p.supportedAuth,
-    defaultAuth: p.defaultAuth,
-    apiKeyUrl: p.apiKeyUrl,
-    envVarNames: p.envVarNames,
-    models: p.models,
-    hasBaseUrl: !!p.defaultBaseUrl || p.id === "openai_compat" || p.id === "custom" || p.id === "ollama",
-  }));
+  return Object.values(PROVIDER_REGISTRY).map((p) => {
+    const presets = new Map(p.models.map((model) => [model.modelId, model]));
+    for (const entry of storage.getModelCatalog(p.id)) {
+      if (entry.lifecycle === "retired" || presets.has(entry.modelId)) continue;
+      let capabilities: string[] = [];
+      try {
+        const parsed = JSON.parse(entry.capabilities);
+        if (Array.isArray(parsed)) {
+          capabilities = parsed.filter((value): value is string => typeof value === "string");
+        }
+      } catch {
+        capabilities = [];
+      }
+      presets.set(entry.modelId, {
+        name: entry.displayName,
+        modelId: entry.modelId,
+        speedTier: "medium",
+        capabilities,
+        contextWindow: entry.contextWindow ?? 0,
+        description:
+          `Discovered from ${p.name}; compatibility is ${entry.compatibility}. ` +
+          "Run an explicit connection test before selecting it.",
+      });
+    }
+    return {
+      id: p.id,
+      name: p.name,
+      icon: p.icon,
+      supportedAuth: p.supportedAuth,
+      defaultAuth: p.defaultAuth,
+      apiKeyUrl: p.apiKeyUrl,
+      envVarNames: p.envVarNames,
+      models: [...presets.values()],
+      hasBaseUrl: !!p.defaultBaseUrl || p.id === "openai_compat" || p.id === "custom" || p.id === "ollama",
+    };
+  });
 }

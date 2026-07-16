@@ -13,6 +13,7 @@ import {
   Server, Globe, Cpu, Key, Variable, Unplug, Link2, ExternalLink,
   ChevronRight, Loader2, CircleDot, AlertTriangle, Search, Sparkles,
   Wind, Users, Layers, Bot, Settings,
+  RefreshCw,
 } from "lucide-react";
 import type { Model } from "../../../shared/schema";
 import { safeJsonParse, parseCapabilities } from "../lib/safeJson";
@@ -141,6 +142,25 @@ export function ModelsPage() {
       }
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const syncCatalogMutation = useMutation({
+    mutationFn: (provider: string) =>
+      apiRequest("POST", "/api/model-catalog/sync", { provider }),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ["/api/models/providers"] });
+      toast({
+        title: "Provider catalog synchronized",
+        description: `${data.discovered} models discovered${data.retired ? ` · ${data.retired} retired` : ""}`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Catalog sync failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const deleteModel = useMutation({
@@ -519,6 +539,17 @@ export function ModelsPage() {
                   <ProviderIcon icon={currentProviderInfo?.icon || "Cpu"} className="w-4 h-4 text-primary" />
                   <span className="font-semibold text-sm">{currentProviderInfo?.name}</span>
                 </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1 text-xs"
+                  disabled={!qaProvider || syncCatalogMutation.isPending}
+                  onClick={() => syncCatalogMutation.mutate(qaProvider)}
+                  title="Fetch the provider's current model list. Discovered models remain unverified until tested."
+                >
+                  <RefreshCw className={`w-3 h-3 ${syncCatalogMutation.isPending ? "animate-spin" : ""}`} />
+                  Sync current models
+                </Button>
                 {currentProviderInfo?.apiKeyUrl && (
                   <a href={currentProviderInfo.apiKeyUrl} target="_blank" rel="noopener noreferrer"
                     className="flex items-center gap-1 text-[10px] text-primary hover:underline">

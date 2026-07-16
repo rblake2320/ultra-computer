@@ -1,28 +1,39 @@
 /**
- * Multi-Model Router
- * Routes tasks to the optimal model based on task type, capability, and speed tier.
- * Supports: OpenAI, Anthropic, Google Gemini, Mistral, Groq, Together, DeepSeek, xAI,
- * Cohere, Ollama, NVIDIA NIM (Scout 10M ctx, Maverick, Nemotron, etc.), any OpenAI-compatible endpoint.
- * All providers are normalized to a single streaming interface.
- * 
- * Credential resolution is delegated to modelConnections.ts — supports API key,
- * OAuth tokens, environment variables, and no-auth (local models).
+ * Provider-neutral model router.
+ *
+ * Routing selects a configured model. Provider adapters own protocol details,
+ * including native streaming, multimodal content, tools, and error translation.
  */
 
-import OpenAI from "openai";
-import type {
-  ChatCompletionCreateParamsStreaming,
-  ChatCompletionMessageParam,
-} from "openai/resources/chat/completions";
-import Anthropic from "@anthropic-ai/sdk";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { storage } from "./storage.js";
-import { resolveCredentials } from "./modelConnections.js";
-import { cacheEngine } from "./cacheEngine.js";
-import type { CacheRequest, CacheResponse, Message as CacheMessage } from "./cacheEngine.js";
+import crypto from "crypto";
 import type { Model } from "@shared/schema";
+import { cacheEngine } from "./cacheEngine.js";
+import type {
+  CacheRequest,
+  CacheResponse,
+  Message as CacheMessage,
+} from "./cacheEngine.js";
+import {
+  createProviderAdapter,
+  hasCapabilities,
+  matchCapabilities,
+  type ModelCapability,
+  type ModelMessage,
+  type ModelRequest,
+  type ModelToolCall,
+  type ProviderAdapter,
+} from "./models/index.js";
+import { storage } from "./storage.js";
 
-export type TaskType = "research" | "code" | "write" | "browse" | "analyze" | "image" | "general" | "speed";
+export type TaskType =
+  | "research"
+  | "code"
+  | "write"
+  | "browse"
+  | "analyze"
+  | "image"
+  | "general"
+  | "speed";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -37,11 +48,15 @@ export interface ToolDef {
 
 export interface RouterOptions {
   taskType?: TaskType;
-  modelId?: string;       // override: use specific model
+  /** Configured model ID or unambiguous upstream provider model ID. */
+  modelId?: string;
   stream?: boolean;
   maxTokens?: number;
   temperature?: number;
-  tools?: ToolDef[];      // native tool calling (OpenAI function format)
+  tools?: ToolDef[];
+  /** Connection probes and other freshness-sensitive calls must bypass response caching. */
+  bypassCache?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface LLMResponse {
@@ -51,7 +66,6 @@ export interface LLMResponse {
   usage?: { prompt: number; completion: number; total: number };
 }
 
-// ─── Task → Speed Tier Mapping ───────────────────────────────────────────────
 const TASK_TIER_MAP: Record<TaskType, string> = {
   research: "powerful",
   code: "powerful",
@@ -63,452 +77,375 @@ const TASK_TIER_MAP: Record<TaskType, string> = {
   speed: "fast",
 };
 
-// ─── Select best model for a task ────────────────────────────────────────────
-export function selectModelForTask(taskType: TaskType, preferredModelId?: string): Model | null {
-  const allModels = storage.getModels().filter(m => m.enabled);
+const TASK_CAPABILITY_MAP: Readonly<Record<TaskType, readonly ModelCapability[]>> = {
+  research: ["chat"],
+  code: ["chat", "code"],
+  write: ["chat"],
+  browse: ["chat"],
+  analyze: ["chat", "reasoning"],
+  image: ["chat", "vision"],
+  general: ["chat"],
+  speed: ["chat"],
+};
 
-  if (preferredModelId) {
-    const found = allModels.find(m => m.id === preferredModelId);
-    if (found) return found;
+function modelCapabilities(model: Model): string[] {
+  try {
+    const parsed = JSON.parse(model.capabilities || "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((value): value is string => typeof value === "string")
+      : [];
+  } catch {
+    return [];
   }
-
-  const tier = TASK_TIER_MAP[taskType] || "medium";
-
-  // 1. Try to match tier + capability
-  const cap = taskType === "code" ? "code" : taskType === "image" ? "image" : "chat";
-  const withCap = allModels.filter(m => {
-    try {
-      const caps: string[] = JSON.parse(m.capabilities || "[]");
-      return caps.includes(cap) && m.speedTier === tier;
-    } catch {
-      return false;
-    }
-  });
-  if (withCap.length > 0) return withCap[0];
-
-  // 2. Match tier only
-  const withTier = allModels.filter(m => m.speedTier === tier);
-  if (withTier.length > 0) return withTier[0];
-
-  // 3. Default model
-  const def = storage.getDefaultModel();
-  if (def) return def;
-
-  // 4. Any model
-  return allModels[0] || null;
 }
 
-// ─── Unified chat completion ──────────────────────────────────────────────────
-export async function chat(
-  messages: ChatMessage[],
-  options: RouterOptions = {}
-): Promise<LLMResponse> {
-  const taskType = options.taskType || "general";
-  const model = selectModelForTask(taskType, options.modelId);
+function resolvePreferredModel(models: readonly Model[], identifier: string): Model | null {
+  const internal = models.find((model) => model.id === identifier);
+  if (internal) return internal;
 
-  if (!model) {
-    throw new Error("No models configured. Add a model in the Models page.");
+  const upstreamMatches = models.filter((model) => model.modelId === identifier);
+  if (upstreamMatches.length === 1) return upstreamMatches[0];
+  if (upstreamMatches.length > 1) {
+    throw new Error(
+      `Model ID '${identifier}' is ambiguous across configured providers; use the configured model ID`,
+    );
+  }
+  return null;
+}
+
+export function selectModelFromCandidates(
+  models: readonly Model[],
+  taskType: TaskType,
+  preferredModelId?: string,
+  defaultModelId?: string,
+): Model | null {
+  const enabledModels = models.filter((model) => model.enabled);
+  const required = TASK_CAPABILITY_MAP[taskType] ?? ["chat"];
+
+  if (preferredModelId) {
+    const preferred = resolvePreferredModel(enabledModels, preferredModelId);
+    if (!preferred) return null;
+    const match = matchCapabilities(modelCapabilities(preferred), { all: required });
+    if (!match.matches) {
+      throw new Error(
+        `Model '${preferred.name}' cannot perform '${taskType}'; missing capabilities: ` +
+        `${[...match.missing, ...match.missingAny].join(", ")}`,
+      );
+    }
+    return preferred;
   }
 
-  const maxTokens = options.maxTokens ?? 4096;
-  const temperature = options.temperature ?? 0.7;
+  const compatible = enabledModels.filter((model) =>
+    hasCapabilities(modelCapabilities(model), { all: required }),
+  );
+  if (!compatible.length) return null;
 
-  // ─── Cache: check for exact/semantic hit ──────────────────────────────
-  const cacheMessages: CacheMessage[] = messages.map(m => ({
-    role: m.role as CacheMessage["role"],
-    content: m.content,
-    isStatic: m.role === "system",
+  const tier = TASK_TIER_MAP[taskType] ?? "medium";
+  const tierMatch = compatible.find((model) => model.speedTier === tier);
+  if (tierMatch) return tierMatch;
+
+  const defaultModel = defaultModelId
+    ? compatible.find((model) => model.id === defaultModelId)
+    : undefined;
+  return defaultModel ?? compatible[0];
+}
+
+export function selectModelForTask(
+  taskType: TaskType,
+  preferredModelId?: string,
+): Model | null {
+  const defaultModel = storage.getDefaultModel();
+  return selectModelFromCandidates(
+    storage.getModels(),
+    taskType,
+    preferredModelId,
+    defaultModel?.id,
+  );
+}
+
+function requestCapabilities(request: ModelRequest, streaming: boolean): ModelCapability[] {
+  const capabilities: ModelCapability[] = ["chat"];
+  if (streaming) capabilities.push("streaming");
+  if (request.tools?.length) capabilities.push("tools");
+  if (request.responseFormat && request.responseFormat.type !== "text") {
+    capabilities.push("structured-output");
+  }
+  for (const message of request.messages) {
+    if (typeof message.content === "string") continue;
+    if (message.content.some((part) => part.type === "image")) capabilities.push("vision");
+    if (message.content.some((part) => part.type === "file")) capabilities.push("file-input");
+    if (message.content.some((part) => part.type === "audio")) capabilities.push("audio-input");
+  }
+  return [...new Set(capabilities)];
+}
+
+function assertAdapterSupports(
+  model: Model,
+  adapter: ProviderAdapter,
+  request: ModelRequest,
+  streaming: boolean,
+): void {
+  const required = requestCapabilities(request, streaming);
+  const match = matchCapabilities(adapter.features.capabilities, { all: required });
+  if (!match.matches) {
+    throw new Error(
+      `Provider adapter '${adapter.provider}' cannot satisfy model '${model.name}'; ` +
+      `missing capabilities: ${match.missing.join(", ")}`,
+    );
+  }
+  if (streaming && (!adapter.features.streaming || !adapter.stream)) {
+    throw new Error(`Provider adapter '${adapter.provider}' does not implement streaming`);
+  }
+}
+
+function toModelRequest(
+  model: Model,
+  messages: readonly ChatMessage[],
+  options: RouterOptions,
+): ModelRequest {
+  return {
+    model: model.modelId,
+    messages: messages.map((message): ModelMessage => ({
+      role: message.role,
+      content: message.content,
+    })),
+    maxOutputTokens: options.maxTokens ?? 4096,
+    // Do not force sampling parameters. New reasoning models often reject them.
+    temperature: options.temperature,
+    tools: options.tools?.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.parameters,
+    })),
+  };
+}
+
+function toolCallBlocks(toolCalls: readonly ModelToolCall[]): string {
+  return toolCalls.map((toolCall) => {
+    let args: unknown = {};
+    try {
+      args = JSON.parse(toolCall.arguments || "{}");
+    } catch {
+      args = {};
+    }
+    return `\n<tool_call>\n${JSON.stringify({ name: toolCall.name, args })}\n</tool_call>`;
+  }).join("");
+}
+
+function cacheRequest(
+  model: Model,
+  taskType: TaskType,
+  messages: readonly ChatMessage[],
+  options: RouterOptions,
+): CacheRequest | null {
+  if (options.bypassCache || options.tools?.length) return null;
+  const cacheMessages: CacheMessage[] = messages.map((message) => ({
+    role: message.role as CacheMessage["role"],
+    content: message.content,
+    isStatic: message.role === "system",
   }));
-  const cacheReq: CacheRequest = {
+  return {
     model: model.modelId,
     messages: cacheMessages,
-    parameters: { maxTokens, temperature },
+    parameters: {
+      maxTokens: options.maxTokens ?? 4096,
+      ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
+    },
     route: `chat/${taskType}`,
     streaming: false,
   };
-  const cached = cacheEngine.get(cacheReq);
+}
+
+export async function chat(
+  messages: ChatMessage[],
+  options: RouterOptions = {},
+): Promise<LLMResponse> {
+  const taskType = options.taskType ?? "general";
+  const model = selectModelForTask(taskType, options.modelId);
+  if (!model) {
+    throw new Error(
+      options.modelId
+        ? `Configured model '${options.modelId}' is unavailable or incompatible`
+        : `No enabled model supports the required '${taskType}' capabilities`,
+    );
+  }
+
+  const cacheKey = cacheRequest(model, taskType, messages, options);
+  const cached = cacheKey ? cacheEngine.get(cacheKey) : null;
   if (cached) {
     return {
       content: cached.response.content,
       model: model.name,
       modelId: model.id,
-      usage: { prompt: cached.response.tokensIn, completion: cached.response.tokensOut, total: cached.response.tokensIn + cached.response.tokensOut },
+      usage: {
+        prompt: cached.response.tokensIn,
+        completion: cached.response.tokensOut,
+        total: cached.response.tokensIn + cached.response.tokensOut,
+      },
     };
   }
 
-  // ─── Cache: optimize prompt ordering for provider-side prefix caching ─
-  const optimized = cacheEngine.optimizePrompt(cacheMessages, model.provider);
-  const optimizedMsgs: ChatMessage[] = optimized.map(m => ({ role: m.role as ChatMessage["role"], content: m.content }));
+  const request = toModelRequest(model, messages, options);
+  const adapter = createProviderAdapter(model);
+  assertAdapterSupports(model, adapter, request, false);
+  const result = await adapter.generate(request, {
+    requestId: crypto.randomUUID(),
+    signal: options.signal,
+  });
+  const content = result.text || result.reasoning || "";
+  const finalContent = content + toolCallBlocks(result.toolCalls);
 
-  switch (model.provider) {
-    case "openai":
-    case "openai_compat":
-    case "ollama":
-    case "custom":
-    case "mistral":
-    case "groq":
-    case "together":
-    case "deepseek":
-    case "xai":
-    case "cohere":
-    case "openrouter":
-    case "huggingface":
-    case "fireworks":
-    case "cerebras":
-    case "perplexity":
-    case "lmstudio":
-    case "nvidia": {
-      const result = await chatOpenAICompat(model, optimizedMsgs, maxTokens, temperature);
-      cacheEngine.set(cacheReq, { content: result.content, tokensIn: result.usage?.prompt || 0, tokensOut: result.usage?.completion || 0, modelId: model.id });
-      return result;
-    }
-    case "anthropic": {
-      const result = await chatAnthropic(model, optimizedMsgs, maxTokens, temperature);
-      cacheEngine.set(cacheReq, { content: result.content, tokensIn: result.usage?.prompt || 0, tokensOut: result.usage?.completion || 0, modelId: model.id });
-      return result;
-    }
-    case "google": {
-      const result = await chatGoogle(model, optimizedMsgs, maxTokens, temperature);
-      cacheEngine.set(cacheReq, { content: result.content, tokensIn: result.usage?.prompt || 0, tokensOut: result.usage?.completion || 0, modelId: model.id });
-      return result;
-    }
-    default: {
-      const result = await chatOpenAICompat(model, optimizedMsgs, maxTokens, temperature);
-      cacheEngine.set(cacheReq, { content: result.content, tokensIn: result.usage?.prompt || 0, tokensOut: result.usage?.completion || 0, modelId: model.id });
-      return result;
-    }
+  if (cacheKey) {
+    const cacheResponse: CacheResponse = {
+      content: finalContent,
+      tokensIn: result.usage?.inputTokens ?? 0,
+      tokensOut: result.usage?.outputTokens ?? 0,
+      modelId: model.id,
+    };
+    cacheEngine.set(cacheKey, cacheResponse);
   }
+
+  return {
+    content: finalContent,
+    model: model.name,
+    modelId: model.id,
+    usage: result.usage ? {
+      prompt: result.usage.inputTokens,
+      completion: result.usage.outputTokens,
+      total: result.usage.totalTokens,
+    } : undefined,
+  };
 }
 
-// ─── Streaming version ────────────────────────────────────────────────────────
 export async function* chatStream(
   messages: ChatMessage[],
-  options: RouterOptions = {}
+  options: RouterOptions = {},
 ): AsyncGenerator<string> {
-  const taskType = options.taskType || "general";
+  const taskType = options.taskType ?? "general";
   const model = selectModelForTask(taskType, options.modelId);
-
   if (!model) {
-    throw new Error("No models configured. Add a model in the Models page.");
+    throw new Error(
+      options.modelId
+        ? `Configured model '${options.modelId}' is unavailable or incompatible`
+        : `No enabled model supports the required '${taskType}' capabilities`,
+    );
   }
 
-  const maxTokens = options.maxTokens ?? 4096;
-  const temperature = options.temperature ?? 0.7;
+  const request = toModelRequest(model, messages, options);
+  const adapter = createProviderAdapter(model);
+  assertAdapterSupports(model, adapter, request, true);
 
-  switch (model.provider) {
-    case "openai":
-    case "openai_compat":
-    case "ollama":
-    case "custom":
-    case "mistral":
-    case "groq":
-    case "together":
-    case "deepseek":
-    case "xai":
-    case "cohere":
-    case "openrouter":
-    case "huggingface":
-    case "fireworks":
-    case "cerebras":
-    case "perplexity":
-    case "lmstudio":
-    case "nvidia":
-      yield* streamOpenAICompat(model, messages, maxTokens, temperature, options.tools);
-      break;
-    case "anthropic":
-      yield* streamAnthropic(model, messages, maxTokens, temperature);
-      break;
-    case "google":
-      yield* streamGoogle(model, messages, maxTokens, temperature);
-      break;
-    default:
-      yield* streamOpenAICompat(model, messages, maxTokens, temperature);
-  }
-}
+  let emittedText = false;
+  let reasoning = "";
+  const toolCalls = new Map<number, { name: string; arguments: string }>();
 
-// ─── OpenAI / Ollama / LM Studio / Groq / Together / DeepSeek / xAI / any OpenAI-compat
-function makeOpenAIClient(model: Model): OpenAI {
-  const creds = resolveCredentials(model);
-  const baseURL = creds.baseUrl || model.baseUrl || undefined;
-  const apiKey = creds.apiKey || (model.provider === "ollama" ? "ollama" : "none");
-  return new OpenAI({ apiKey, baseURL, timeout: 120_000 });
-}
-
-async function chatOpenAICompat(
-  model: Model,
-  msgs: ChatMessage[],
-  maxTokens: number,
-  temperature: number
-): Promise<LLMResponse> {
-  const client = makeOpenAIClient(model);
-  const res = await client.chat.completions.create({
-    model: model.modelId,
-    messages: msgs,
-    max_tokens: maxTokens,
-    temperature,
-  });
-  if (!res.choices?.length) {
-    throw new Error("No response from model");
-  }
-  const msg = res.choices[0]?.message as any;
-  return {
-    content: msg?.content || msg?.reasoning || msg?.reasoning_content || "",
-    model: model.name,
-    modelId: model.id,
-    usage: res.usage ? {
-      prompt: res.usage.prompt_tokens,
-      completion: res.usage.completion_tokens,
-      total: res.usage.total_tokens,
-    } : undefined,
-  };
-}
-
-async function* streamOpenAICompat(
-  model: Model,
-  msgs: ChatMessage[],
-  maxTokens: number,
-  temperature: number,
-  tools?: ToolDef[]
-): AsyncGenerator<string> {
-  const client = makeOpenAIClient(model);
-
-  // Build request — include native tools if provided
-  const createParams: ChatCompletionCreateParamsStreaming = {
-    model: model.modelId,
-    messages: msgs as ChatCompletionMessageParam[],
-    max_tokens: maxTokens,
-    temperature,
-    stream: true,
-  };
-
-  if (tools && tools.length > 0) {
-    createParams.tools = tools.map((t) => ({
-      type: "function" as const,
-      function: { name: t.name, description: t.description, parameters: t.parameters },
-    }));
-  }
-
-  const stream = await client.chat.completions.create(createParams);
-
-  let contentBuffer = "";
-  let reasoningBuffer = "";
-  // Accumulate native tool calls from stream deltas
-  const toolCallAccum: Map<number, { name: string; args: string }> = new Map();
-
-  for await (const chunk of stream) {
-    const choice = chunk.choices[0];
-    const delta = choice?.delta as any;
-
-    // Content tokens
-    const text = delta?.content || "";
-    if (text) {
-      contentBuffer += text;
-      yield text;
-    }
-
-    // Reasoning tokens (qwen3, deepseek-r1)
-    const reasoning = delta?.reasoning || delta?.reasoning_content || "";
-    if (reasoning) reasoningBuffer += reasoning;
-
-    // Native tool call deltas
-    if (delta?.tool_calls) {
-      for (const tc of delta.tool_calls) {
-        const idx = tc.index ?? 0;
-        if (!toolCallAccum.has(idx)) {
-          toolCallAccum.set(idx, { name: "", args: "" });
-        }
-        const acc = toolCallAccum.get(idx)!;
-        if (tc.function?.name) acc.name += tc.function.name;
-        if (tc.function?.arguments) acc.args += tc.function.arguments;
+  for await (const event of adapter.stream!(request, {
+    requestId: crypto.randomUUID(),
+    signal: options.signal,
+  })) {
+    switch (event.type) {
+      case "output_text.delta":
+        emittedText = true;
+        yield event.delta;
+        break;
+      case "reasoning.delta":
+        reasoning += event.delta;
+        break;
+      case "tool_call.delta": {
+        const call = toolCalls.get(event.index) ?? { name: "", arguments: "" };
+        if (event.name) call.name += event.name;
+        if (event.argumentsDelta) call.arguments += event.argumentsDelta;
+        toolCalls.set(event.index, call);
+        break;
       }
+      case "response.error":
+        throw new Error(
+          `${adapter.provider} request failed (${event.error.code}): ${event.error.message}`,
+        );
     }
   }
 
-  // If model returned native tool calls, convert to <tool_call> format for the orchestrator
-  if (toolCallAccum.size > 0) {
-    for (const [, tc] of toolCallAccum) {
-      try {
-        const args = JSON.parse(tc.args || "{}");
-        const block = `\n<tool_call>\n${JSON.stringify({ name: tc.name, args })}\n</tool_call>`;
-        yield block;
-      } catch {
-        // If args aren't valid JSON, emit raw
-        yield `\n<tool_call>\n${JSON.stringify({ name: tc.name, args: {} })}\n</tool_call>`;
-      }
-    }
-  }
-  // Fallback for reasoning-only models with no content and no native tool calls
-  else if (reasoningBuffer && !contentBuffer) {
-    // Extract tool_call blocks from reasoning text
-    const toolCallPattern = /<tool_call>\s*[\s\S]*?<\/tool_call>/g;
-    const matches = reasoningBuffer.match(toolCallPattern);
-    if (matches) {
-      yield "\n" + matches.join("\n");
-    } else {
-      yield reasoningBuffer;
-    }
+  if (toolCalls.size) {
+    yield toolCallBlocks(
+      [...toolCalls.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([index, call]) => ({
+          id: `tool-call-${index}`,
+          name: call.name,
+          arguments: call.arguments,
+        })),
+    );
+  } else if (!emittedText && reasoning) {
+    yield reasoning;
   }
 }
 
-// ─── Anthropic ────────────────────────────────────────────────────────────────
-function makeAnthropicClient(model: Model): Anthropic {
-  const creds = resolveCredentials(model);
-  if (!creds.apiKey) throw new Error(`No API key configured for provider anthropic (model: ${model.name})`);
-  return new Anthropic({ apiKey: creds.apiKey });
-}
-
-/**
- * Build Anthropic system param with prompt caching.
- * Uses cache_control: { type: "ephemeral" } on the system content block
- * so Anthropic caches the static prefix (KB + system prompt) across requests.
- * This can reduce input token costs by up to 90% for repeated prefixes.
- */
-function buildAnthropicSystem(systemContent: string | undefined): Anthropic.Messages.TextBlockParam[] | undefined {
-  if (!systemContent) return undefined;
-  return [
-    {
-      type: "text" as const,
-      text: systemContent,
-      cache_control: { type: "ephemeral" as const },
-    },
-  ];
-}
-
-async function chatAnthropic(
-  model: Model,
-  msgs: ChatMessage[],
-  maxTokens: number,
-  temperature: number
-): Promise<LLMResponse> {
-  const client = makeAnthropicClient(model);
-  const systemMsg = msgs.find(m => m.role === "system");
-  const userMsgs = msgs.filter(m => m.role !== "system").map(m => ({
-    role: m.role as "user" | "assistant",
-    content: m.content,
-  }));
-  const res = await client.messages.create({
-    model: model.modelId,
-    system: buildAnthropicSystem(systemMsg?.content) as any,
-    messages: userMsgs,
-    max_tokens: maxTokens,
-    temperature,
-  });
-  const text = res.content.filter(b => b.type === "text").map(b => (b as any).text).join("");
-  const usage = res.usage as any;
-  return {
-    content: text,
-    model: model.name,
-    modelId: model.id,
-    usage: res.usage ? {
-      prompt: res.usage.input_tokens,
-      completion: res.usage.output_tokens,
-      total: res.usage.input_tokens + res.usage.output_tokens,
-      // Track cache metrics when available
-      ...(usage.cache_creation_input_tokens ? { cacheCreation: usage.cache_creation_input_tokens } : {}),
-      ...(usage.cache_read_input_tokens ? { cacheRead: usage.cache_read_input_tokens } : {}),
-    } : undefined,
-  };
-}
-
-async function* streamAnthropic(
-  model: Model,
-  msgs: ChatMessage[],
-  maxTokens: number,
-  temperature: number
-): AsyncGenerator<string> {
-  const client = makeAnthropicClient(model);
-  const systemMsg = msgs.find(m => m.role === "system");
-  const userMsgs = msgs.filter(m => m.role !== "system").map(m => ({
-    role: m.role as "user" | "assistant",
-    content: m.content,
-  }));
-  const stream = await client.messages.create({
-    model: model.modelId,
-    system: buildAnthropicSystem(systemMsg?.content) as any,
-    messages: userMsgs,
-    max_tokens: maxTokens,
-    temperature,
-    stream: true,
-  });
-  for await (const event of stream) {
-    if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-      yield event.delta.text;
-    }
-  }
-}
-
-// ─── Google Gemini ────────────────────────────────────────────────────────────
-async function chatGoogle(
-  model: Model,
-  msgs: ChatMessage[],
-  maxTokens: number,
-  temperature: number
-): Promise<LLMResponse> {
-  const creds = resolveCredentials(model);
-  if (!creds.apiKey) throw new Error(`No API key configured for provider google (model: ${model.name})`);
-  const genAI = new GoogleGenerativeAI(creds.apiKey);
-  const gModel = genAI.getGenerativeModel({ model: model.modelId });
-  const systemMsg = msgs.find(m => m.role === "system")?.content || "";
-  const history = msgs.filter(m => m.role !== "system").slice(0, -1).map(m => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
-  const lastMsg = msgs.filter(m => m.role !== "system").at(-1)?.content || "";
-  const chat = gModel.startChat({
-    history,
-    systemInstruction: systemMsg || undefined,
-    generationConfig: { maxOutputTokens: maxTokens, temperature },
-  });
-  const res = await chat.sendMessage(lastMsg);
-  const usageMeta = res.response.usageMetadata;
-  return {
-    content: res.response.text(),
-    model: model.name,
-    modelId: model.id,
-    usage: usageMeta ? {
-      prompt: usageMeta.promptTokenCount ?? 0,
-      completion: usageMeta.candidatesTokenCount ?? 0,
-      total: usageMeta.totalTokenCount ?? 0,
-    } : undefined,
-  };
-}
-
-async function* streamGoogle(
-  model: Model,
-  msgs: ChatMessage[],
-  maxTokens: number,
-  temperature: number
-): AsyncGenerator<string> {
-  const creds = resolveCredentials(model);
-  if (!creds.apiKey) throw new Error(`No API key configured for provider google (model: ${model.name})`);
-  const genAI = new GoogleGenerativeAI(creds.apiKey);
-  const gModel = genAI.getGenerativeModel({ model: model.modelId });
-  const systemMsg = msgs.find(m => m.role === "system")?.content || "";
-  const history = msgs.filter(m => m.role !== "system").slice(0, -1).map(m => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
-  const lastMsg = msgs.filter(m => m.role !== "system").at(-1)?.content || "";
-  const chat = gModel.startChat({
-    history,
-    systemInstruction: systemMsg || undefined,
-    generationConfig: { maxOutputTokens: maxTokens, temperature },
-  });
-  const res = await chat.sendMessageStream(lastMsg);
-  for await (const chunk of res.stream) {
-    yield chunk.text();
-  }
-}
-
-// ─── Test connectivity ────────────────────────────────────────────────────────
-export async function testModelConnection(modelId: string): Promise<{ ok: boolean; error?: string; latencyMs?: number }> {
+export async function testModelConnection(
+  modelId: string,
+): Promise<{ ok: boolean; error?: string; latencyMs?: number }> {
   const model = storage.getModel(modelId);
   if (!model) return { ok: false, error: "Model not found" };
   const start = Date.now();
   try {
-    await chat([{ role: "user", content: "Say: pong" }], { modelId, maxTokens: 10 });
+    const adapter = createProviderAdapter(model);
+    const result = await adapter.generate({
+      model: model.modelId,
+      messages: [{ role: "user", content: "Reply with exactly: pong" }],
+      maxOutputTokens: 10,
+    }, {
+      requestId: crypto.randomUUID(),
+    });
+    if (!result.text.trim() && result.toolCalls.length === 0) {
+      throw new Error("Provider returned an empty connection-test response");
+    }
+
+    const capabilities = new Set(modelCapabilities(model));
+    capabilities.add("chat");
+    storage.updateModel(model.id, {
+      capabilities: JSON.stringify([...capabilities]),
+    });
+
+    const catalogEntry = storage.getModelCatalog(model.provider)
+      .find((entry) => entry.modelId === model.modelId);
+    if (catalogEntry) {
+      const verifiedCapabilities = new Set<string>();
+      try {
+        const parsed = JSON.parse(catalogEntry.capabilities);
+        if (Array.isArray(parsed)) {
+          for (const capability of parsed) {
+            if (typeof capability === "string") verifiedCapabilities.add(capability);
+          }
+        }
+      } catch {
+        // Invalid historical metadata is replaced with the verified evidence.
+      }
+      verifiedCapabilities.add("chat");
+      storage.upsertModelCatalogEntry({
+        ...catalogEntry,
+        capabilities: JSON.stringify([...verifiedCapabilities]),
+        compatibility: "compatible",
+        lastSeenAt: Date.now(),
+      });
+      storage.createModelProbeResult({
+        id: crypto.randomUUID(),
+        catalogId: catalogEntry.id,
+        status: "compatible",
+        capabilities: JSON.stringify(["chat"]),
+        evidence: JSON.stringify({
+          method: "explicit_minimal_text_generation",
+          responseReceived: true,
+        }),
+        error: null,
+        latencyMs: Date.now() - start,
+        probedAt: Date.now(),
+      });
+    }
     return { ok: true, latencyMs: Date.now() - start };
-  } catch (e: any) {
-    return { ok: false, error: e.message };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Unknown provider error",
+      latencyMs: Date.now() - start,
+    };
   }
 }

@@ -1,4 +1,5 @@
 import type {
+  ModelCapability,
   ModelRequest,
   ModelResponse,
   NormalizedProviderError,
@@ -7,6 +8,7 @@ import type {
 import type { NormalizedModelEvent } from "./events.js";
 
 export interface ProviderAdapterFeatures {
+  capabilities: readonly ModelCapability[];
   discovery: boolean;
   streaming: boolean;
 }
