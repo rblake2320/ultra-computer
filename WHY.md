@@ -86,7 +86,9 @@ hold detailed decisions that affect architecture or long-lived behavior.
   when required secrets, isolation, transport security, or policy enforcement
   are unavailable. Outbound connections use the address that passed DNS and
   network validation, authentication is rate-limited before key verification,
-  and diagnostic failures do not echo secret-bearing error objects.
+  and diagnostic failures do not echo secret-bearing error objects. Secret-scan
+  exceptions must identify a reviewed finding fingerprint rather than disable a
+  detector or exclude a directory.
   Development conveniences must be explicit and visibly non-production.
 - **Why:** Ultra Computer executes tools and communicates with external systems;
   safe failure is more important than silently preserving degraded behavior.

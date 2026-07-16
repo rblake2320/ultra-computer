@@ -1,0 +1,4 @@
+# Public example JWT from a historical output-filter unit-test fixture.
+# The current test constructs a non-JWT synthetic token; this fingerprint keeps
+# full-history scans strict without suppressing the jwt rule or the test path.
+c4e80646e0fa72c2afd0a621181c6d2c35579c0f:tests/unit/outputFilter.test.ts:jwt:49

@@ -19,6 +19,8 @@ All notable changes to this project will be documented in this file.
 - Added CSP and related HTTP security headers.
 - Applied API rate limiting before authentication so invalid-key attempts are
   bounded, and prevented live-gate failures from echoing secret-bearing errors.
+- Documented one fingerprint-scoped Gitleaks exception for a public example JWT
+  in historical test data; no secret rule, commit, or path is broadly excluded.
 - Redacted messaging credentials recursively from channel and delivery data.
 - Cleared high/critical npm audit findings and upgraded vulnerable or
   unsupported runtime dependency paths.
