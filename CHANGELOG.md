@@ -13,9 +13,12 @@ All notable changes to this project will be documented in this file.
   path containment, collision checks, and cleanup on failure.
 - Added governed outbound HTTP with policy checks, DNS/private-address
   protection, redirect revalidation, production HTTPS enforcement, timeouts,
-  and response-size limits.
+  response-size limits, and address-pinned connections that close the
+  DNS-rebinding gap between validation and transport.
 - Made production reject missing/placeholder secrets and host-shell fallback.
 - Added CSP and related HTTP security headers.
+- Applied API rate limiting before authentication so invalid-key attempts are
+  bounded, and prevented live-gate failures from echoing secret-bearing errors.
 - Redacted messaging credentials recursively from channel and delivery data.
 - Cleared high/critical npm audit findings and upgraded vulnerable or
   unsupported runtime dependency paths.
@@ -93,11 +96,11 @@ All notable changes to this project will be documented in this file.
 - Slack and Gmail code paths are implemented against their provider APIs, but
   no live Slack or Gmail account was exercised in this session.
 - Coverage changed from 37.72% statements / 42.55% branches / 29.85% functions
-  / 43.01% lines (83/40/20/77 covered items across four test files) to 30.77% /
-  25.67% / 31.68% / 32.14% (1365/802/288/1267 covered items across 21 test
+  / 43.01% lines (83/40/20/77 covered items across four test files) to 31.16% /
+  26.03% / 32.05% / 32.54% (1391/820/293/1291 covered items across 21 test
   files). The percentage change is not directly comparable because the current
   suite imports and measures a much larger production source set; absolute
-  covered statements increased by 1,282.
+  covered statements increased by 1,308.
 - No paid-provider inference success is claimed by this changelog.
 
 ## 0.1.0 - 2026-04-11

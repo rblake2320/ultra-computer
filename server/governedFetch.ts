@@ -17,7 +17,10 @@
  */
 
 import dns from "node:dns/promises";
+import http from "node:http";
+import https from "node:https";
 import net from "node:net";
+import { Readable } from "node:stream";
 import {
   evaluatePolicy,
   isExplicitLocalNetworkTargetAllowed,
@@ -29,6 +32,11 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_REDIRECTS = 3;
 const DEFAULT_MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+interface ResolvedTarget {
+  address: string;
+  hostname: string;
+}
 
 export interface GovernedFetchLimits {
   timeoutMs?: number;
@@ -92,8 +100,9 @@ export async function governedFetch(
   let currentOptions: RequestInit = { ...options, redirect: "manual", signal };
 
   for (let redirectCount = 0; ; redirectCount += 1) {
+    let resolvedTarget: ResolvedTarget;
     try {
-      await validateTarget(currentUrl);
+      resolvedTarget = await validateTarget(currentUrl);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       writePolicyAudit({
@@ -115,7 +124,12 @@ export async function governedFetch(
 
     let response: Response;
     try {
-      response = await fetch(currentUrl, currentOptions);
+      response = await requestPinnedTarget(
+        currentUrl,
+        currentOptions,
+        resolvedTarget,
+        signal,
+      );
     } catch (error) {
       if (signal.aborted) {
         const reason = options.signal?.aborted
@@ -177,7 +191,7 @@ function insecureHttpAllowed(): boolean {
     || process.env.ULTRA_ALLOW_INSECURE_HTTP === "true";
 }
 
-async function validateTarget(url: URL): Promise<void> {
+async function validateTarget(url: URL): Promise<ResolvedTarget> {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new NetworkSecurityError(`Outbound protocol '${url.protocol}' is not allowed`);
   }
@@ -211,6 +225,77 @@ async function validateTarget(url: URL): Promise<void> {
       );
     }
   }
+  return { address: addresses[0], hostname };
+}
+
+/**
+ * Connect to the address that passed validation instead of resolving the
+ * hostname again inside the HTTP client. This closes the DNS-rebinding window
+ * between policy validation and the network connection while retaining the
+ * original Host header and TLS server name.
+ */
+async function requestPinnedTarget(
+  url: URL,
+  options: RequestInit,
+  target: ResolvedTarget,
+  signal: AbortSignal,
+): Promise<Response> {
+  const headers = new Headers(options.headers);
+  headers.set("host", url.host);
+  const body = await materializeRequestBody(options, headers);
+  if (body && !headers.has("content-length")) {
+    headers.set("content-length", String(body.byteLength));
+  }
+
+  const requestOptions: https.RequestOptions = {
+    protocol: url.protocol,
+    hostname: target.address,
+    port: url.port || undefined,
+    path: `${url.pathname}${url.search}`,
+    method: options.method ?? "GET",
+    headers: Object.fromEntries(headers.entries()),
+    signal,
+  };
+  if (url.protocol === "https:" && net.isIP(target.hostname) === 0) {
+    requestOptions.servername = target.hostname;
+  }
+
+  const transport = url.protocol === "https:" ? https : http;
+  return new Promise<Response>((resolve, reject) => {
+    const request = transport.request(requestOptions, (incoming) => {
+      const responseHeaders = new Headers();
+      for (const [name, value] of Object.entries(incoming.headers)) {
+        if (Array.isArray(value)) {
+          for (const item of value) responseHeaders.append(name, item);
+        } else if (value !== undefined) {
+          responseHeaders.set(name, value);
+        }
+      }
+      const bodyStream = Readable.toWeb(incoming) as ReadableStream<Uint8Array>;
+      resolve(new Response(bodyStream, {
+        status: incoming.statusCode ?? 500,
+        statusText: incoming.statusMessage,
+        headers: responseHeaders,
+      }));
+    });
+    request.once("error", reject);
+    request.end(body);
+  });
+}
+
+async function materializeRequestBody(
+  options: RequestInit,
+  headers: Headers,
+): Promise<Buffer | undefined> {
+  if (options.body === undefined || options.body === null) return undefined;
+
+  const normalized = new Request("http://outbound.invalid/", {
+    method: options.method ?? "POST",
+    headers,
+    body: options.body,
+  });
+  normalized.headers.forEach((value, name) => headers.set(name, value));
+  return Buffer.from(await normalized.arrayBuffer());
 }
 
 function normalizeHostname(hostname: string): string {

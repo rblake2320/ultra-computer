@@ -1,8 +1,9 @@
 import fs from "node:fs";
+import dns from "node:dns/promises";
 import http, { type Server } from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   governedFetch,
   isNonPublicAddress,
@@ -59,6 +60,7 @@ describe("governedFetch", () => {
       await new Promise<void>((resolve) => server!.close(() => resolve()));
     }
     server = undefined;
+    vi.restoreAllMocks();
     restoreEnvironment();
     clearPolicyCacheForTests();
   });
@@ -89,6 +91,37 @@ describe("governedFetch", () => {
     );
 
     expect(await response.json()).toEqual({ live: true });
+  });
+
+  it("connects to the validated address without a second DNS lookup", async () => {
+    process.env.ULTRA_LOCAL_EGRESS_ALLOWLIST = "pinned.test";
+    let receivedHost = "";
+    let receivedBody = "";
+    baseUrl = await startServer(async (req, res) => {
+      receivedHost = req.headers.host ?? "";
+      for await (const chunk of req) receivedBody += chunk.toString();
+      res.end("pinned");
+    });
+    const port = new URL(baseUrl).port;
+    const lookup = vi.spyOn(dns, "lookup").mockResolvedValue([
+      { address: "127.0.0.1", family: 4 },
+    ]);
+
+    const response = await governedFetch(
+      `http://pinned.test:${port}/submit`,
+      {
+        method: "POST",
+        body: new URLSearchParams({ proof: "dns-pinned" }),
+      },
+      "dns-pin-test",
+      "network",
+      "network:http_request",
+    );
+
+    expect(await response.text()).toBe("pinned");
+    expect(receivedHost).toBe(`pinned.test:${port}`);
+    expect(receivedBody).toBe("proof=dns-pinned");
+    expect(lookup).toHaveBeenCalledTimes(1);
   });
 
   it("does not expand a local allowlist entry to other private hosts", async () => {

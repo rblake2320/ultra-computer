@@ -129,6 +129,27 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+// ─── Rate limiting before authentication ─────────────────────────────────
+// Authentication work is itself bounded so invalid keys cannot be used as an
+// unmetered CPU/logging or credential-guessing path.
+const normalizeIp = (req: Request): string => {
+  const raw = req.ip || req.socket?.remoteAddress || "unknown";
+  return raw.startsWith("::ffff:") ? raw.slice(7) : raw;
+};
+const apiLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later" },
+  skip: (req) =>
+    !req.path.startsWith("/api")
+    || req.path === "/api/health"
+    || req.path.startsWith("/api/messaging/webhook/"),
+  keyGenerator: normalizeIp,
+});
+app.use(apiLimiter);
+
 // ─── API Key Authentication ───────────────────────────────────────────────
 app.use(createAuthMiddleware());
 
@@ -163,26 +184,7 @@ app.use("/api/graphql", yoga);
 // Auth is already enforced by createAuthMiddleware() above.
 app.use("/api/grpc", createGrpcWebBridge());
 
-// ─── Rate limiting ────────────────────────────────────────────────────────
-// General API rate limit: 500 requests per minute per IP
-const normalizeIp = (req: Request): string => {
-  const raw = req.ip || req.socket?.remoteAddress || "unknown";
-  // Normalize IPv6-mapped IPv4 (::ffff:1.2.3.4 → 1.2.3.4)
-  return raw.startsWith("::ffff:") ? raw.slice(7) : raw;
-};
-const apiLimiter = rateLimit({
-  windowMs: 60_000,
-  max: 500,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests, please try again later" },
-  // Skip health check and webhook endpoints from rate limiting
-  skip: (req) => !req.path.startsWith("/api") || req.path === "/api/health" || req.path.startsWith("/api/messaging/webhook/"),
-  keyGenerator: normalizeIp,
-});
-app.use(apiLimiter);
-
-// Stricter limit on LLM-triggering endpoints: 20 per minute per IP
+// ─── Stricter rate limit on LLM-triggering endpoints ──────────────────────
 const chatLimiter = rateLimit({
   windowMs: 60_000,
   max: 20,

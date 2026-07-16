@@ -84,8 +84,10 @@ hold detailed decisions that affect architecture or long-lived behavior.
   unauthorized execution or data exposure.
 - **Decision:** Production startup and sensitive capabilities must fail closed
   when required secrets, isolation, transport security, or policy enforcement
-  are unavailable. Development conveniences must be explicit and visibly
-  non-production.
+  are unavailable. Outbound connections use the address that passed DNS and
+  network validation, authentication is rate-limited before key verification,
+  and diagnostic failures do not echo secret-bearing error objects.
+  Development conveniences must be explicit and visibly non-production.
 - **Why:** Ultra Computer executes tools and communicates with external systems;
   safe failure is more important than silently preserving degraded behavior.
 - **Alternatives:** Warn and continue with defaults or host fallbacks. Rejected
