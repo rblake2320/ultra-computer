@@ -10,6 +10,10 @@
  */
 
 import OpenAI from "openai";
+import type {
+  ChatCompletionCreateParamsStreaming,
+  ChatCompletionMessageParam,
+} from "openai/resources/chat/completions";
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { storage } from "./storage.js";
@@ -269,9 +273,9 @@ async function* streamOpenAICompat(
   const client = makeOpenAIClient(model);
 
   // Build request — include native tools if provided
-  const createParams: any = {
+  const createParams: ChatCompletionCreateParamsStreaming = {
     model: model.modelId,
-    messages: msgs,
+    messages: msgs as ChatCompletionMessageParam[],
     max_tokens: maxTokens,
     temperature,
     stream: true,
