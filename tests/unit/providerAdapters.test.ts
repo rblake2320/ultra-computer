@@ -116,6 +116,7 @@ describe("provider adapter protocol contracts", () => {
     });
 
     const result = await adapter.generate(baseRequest({
+      reasoningEffort: "medium",
       messages: [{
         role: "user",
         content: [
@@ -143,6 +144,7 @@ describe("provider adapter protocol contracts", () => {
     expect(request.body).toMatchObject({
       model: "future-model",
       max_output_tokens: 256,
+      reasoning: { effort: "medium" },
       store: false,
       tools: [{ type: "function", name: "lookup" }],
     });

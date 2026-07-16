@@ -121,6 +121,7 @@ export interface ModelResponseFormat {
 export interface ModelRequest {
   model: string;
   messages: readonly ModelMessage[];
+  reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   maxOutputTokens?: number;
   temperature?: number;
   topP?: number;

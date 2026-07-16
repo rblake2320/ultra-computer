@@ -62,7 +62,10 @@ hold detailed decisions that affect architecture or long-lived behavior.
   not prove endpoint, tool, vision, reasoning, streaming, or parameter support.
 - **Decision:** Move toward provider-backed discovery, normalized capability
   contracts, lifecycle tracking, and compatibility verification. Preserve
-  explicit user pins; do not silently replace a selected default.
+  explicit user pins; do not silently replace a selected default. Keep a small
+  current fallback list for first-run setup, presently GPT-5.6 Sol, Terra, and
+  Luna for OpenAI, while treating authenticated provider discovery as the
+  authoritative catalog.
 - **Why:** This allows current models to become available quickly without
   pretending that every provider implements the same API or risking an
   unexpected behavioral or cost change.
@@ -72,6 +75,8 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** Provider contract tests, discovery and retirement fixtures,
   native streaming/tool/vision tests, capability-aware routing tests, and live
   opt-in probes where they are safe and non-billable.
+- **Reasoning default:** GPT-5.6 requests use medium reasoning unless the caller
+  explicitly selects another supported effort.
 - **Related:** `docs/decisions/0001-model-discovery-and-capability-evidence.md`;
   `PARKED.md` items PARK-0002 and PARK-0003.
 

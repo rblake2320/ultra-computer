@@ -53,6 +53,7 @@ export interface RouterOptions {
   stream?: boolean;
   maxTokens?: number;
   temperature?: number;
+  reasoningEffort?: ModelRequest["reasoningEffort"];
   tools?: ToolDef[];
   /** Connection probes and other freshness-sensitive calls must bypass response caching. */
   bypassCache?: boolean;
@@ -210,6 +211,11 @@ function toModelRequest(
       content: message.content,
     })),
     maxOutputTokens: options.maxTokens ?? 4096,
+    reasoningEffort:
+      options.reasoningEffort ??
+      (model.provider === "openai" && /^gpt-5\.6(?:-|$)/.test(model.modelId)
+        ? "medium"
+        : undefined),
     // Do not force sampling parameters. New reasoning models often reject them.
     temperature: options.temperature,
     tools: options.tools?.map((tool) => ({

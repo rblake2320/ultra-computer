@@ -69,6 +69,9 @@ All notable changes to this project will be documented in this file.
 - Made the standalone production smoke explicitly opt out of the required
   Redis queue; real queue availability remains enforced by the service-stack
   integration gate.
+- Updated the OpenAI fallback choices to GPT-5.6 Sol, Terra, and Luna, and made
+  GPT-5.6 requests explicitly use medium reasoning unless a caller overrides
+  the effort.
 
 ### Changed
 - Declared Node.js `>=22 <25`, npm 11, and Node.js 24 as the container/CI
@@ -81,6 +84,9 @@ All notable changes to this project will be documented in this file.
   Node runtime transport behind governed egress.
 - Model discovery is additive: newly listed models are available for selection,
   but capabilities remain unverified until an explicit connection test.
+- Live catalog synchronization remains credential-backed and authoritative;
+  fallback choices keep setup usable but never impersonate a successful
+  provider discovery response.
 - Production Compose no longer exposes infrastructure services publicly or
   mounts the Docker daemon socket.
 

@@ -134,6 +134,9 @@ function nativeResponseParams(request: ModelRequest): ResponseCreateParamsNonStr
     input: toResponsesInput(request.messages),
     store: false,
   };
+  if (request.reasoningEffort !== undefined) {
+    params.reasoning = { effort: request.reasoningEffort };
+  }
   if (request.maxOutputTokens !== undefined) params.max_output_tokens = request.maxOutputTokens;
   if (request.temperature !== undefined) params.temperature = request.temperature;
   if (request.topP !== undefined) params.top_p = request.topP;

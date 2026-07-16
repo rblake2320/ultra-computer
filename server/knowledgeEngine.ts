@@ -287,7 +287,7 @@ ${totalModels} model presets across ${Object.keys(PROVIDER_REGISTRY).length} pro
 
 ${providerLines.join("\n")}`;
 
-    const summary = `Ultra Computer supports ${totalModels} models across ${Object.keys(PROVIDER_REGISTRY).length} providers: ${Object.values(PROVIDER_REGISTRY).filter(p => p.models.length > 0).map(p => p.name).join(", ")}. Key models: GPT-5.4 (OpenAI), Claude Opus 4.6 (Anthropic), Gemini 3.1 Pro (Google), Grok 4 (xAI), DeepSeek V3.2, Llama 4 Maverick (Together/Fireworks).`;
+    const summary = `Ultra Computer supports ${totalModels} models across ${Object.keys(PROVIDER_REGISTRY).length} providers: ${Object.values(PROVIDER_REGISTRY).filter(p => p.models.length > 0).map(p => p.name).join(", ")}. Key models: GPT-5.6 Sol (OpenAI), Claude Opus 4.6 (Anthropic), Gemini 3.1 Pro (Google), Grok 4 (xAI), DeepSeek V3.2, Llama 4 Maverick (Together/Fireworks).`;
 
     storage.createKnowledgeEntry({
       id: crypto.randomUUID(),
