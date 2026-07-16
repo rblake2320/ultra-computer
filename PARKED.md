@@ -69,3 +69,124 @@ link so future contributors can tell whether the constraint still applies.
 - **Next decision:** Define rolling aliases and the conditions under which an
   opt-in deployment may follow them automatically.
 - **Related:** WHY-0002 in `WHY.md`.
+
+### PARK-0004: Immutable multi-architecture container image digests
+
+- **Status:** Parked
+- **Owner:** Release engineering and security
+- **Parked on:** 2026-07-16
+- **Reason:** The deployment currently names versioned upstream images, but
+  immutable digests must be obtained and verified for every supported
+  architecture by the release pipeline. A guessed, stale, or single-platform
+  digest would break deployment while creating false supply-chain assurance.
+- **Current risk:** Upstream maintainers can move a version tag, so an otherwise
+  identical deployment may resolve to different image content.
+- **Reactivate when:** CI can resolve the release manifest list, verify image
+  provenance/signatures, record the selected digests, and test the pinned stack
+  on every supported architecture.
+- **Next decision:** Select the supported architecture matrix and image
+  provenance policy, then automate digest refreshes through reviewed pull
+  requests.
+- **Related:** WHY-0003 in `WHY.md`.
+
+### PARK-0005: Managed multi-node persistence
+
+- **Status:** Parked
+- **Owner:** Platform and data engineering
+- **Parked on:** 2026-07-16
+- **Reason:** The current SQLite application database is appropriate for a
+  single writable node, while a managed multi-node store requires schema,
+  migration, concurrency, backup, and recovery design.
+- **Current risk:** The application tier cannot safely scale to multiple
+  concurrent writers or claim managed regional durability.
+- **Reactivate when:** A shared/public deployment requires horizontal scaling,
+  formal recovery objectives, or managed database operations.
+- **Next decision:** Select the production database, migration path, backup
+  policy, restore test, and rollout/rollback procedure.
+- **Related:** WHY-0001 and `docs/PRODUCTION_RUNBOOK.md`.
+
+### PARK-0006: Production observability and SLOs
+
+- **Status:** Parked
+- **Owner:** Platform operations
+- **Parked on:** 2026-07-16
+- **Reason:** Health, structured logs, policy audit, and watchdog signals exist,
+  but a production telemetry backend and service objectives depend on the
+  deployment platform and operating commitments.
+- **Current risk:** High-volume/public operation lacks agreed latency,
+  availability, cost, tracing, dashboard, alerting, and incident thresholds.
+- **Reactivate when:** A production hosting platform and launch SLOs are chosen.
+- **Next decision:** Define SLIs/SLOs, telemetry retention and privacy, alert
+  ownership, dashboards, and incident response integration.
+- **Related:** WHY-0001 and `docs/PRODUCTION_RUNBOOK.md`.
+
+### PARK-0007: Live third-party messaging verification
+
+- **Status:** Parked
+- **Owner:** Product operations and security
+- **Parked on:** 2026-07-16
+- **Reason:** This session had no approved Slack workspace, Gmail mailbox, or
+  disposable provider credentials. Exercising those accounts would create real
+  external messages and requires an explicit destination and reviewer.
+- **Current risk:** Slack and Gmail provider code is tested for local
+  fail-closed behavior but is not verified live against a real account.
+- **Reactivate when:** A disposable test workspace/mailbox, least-privilege
+  credentials, approved recipients, and cleanup procedure are provided.
+- **Next decision:** Run one delivery and one provider-rejection case per
+  integration, capture provider IDs without secrets, then record the evidence
+  in the changelog and pull request.
+- **Related:** WHY-0006 in `WHY.md`.
+
+### PARK-0008: Temporal worker-termination recovery proof
+
+- **Status:** Parked
+- **Owner:** Runtime engineering
+- **Parked on:** 2026-07-16
+- **Reason:** The current live gate proves real workflow/activity execution,
+  durable history, and idempotent result retrieval, but does not terminate a
+  worker during an in-flight activity.
+- **Current risk:** Crash-resume behavior is provided by Temporal's execution
+  model but is not independently chaos-tested by this repository.
+- **Reactivate when:** CI can isolate a dedicated proof worker and terminate it
+  deterministically after a recorded activity checkpoint.
+- **Next decision:** Add an in-flight worker termination/replacement test and
+  assert that completed activities are not repeated.
+- **Related:** WHY-0007 and `docs/DURABLE_EXECUTION_GATE.md`.
+
+### PARK-0009: Remaining one-major framework migrations
+
+- **Status:** Parked
+- **Owner:** Frontend and platform engineering
+- **Parked on:** 2026-07-16
+- **Reason:** Registry verification shows the remaining outdated direct
+  dependencies are no more than one major release behind, or intentionally
+  match the supported Node 24 and React 18 runtime lines. Migrating React,
+  Tailwind, GraphQL, and related types together has a larger UI and
+  public-behavior blast radius than the production-readiness fixes in this pass.
+- **Current risk:** The project does not yet consume every newest framework
+  major, although the installed tree has no known audit vulnerability.
+- **Reactivate when:** Visual regression coverage and a dedicated framework
+  migration release are approved, or a security/deprecation advisory requires
+  an earlier move.
+- **Next decision:** Migrate React, Tailwind, GraphQL, and related framework
+  families one at a time with rendered UI,
+  accessibility, typecheck, unit, and production-build evidence.
+- **Related:** WHY-0001 and the 2026-07-16 dependency changelog.
+
+### PARK-0010: Upstream transitive deprecation cleanup
+
+- **Status:** Parked
+- **Owner:** Dependency maintenance
+- **Parked on:** 2026-07-16
+- **Reason:** Clean installation still reports deprecated transitive packages
+  beneath current direct releases: `prebuild-install` under
+  `better-sqlite3`, `boolean` under the current Transformers/ONNX runtime, and
+  legacy `glob`/`inflight` under the current protobuf and SBOM CLIs. There is no
+  newer direct release in the registry that removes these paths.
+- **Current risk:** The packages are unmaintained, although the installed tree
+  currently has zero npm audit findings.
+- **Reactivate when:** An upstream release removes the deprecated dependency, a
+  maintained compatible replacement exists, or an advisory affects the path.
+- **Next decision:** Prefer an upstream upgrade; replace the direct library only
+  with equivalent runtime, native-build, schema-generation, and SBOM evidence.
+- **Related:** WHY-0001 and the 2026-07-16 dependency changelog.

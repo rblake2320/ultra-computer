@@ -72,7 +72,8 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** Provider contract tests, discovery and retirement fixtures,
   native streaming/tool/vision tests, capability-aware routing tests, and live
   opt-in probes where they are safe and non-billable.
-- **Related:** `PARKED.md` items PARK-0002 and PARK-0003.
+- **Related:** `docs/decisions/0001-model-discovery-and-capability-evidence.md`;
+  `PARKED.md` items PARK-0002 and PARK-0003.
 
 ### WHY-0003: Production capability boundaries fail closed
 
@@ -93,3 +94,82 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** Negative startup tests, unavailable-sandbox tests, policy and
   injection tests, network-boundary tests, and production container smoke.
 - **Related:** `docs/OPERATIONAL_READINESS_GATE.md`, `PARKED.md`.
+
+### WHY-0004: Discovery and compatibility evidence are separate states
+
+- **Status:** Accepted
+- **Date:** 2026-07-16
+- **Problem:** A provider returning a model identifier does not prove that the
+  model supports chat, streaming, tools, images, structured output, or the same
+  request parameters as another provider.
+- **Decision:** Catalog synchronization records provider availability and
+  lifecycle. Capabilities remain unverified until an explicit provider probe
+  succeeds, and ambiguous provider/model identifiers fail instead of guessing.
+- **Why:** Current-release models become visible quickly without turning
+  metadata discovery into a false compatibility or production-readiness claim.
+- **Alternatives:** Trust presets indefinitely or infer capabilities from model
+  names. Rejected because both become stale and can route incompatible traffic.
+- **Evidence:** Catalog parser/migration tests, native adapter contract tests,
+  capability-aware router tests, and an explicit live connection test per
+  deployed provider/model pair.
+- **Related:** WHY-0002,
+  `docs/decisions/0001-model-discovery-and-capability-evidence.md`, PARK-0002,
+  and PARK-0003.
+
+### WHY-0005: Streaming authentication uses scoped ephemeral credentials
+
+- **Status:** Accepted
+- **Date:** 2026-07-16
+- **Problem:** Browser EventSource cannot set an Authorization header, while a
+  long-lived API key in the URL can leak through history, logs, referrers, and
+  monitoring systems.
+- **Decision:** Authenticated clients exchange the bearer key for a short-lived,
+  path-bound HMAC stream token and use only that token in the stream URL.
+- **Why:** Compromise of a stream URL is bounded by route and time and does not
+  disclose the deployment-wide credential.
+- **Alternatives:** Continue URL API keys or make streams unauthenticated.
+  Rejected because both materially weaken the production boundary.
+- **Evidence:** Token signature, expiry, path-binding, tamper, and middleware
+  tests plus authenticated browser stream verification.
+- **Related:** WHY-0003 and the 2026-07-16 security changelog.
+
+### WHY-0006: Integrations report provider truth, not simulated success
+
+- **Status:** Accepted
+- **Date:** 2026-07-16
+- **Problem:** Messaging and marketplace surfaces returned successful-looking
+  delivery and reputation data without provider or user evidence.
+- **Decision:** Slack and Gmail use their real provider APIs and fail closed
+  when credentials or required targets are absent. Sensitive configuration is
+  recursively redacted, and marketplace metrics are shown only when backed by
+  stored events.
+- **Why:** Operators must be able to distinguish implemented capability from a
+  verified delivery. Fabricated success corrupts audit trails and can hide
+  failed business operations.
+- **Alternatives:** Preserve demo responses or label them as estimates.
+  Rejected because production routes and persisted history must represent
+  actual provider outcomes.
+- **Evidence:** Missing-credential tests, recursive-redaction tests, governed
+  HTTP enforcement, and explicit live-provider verification before any Slack
+  or Gmail delivery claim.
+- **Related:** WHY-0001, WHY-0003, and PARK-0007.
+
+### WHY-0007: Readiness means dependency connectivity, not process existence
+
+- **Status:** Accepted
+- **Date:** 2026-07-16
+- **Problem:** A running Temporal worker process could be marked healthy while
+  it was still unable to connect to Temporal.
+- **Decision:** The worker writes its readiness marker only after establishing
+  the Temporal connection; Compose and CI wait on that marker. The Temporal
+  server binds all container interfaces so multi-network DNS cannot resolve a
+  healthy name to an interface where the service is not listening.
+- **Why:** Traffic and integration tests must not start while a required
+  dependency is unavailable.
+- **Alternatives:** Increase fixed startup sleeps or test only the process ID.
+  Rejected because both are timing-dependent and produce false readiness.
+- **Evidence:** A production-shaped Compose gate that waits for worker health,
+  executes a three-activity workflow, inspects event history, and re-reads the
+  completed result. The gate first exposed connection refusal on the backend
+  interface and passed only after the bind behavior was corrected.
+- **Related:** WHY-0001 and the 2026-07-16 verification changelog.
