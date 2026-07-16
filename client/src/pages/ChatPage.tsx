@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 import { Input } from "../components/ui/input";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "../components/ui/collapsible";
 import { useToast } from "../hooks/use-toast";
+import { renderSafeMarkdown } from "../lib/safeMarkdown";
 import {
   Send, Loader2, CheckCircle2, Circle, XCircle,
   ChevronDown, ChevronRight, Zap, Network, Cpu,
@@ -94,125 +95,6 @@ function buildMessageWithAttachments(text: string, attachments: Attachment[]): s
   return parts.join("\n");
 }
 import type { Message, Task, Conversation } from "../../../shared/schema";
-
-// Sanitize a string for safe use as HTML text node
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-// Only allow safe URL schemes — block javascript: etc.
-function safeUrl(url: string): string {
-  return /^(https?:|mailto:|#|\/)/i.test(url.trim()) ? url.trim() : '#';
-}
-
-// Render markdown + LLM HTML mix to safe HTML
-function renderMarkdown(raw: string): string {
-  // Phase 1: Normalize LLM HTML tags to markdown equivalents so we can process uniformly
-  let text = raw
-    .replace(/<strong>(.*?)<\/strong>/gi, '**$1**')
-    .replace(/<b>(.*?)<\/b>/gi, '**$1**')
-    .replace(/<em>(.*?)<\/em>/gi, '*$1*')
-    .replace(/<i>(.*?)<\/i>/gi, '*$1*')
-    .replace(/<code>(.*?)<\/code>/gi, '`$1`')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/?p>/gi, '\n\n')
-    .replace(/<h([1-3])>(.*?)<\/h\1>/gi, (_, lvl, t) => '#'.repeat(Number(lvl)) + ' ' + t)
-    // Strip any remaining HTML tags for XSS safety
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<[^>]+>/g, '');
-
-  // Phase 2: Extract fenced code blocks to protect them from further processing
-  const codeBlocks: string[] = [];
-  text = text.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-    codeBlocks.push(`<pre><code class="language-${escapeHtml(lang || 'text')}">${escapeHtml(code.trimEnd())}</code></pre>`);
-    return `%%CODEBLOCK_${codeBlocks.length - 1}%%`;
-  });
-
-  // Phase 3: Process inline markdown
-  text = text
-    // Inline code
-    .replace(/`([^`]+)`/g, (_, t) => `<code>${escapeHtml(t)}</code>`)
-    // Links — process before bold/italic to avoid conflicts
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) =>
-      `<a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`)
-    // Bold
-    .replace(/\*\*(.+?)\*\*/g, (_, t) => `<strong>${t}</strong>`)
-    // Italic
-    .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, (_, t) => `<em>${t}</em>`);
-
-  // Phase 4: Block-level processing, line by line
-  const lines = text.split('\n');
-  const html: string[] = [];
-  let inList = false;
-  let listType = '';
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    // Restore code blocks
-    if (trimmed.startsWith('%%CODEBLOCK_') && trimmed.endsWith('%%')) {
-      if (inList) { html.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false; }
-      const idx = parseInt(trimmed.replace('%%CODEBLOCK_', '').replace('%%', ''));
-      html.push(codeBlocks[idx] || '');
-      continue;
-    }
-
-    // Headers
-    const headerMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
-    if (headerMatch) {
-      if (inList) { html.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false; }
-      const level = headerMatch[1].length;
-      html.push(`<h${level}>${headerMatch[2]}</h${level}>`);
-      continue;
-    }
-
-    // Unordered list
-    const ulMatch = trimmed.match(/^[-*]\s+(.+)$/);
-    if (ulMatch) {
-      if (!inList || listType !== 'ul') {
-        if (inList) html.push(listType === 'ul' ? '</ul>' : '</ol>');
-        html.push('<ul>'); inList = true; listType = 'ul';
-      }
-      html.push(`<li>${ulMatch[1]}</li>`);
-      continue;
-    }
-
-    // Ordered list
-    const olMatch = trimmed.match(/^\d+\.\s+(.+)$/);
-    if (olMatch) {
-      if (!inList || listType !== 'ol') {
-        if (inList) html.push(listType === 'ul' ? '</ul>' : '</ol>');
-        html.push('<ol>'); inList = true; listType = 'ol';
-      }
-      html.push(`<li>${olMatch[1]}</li>`);
-      continue;
-    }
-
-    // Close list on non-list line
-    if (inList && trimmed === '') {
-      html.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false;
-      continue;
-    }
-
-    // Empty line
-    if (trimmed === '') continue;
-
-    // Close list if hit a paragraph
-    if (inList) { html.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false; }
-
-    // Regular paragraph
-    html.push(`<p>${trimmed}</p>`);
-  }
-
-  if (inList) html.push(listType === 'ul' ? '</ul>' : '</ol>');
-
-  return html.join('\n');
-}
 
 // ── Tool activity types ──
 interface ToolCallEntry {
@@ -817,7 +699,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
                   {msg.role === "user" ? (
                     <p className="whitespace-pre-wrap">{msg.content}</p>
                   ) : (
-                    <div className="prose-ultra" dangerouslySetInnerHTML={{ __html: renderMarkdown(stripToolCallBlocks(msg.content)) }} />
+                    <div className="prose-ultra" dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(stripToolCallBlocks(msg.content)) }} />
                   )}
                 </div>
                 {msg.role === "user" && (
@@ -920,7 +802,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
                                 {stream.content ? (
                                   <div
                                     className={`prose-ultra text-sm ${isRunning ? "cursor-blink" : ""}`}
-                                    dangerouslySetInnerHTML={{ __html: renderMarkdown(stripToolCallBlocks(stream.content)) }}
+                                    dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(stripToolCallBlocks(stream.content)) }}
                                   />
                                 ) : (
                                   <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
@@ -974,7 +856,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
                 </div>
                 <div className="max-w-[80%] rounded-xl px-4 py-2.5 text-sm bg-card border border-primary/30">
                   <div className="prose-ultra cursor-blink"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(stripToolCallBlocks(streamingContent)) }}
+                    dangerouslySetInnerHTML={{ __html: renderSafeMarkdown(stripToolCallBlocks(streamingContent)) }}
                   />
                 </div>
               </div>
