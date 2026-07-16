@@ -207,9 +207,7 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error("live-local Docker gate failed", {
-    errorType: err instanceof Error ? err.name : "UnknownError",
-  });
+main().catch(() => {
+  console.error("live-local Docker gate failed");
   process.exit(1);
 });
