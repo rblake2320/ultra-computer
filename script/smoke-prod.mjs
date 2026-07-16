@@ -11,6 +11,9 @@ const env = {
   PORT: port,
   GRPC_PORT: grpcPort,
   ULTRA_API_KEY: apiKey,
+  // This smoke starts only the application process. Redis is exercised by the
+  // separate production-shaped service integration gate.
+  REQUIRE_TASK_QUEUE: "0",
   SLACK_SIGNING_SECRET: process.env.SLACK_SIGNING_SECRET ?? "test-slack-secret",
   GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET ?? "test-github-secret",
   ENCRYPTION_KEY: process.env.ENCRYPTION_KEY ?? randomBytes(32).toString("hex"),

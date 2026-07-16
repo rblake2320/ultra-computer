@@ -57,6 +57,9 @@ All notable changes to this project will be documented in this file.
   eliminating process-alive readiness false positives.
 - Fixed multi-network Temporal connectivity by binding the server on all
   container interfaces and routing clients through an explicit frontend alias.
+- Made the standalone production smoke explicitly opt out of the required
+  Redis queue; real queue availability remains enforced by the service-stack
+  integration gate.
 
 ### Changed
 - Declared Node.js `>=22 <25`, npm 11, and Node.js 24 as the container/CI
