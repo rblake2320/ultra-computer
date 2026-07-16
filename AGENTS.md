@@ -24,6 +24,13 @@
 - Evidence rule: follow `docs/VERIFICATION_POLICY.md`. Never report mocked, stubbed, simulated, fixture-based, or unit-only checks as production proof.
 - Status labels: use `VERIFIED LIVE`, `VERIFIED LOCALLY`, `UNIT-LEVEL ONLY`, `STATIC ONLY`, `NOT VERIFIED`, or `BLOCKED` with an exact reason.
 
+## Decision and Change Records
+- `CHANGELOG.md` records what changed; `WHY.md` records why consequential behavior exists.
+- Add an ADR under `docs/decisions/` for architecture, public API, schema, authentication/authorization, model-routing, security-boundary, deployment, or operational-guarantee decisions.
+- Record intentional deferrals in `PARKED.md` with the current risk, owner, reactivation condition, and next decision. Do not bury known gaps in TODO comments.
+- Link the WHY entry, ADR, verification evidence, and parked items from the pull request. Preserve history by superseding decisions instead of rewriting them.
+- Never delete a rationale or parked record merely because implementation changed; close or supersede it with links to the replacement and evidence.
+
 ## Code Style
 - TypeScript ESM imports use `.js` extensions for local server modules.
 - Keep dev-mode auth passthrough when `ULTRA_API_KEY` is unset.
@@ -42,6 +49,8 @@
 - Sandbox file APIs must reject prefix siblings such as `sandbox2`, not just `../` traversal.
 - Browser clients can set `window.__ULTRA_API_KEY__`; EventSource auth uses an `api_key` query parameter because native EventSource cannot send custom headers.
 - Policy decisions are audited to `data/policy/audit.jsonl` with command, URL, path, and metadata redacted before write.
+- Never replace a proven HTML sanitizer with regex-based sanitization. Rendering generated HTML requires a maintained sanitizer, explicit URL policy, attribute escaping, and regression tests.
+- Never add a model by hard-coded name alone. Add or update discovery, capability metadata, lifecycle handling, provider-native compatibility, and tests; discovery alone is not proof that a model works.
 
 ## Versions
 - Node.js 22 (LTS). Node 20 reached EOL 2026-04-30 — do not downgrade.
