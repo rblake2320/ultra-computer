@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        node: [22.x]
+        node: [22.x, 24.x]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -32,7 +32,7 @@ jobs:
       - run: npm run test:coverage
       - name: Install gitleaks
         run: |
-          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar xz gitleaks
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.27.2/gitleaks_8.27.2_linux_x64.tar.gz | tar xz gitleaks
           sudo mv gitleaks /usr/local/bin/gitleaks
         if: runner.os == 'Linux'
       - name: Secret scan
