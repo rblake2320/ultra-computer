@@ -88,7 +88,8 @@ hold detailed decisions that affect architecture or long-lived behavior.
   network validation, authentication is rate-limited before key verification,
   and diagnostic failures do not echo secret-bearing error objects. Secret-scan
   exceptions must identify a reviewed finding fingerprint rather than disable a
-  detector or exclude a directory.
+  detector or exclude a directory. Development-only CSP allowances may support
+  the local build toolchain, but production script policy remains strict.
   Development conveniences must be explicit and visibly non-production.
 - **Why:** Ultra Computer executes tools and communicates with external systems;
   safe failure is more important than silently preserving degraded behavior.

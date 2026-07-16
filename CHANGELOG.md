@@ -17,8 +17,12 @@ All notable changes to this project will be documented in this file.
   DNS-rebinding gap between validation and transport.
 - Made production reject missing/placeholder secrets and host-shell fallback.
 - Added CSP and related HTTP security headers.
+- Kept the production script policy strict while allowing Vite's development
+  React preamble, and aligned the font policy with the stylesheets the UI
+  actually loads so local browser sessions render instead of failing blank.
 - Applied API rate limiting before authentication so invalid-key attempts are
   bounded, and prevented live-gate failures from echoing secret-bearing errors.
+- Normalized rate-limit client addresses with the library's IPv6-aware helper.
 - Documented one fingerprint-scoped Gitleaks exception for a public example JWT
   in historical test data; no secret rule, commit, or path is broadly excluded.
 - Redacted messaging credentials recursively from channel and delivery data.

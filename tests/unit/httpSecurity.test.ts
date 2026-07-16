@@ -52,16 +52,19 @@ describe("HTTP security headers", () => {
     expect(response.status).toBe(200);
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("script-src 'self'");
+    expect(csp).not.toContain("script-src 'self' 'unsafe-inline'");
     expect(csp).toContain("script-src-attr 'none'");
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("connect-src 'self' wss:");
     expect(csp).not.toContain("connect-src 'self' ws:");
     expect(csp).toContain("upgrade-insecure-requests");
     expect(csp).not.toContain("'unsafe-eval'");
+    expect(csp).toContain("style-src 'self' 'unsafe-inline' https://fonts.googleapis.com");
+    expect(csp).toContain("font-src 'self' data: https://fonts.gstatic.com");
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
-  it("permits Vite development WebSockets and eval without upgrading localhost HTTP", async () => {
+  it("permits the Vite React preamble, WebSockets, and eval without upgrading localhost HTTP", async () => {
     const app = express();
     app.use(createSecurityHeaders("development"));
     app.get("/", (_req, res) => res.send("ok"));
@@ -70,7 +73,7 @@ describe("HTTP security headers", () => {
     const csp = response.headers.get("content-security-policy");
 
     expect(csp).toContain("connect-src 'self' ws: wss:");
-    expect(csp).toContain("script-src 'self' 'unsafe-eval'");
+    expect(csp).toContain("script-src 'self' 'unsafe-eval' 'unsafe-inline'");
     expect(csp).not.toContain("upgrade-insecure-requests");
   });
 });

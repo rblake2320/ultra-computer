@@ -16,7 +16,7 @@ export function createSecurityHeaders(environment = process.env.NODE_ENV) {
         connectSrc: isProduction
           ? ["'self'", "wss:"]
           : ["'self'", "ws:", "wss:"],
-        fontSrc: ["'self'", "data:"],
+        fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
         formAction: ["'self'"],
         frameAncestors: ["'none'"],
         frameSrc: ["'self'"],
@@ -24,9 +24,9 @@ export function createSecurityHeaders(environment = process.env.NODE_ENV) {
         objectSrc: ["'none'"],
         scriptSrc: isProduction
           ? ["'self'"]
-          : ["'self'", "'unsafe-eval'"],
+          : ["'self'", "'unsafe-eval'", "'unsafe-inline'"],
         scriptSrcAttr: ["'none'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         upgradeInsecureRequests: isProduction ? [] : null,
         workerSrc: ["'self'", "blob:"],
       },

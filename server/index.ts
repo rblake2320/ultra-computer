@@ -2,7 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { createAuthMiddleware } from "./authMiddleware";
 import { createSecurityHeaders } from "./securityHeaders.js";
 import { createYogaMiddleware } from "./graphql/yoga.js";
@@ -134,7 +134,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // unmetered CPU/logging or credential-guessing path.
 const normalizeIp = (req: Request): string => {
   const raw = req.ip || req.socket?.remoteAddress || "unknown";
-  return raw.startsWith("::ffff:") ? raw.slice(7) : raw;
+  return ipKeyGenerator(raw);
 };
 const apiLimiter = rateLimit({
   windowMs: 60_000,
