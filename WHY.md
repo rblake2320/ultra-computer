@@ -278,4 +278,5 @@ hold detailed decisions that affect architecture or long-lived behavior.
   schema. Rejected because implicit secret writes are unsafe and the additive
   schema is unnecessary for this launch blocker.
 - **Evidence:** Browser reproduction, unit no-credential coverage, explicit UI
-  E2E coverage, and the release verification gate.
+  E2E coverage, a bounded connection-probe minimum regression, and the release
+  verification gate.

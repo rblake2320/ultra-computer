@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Model } from "@shared/schema";
-import { selectModelFromCandidates } from "../../server/modelRouter.js";
+import {
+  CONNECTION_TEST_MAX_OUTPUT_TOKENS,
+  connectionTestRequest,
+  selectModelFromCandidates,
+} from "../../server/modelRouter.js";
 
 function model(overrides: Partial<Model>): Model {
   return {
@@ -30,6 +34,17 @@ function model(overrides: Partial<Model>): Model {
 }
 
 describe("model router selection", () => {
+  it("keeps connection probes above provider minimums while tightly bounded", () => {
+    const request = connectionTestRequest({ modelId: "future-openai-model" });
+
+    expect(request).toMatchObject({
+      model: "future-openai-model",
+      maxOutputTokens: CONNECTION_TEST_MAX_OUTPUT_TOKENS,
+    });
+    expect(request.maxOutputTokens).toBeGreaterThanOrEqual(16);
+    expect(request.maxOutputTokens).toBeLessThanOrEqual(64);
+  });
+
   it("treats configured IDs as authoritative before upstream model IDs", () => {
     const configured = model({ id: "same-value", modelId: "gpt-current" });
     const upstreamCollision = model({

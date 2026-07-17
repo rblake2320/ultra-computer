@@ -66,6 +66,19 @@ export interface RouterOptions {
   signal?: AbortSignal;
 }
 
+// Provider connection probes must leave enough room for reasoning overhead and
+// providers that enforce a minimum output allowance. Keep this deliberately
+// small so a connectivity check cannot become a meaningful billable request.
+export const CONNECTION_TEST_MAX_OUTPUT_TOKENS = 64;
+
+export function connectionTestRequest(model: Pick<Model, "modelId">): ModelRequest {
+  return {
+    model: model.modelId,
+    messages: [{ role: "user", content: "Reply with exactly: pong" }],
+    maxOutputTokens: CONNECTION_TEST_MAX_OUTPUT_TOKENS,
+  };
+}
+
 export interface LLMResponse {
   content: string;
   model: string;
@@ -452,11 +465,7 @@ export async function testModelConnection(
   const start = Date.now();
   try {
     const adapter = createProviderAdapter(model);
-    const request: ModelRequest = {
-      model: model.modelId,
-      messages: [{ role: "user", content: "Reply with exactly: pong" }],
-      maxOutputTokens: 10,
-    };
+    const request = connectionTestRequest(model);
     const result = await guardedGenerate(adapter, model, request);
     if (!result.text.trim() && result.toolCalls.length === 0) {
       throw new Error("Provider returned an empty connection-test response");

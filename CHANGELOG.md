@@ -9,6 +9,9 @@ All notable changes to this project will be documented in this file.
   **Save & connect** action on each model, explain encrypted persistence and
   connection testing, and can be used transiently for catalog synchronization
   before a model exists.
+- Raised the connection probe output allowance from an invalid 10 tokens to a
+  bounded 64 tokens, satisfying provider minimums without turning a health
+  check into a material paid request.
 
 ### Security
 - Replaced user-controlled shell-string execution with a shell-free,
