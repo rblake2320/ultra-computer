@@ -9,7 +9,7 @@
  */
 
 import { Queue, Worker, Job, QueueEvents } from "bullmq";
-import IORedis from "ioredis";
+import IORedis, { type RedisOptions } from "ioredis";
 
 // ─── Exported Types ───────────────────────────────────────────────────────────
 
@@ -28,6 +28,64 @@ export type JobStatus = {
   result?: string;
   error?: string;
 };
+
+type RedisConnectionTarget = {
+  url?: string;
+  options: RedisOptions;
+};
+
+const REDIS_PROTOCOLS = new Set(["redis:", "rediss:"]);
+
+/**
+ * Resolve one authoritative Redis target for every BullMQ connection.
+ * REDIS_URL takes precedence so authentication, TLS and database selection are
+ * not silently discarded. Host/port remain supported for local development.
+ */
+export function resolveRedisConnectionTarget(
+  env: NodeJS.ProcessEnv = process.env,
+): RedisConnectionTarget {
+  const options: RedisOptions = {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+    connectTimeout: 3000,
+  };
+  const configuredUrl = env.REDIS_URL?.trim();
+
+  if (configuredUrl) {
+    const parsed = new URL(configuredUrl);
+    if (!REDIS_PROTOCOLS.has(parsed.protocol)) {
+      throw new Error("REDIS_URL must use redis:// or rediss://");
+    }
+    return { url: configuredUrl, options };
+  }
+
+  const rawPort = env.REDIS_PORT?.trim() || "6379";
+  if (!/^\d+$/.test(rawPort)) {
+    throw new Error("REDIS_PORT must be an integer between 1 and 65535");
+  }
+  const port = Number(rawPort);
+  if (port < 1 || port > 65535) {
+    throw new Error("REDIS_PORT must be an integer between 1 and 65535");
+  }
+
+  return {
+    options: {
+      ...options,
+      host: env.REDIS_HOST?.trim() || "localhost",
+      port,
+    },
+  };
+}
+
+function createRedisConnection(
+  target: RedisConnectionTarget,
+  extraOptions: RedisOptions = {},
+): IORedis {
+  const options = { ...target.options, ...extraOptions };
+  return target.url
+    ? new IORedis(target.url, options)
+    : new IORedis(options);
+}
 
 // ─── Duration Heuristic ───────────────────────────────────────────────────────
 
@@ -77,8 +135,11 @@ export class TaskQueue {
   private worker: Worker<QueuedTask, string> | null = null;
   private queueEvents: QueueEvents | null = null;
   private redisConnection: IORedis | null = null;
+  private workerRedis: IORedis | null = null;
+  private eventsRedis: IORedis | null = null;
   private processor: QueuedTaskProcessor | null = null;
   private available = false;
+  private readonly readyConnections = new Set<string>();
 
   constructor() {}
 
@@ -120,16 +181,14 @@ export class TaskQueue {
    */
   async initialize(): Promise<boolean> {
     try {
+      if (this.queue || this.worker || this.queueEvents || this.redisConnection) {
+        await this.shutdown();
+      }
+
+      const target = resolveRedisConnectionTarget();
       // Test Redis connectivity with a short timeout so startup is not blocked.
-      const redis = new IORedis({
-        host: process.env.REDIS_HOST ?? 'localhost',
-        port: parseInt(process.env.REDIS_PORT ?? '6379'),
-        // deprecated 'host'/'port' overrides above
-        maxRetriesPerRequest: null, // required by BullMQ
-        enableReadyCheck: false,
-        connectTimeout: 3000,
-        lazyConnect: true,
-      });
+      const redis = createRedisConnection(target, { lazyConnect: true });
+      this.trackConnection("queue", redis);
 
       await redis.connect();
       await redis.ping(); // Throws if unreachable
@@ -150,16 +209,9 @@ export class TaskQueue {
       });
 
       // Separate connection instance for the worker (BullMQ requirement).
-      const workerRedis = new IORedis({
-        host: process.env.REDIS_HOST ?? 'localhost',
-        port: parseInt(process.env.REDIS_PORT ?? '6379'),
-        maxRetriesPerRequest: null,
-        enableReadyCheck: false,
-      });
-
-      workerRedis.on('error', (err) => {
-        console.error('[TaskQueue] workerRedis connection error:', err.message);
-      });
+      const workerRedis = createRedisConnection(target);
+      this.workerRedis = workerRedis;
+      this.trackConnection("worker", workerRedis);
 
       this.worker = new Worker<QueuedTask, string>(
         "ultra-tasks",
@@ -183,22 +235,25 @@ export class TaskQueue {
       });
 
       // QueueEvents for advanced state tracking (separate connection).
-      const eventsRedis = new IORedis({
-        host: process.env.REDIS_HOST ?? 'localhost',
-        port: parseInt(process.env.REDIS_PORT ?? '6379'),
-        maxRetriesPerRequest: null,
-        enableReadyCheck: false,
-      });
-
-      eventsRedis.on('error', (err) => {
-        console.error('[TaskQueue] eventsRedis connection error:', err.message);
-      });
+      const eventsRedis = createRedisConnection(target);
+      this.eventsRedis = eventsRedis;
+      this.trackConnection("events", eventsRedis);
 
       this.queueEvents = new QueueEvents("ultra-tasks", {
         connection: eventsRedis,
       });
 
-      this.available = true;
+      await Promise.all([
+        workerRedis.ping(),
+        eventsRedis.ping(),
+        this.queue.waitUntilReady(),
+        this.worker.waitUntilReady(),
+        this.queueEvents.waitUntilReady(),
+      ]);
+      this.readyConnections.add("queue");
+      this.readyConnections.add("worker");
+      this.readyConnections.add("events");
+      this.refreshAvailability();
       console.log("[TaskQueue] Initialized successfully — Redis connected.");
       return true;
     } catch (err: any) {
@@ -207,8 +262,36 @@ export class TaskQueue {
         err?.message ?? err
       );
       this.available = false;
+      await this.closeResources();
       return false;
     }
+  }
+
+  private trackConnection(name: string, connection: IORedis): void {
+    connection.on("ready", () => {
+      this.readyConnections.add(name);
+      this.refreshAvailability();
+    });
+    connection.on("error", (err) => {
+      this.readyConnections.delete(name);
+      this.refreshAvailability();
+      console.error(`[TaskQueue] ${name} Redis connection error:`, err.message);
+    });
+    const markUnavailable = () => {
+      this.readyConnections.delete(name);
+      this.refreshAvailability();
+    };
+    connection.on("close", markUnavailable);
+    connection.on("end", markUnavailable);
+  }
+
+  private refreshAvailability(): void {
+    this.available = Boolean(
+      this.queue &&
+      this.worker &&
+      this.queueEvents &&
+      this.readyConnections.size === 3,
+    );
   }
 
   /** Whether the queue is backed by a live Redis connection. */
@@ -356,12 +439,22 @@ export class TaskQueue {
   async shutdown(): Promise<void> {
     console.log("[TaskQueue] Shutting down…");
 
+    await this.closeResources();
+    console.log("[TaskQueue] Shutdown complete.");
+  }
+
+  private async closeResources(): Promise<void> {
+    this.available = false;
+    this.readyConnections.clear();
+
     try {
       if (this.worker) {
         await this.worker.close();
       }
     } catch (err: any) {
       console.warn("[TaskQueue] Error closing worker:", err?.message ?? err);
+    } finally {
+      this.worker = null;
     }
 
     try {
@@ -373,6 +466,8 @@ export class TaskQueue {
         "[TaskQueue] Error closing queue events:",
         err?.message ?? err
       );
+    } finally {
+      this.queueEvents = null;
     }
 
     try {
@@ -381,18 +476,24 @@ export class TaskQueue {
       }
     } catch (err: any) {
       console.warn("[TaskQueue] Error closing queue:", err?.message ?? err);
+    } finally {
+      this.queue = null;
     }
 
-    try {
-      if (this.redisConnection) {
-        this.redisConnection.disconnect();
+    for (const connection of [
+      this.redisConnection,
+      this.workerRedis,
+      this.eventsRedis,
+    ]) {
+      try {
+        connection?.disconnect();
+      } catch (err: any) {
+        console.warn("[TaskQueue] Error disconnecting Redis:", err?.message ?? err);
       }
-    } catch (err: any) {
-      console.warn("[TaskQueue] Error disconnecting Redis:", err?.message ?? err);
     }
-
-    this.available = false;
-    console.log("[TaskQueue] Shutdown complete.");
+    this.redisConnection = null;
+    this.workerRedis = null;
+    this.eventsRedis = null;
   }
 }
 

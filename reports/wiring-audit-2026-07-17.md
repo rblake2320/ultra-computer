@@ -20,6 +20,16 @@ This report is the trace record. It distinguishes working proof from static
 code presence and explicitly lists everything not exercised live and why.
 Passing unit tests are not treated as proof that an external integration works.
 
+## Remediation Log
+
+- **2026-07-17 — Runtime queue health closed locally:** BullMQ now honors the
+  full `REDIS_URL`, tracks connection loss/recovery, closes failed clients, and
+  uses persistent Redis AOF storage in Compose. Evidence: 230 unit tests,
+  Compose validation, real Docker queue dispatch, live HTTP 200 health, and a
+  real Chrome render without application-origin errors. Temporal remains
+  truthfully disabled and the overall launch verdict remains NO-GO until the
+  remaining blockers are repaired.
+
 ## Evidence Collected
 
 | Check | Result | Evidence classification |

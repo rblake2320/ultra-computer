@@ -11,6 +11,10 @@ All notable changes to this project will be documented in this file.
   platform wiring was production-proven and records a launch NO-GO.
 
 ### Fixed
+- Unified BullMQ on the authoritative `REDIS_URL` so Redis authentication, TLS
+  and database selection reach every queue connection; readiness now follows
+  connection loss and recovery, failed clients close cleanly, and Compose
+  persists queue state with Redis AOF storage.
 - Made provider setup explicit: entered API keys now show a visible
   **Save & connect** action on each model, explain encrypted persistence and
   connection testing, and can be used transiently for catalog synchronization

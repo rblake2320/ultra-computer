@@ -281,10 +281,10 @@ link so future contributors can tell whether the constraint still applies.
 - **Reason:** The complete wiring audit found boundaries that are broken,
   misleading, unsafe, orphaned or not live-proven. They cannot be repaired
   honestly as part of a read-only inspection.
-- **Current risk:** The active container is unhealthy and visible model,
-  connector, messaging, protocol, sandbox, durability and experimental
-  surfaces can fail, report false success, expose secrets or cross containment
-  boundaries.
+- **Current risk:** The audit-time container health failure is closed by
+  WHY-0014. Visible model, connector, messaging, protocol, sandbox, durability
+  and experimental surfaces can still fail, report false success, expose
+  secrets or cross containment boundaries.
 - **Reactivate when:** Immediately, before public launch.
 - **Next decision:** Execute the ordered twelve-step repair plan in
   `reports/wiring-audit-2026-07-17.md`, with a passing real-boundary test for

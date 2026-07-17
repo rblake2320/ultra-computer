@@ -299,3 +299,23 @@ hold detailed decisions that affect architecture or long-lived behavior.
   why a feature that appears configured cannot operate.
 - **Evidence:** `reports/wiring-audit-2026-07-17.md`.
 - **Related:** PARK-0014 and the 2026-07-17 documentation changelog.
+
+### WHY-0014: BullMQ uses one observable, persistent Redis contract
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Cache code honored `REDIS_URL`, but BullMQ rebuilt unauthenticated
+  host/port connections, retained stale availability after outages, leaked
+  failed clients, and Compose explicitly disabled Redis persistence.
+- **Decision:** Resolve one validated `redis://` or `rediss://` target for all
+  BullMQ clients, track each live connection in readiness, close partial
+  initialization, and persist Redis with append-only storage.
+- **Why:** Queue readiness must describe the service actually handling work,
+  while authentication, TLS, database selection and restart durability must not
+  depend on which subsystem opens the connection.
+- **Alternatives:** Keep duplicate host/port variables or treat Redis as an
+  optional in-memory accelerator. Rejected because production requires the
+  queue and accepted work must survive ordinary container recreation.
+- **Evidence:** 230 unit tests, validated Compose config, real Docker BullMQ
+  dispatch, HTTP 200 live health, and real Chrome render without app errors.
+- **Related:** WHY-0013 and PARK-0012.

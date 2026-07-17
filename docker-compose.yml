@@ -11,9 +11,11 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: redis-server --save "" --loglevel warning
+    command: redis-server --appendonly yes --appendfsync everysec --loglevel warning
     networks:
       - backend
+    volumes:
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -199,4 +201,5 @@ volumes:
   app-data:
   app-ipc:
   sandbox-data:
+  redis-data:
   temporal-postgres-data:
