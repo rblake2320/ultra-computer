@@ -19,6 +19,11 @@ interface DiscoveryCredentials {
   baseUrl: string;
 }
 
+export interface CatalogSyncCredentials {
+  apiKey?: string;
+  baseUrl?: string;
+}
+
 export interface CatalogSyncResult {
   provider: string;
   discovered: number;
@@ -34,6 +39,19 @@ function catalogId(provider: string, modelId: string): string {
     .digest("hex")
     .slice(0, 24);
   return `${provider}:${digest}`;
+}
+
+export function resolveSuppliedCatalogCredentials(
+  provider: string,
+  supplied?: CatalogSyncCredentials,
+): DiscoveryCredentials | null {
+  if (!supplied?.apiKey?.trim() && !supplied?.baseUrl?.trim()) return null;
+  const apiKey = supplied.apiKey?.trim() ?? "";
+  const baseUrl = supplied.baseUrl?.trim()
+    || CANONICAL_BASE_URLS[provider]
+    || PROVIDER_REGISTRY[provider]?.defaultBaseUrl;
+  if (!baseUrl || (provider !== "ollama" && !apiKey)) return null;
+  return { apiKey, baseUrl };
 }
 
 function configuredCredentials(provider: string): DiscoveryCredentials | null {
@@ -238,11 +256,14 @@ export class ModelCatalogService {
     return storage.getModelCatalog(provider);
   }
 
-  async sync(provider: string): Promise<CatalogSyncResult> {
+  async sync(
+    provider: string,
+    supplied?: CatalogSyncCredentials,
+  ): Promise<CatalogSyncResult> {
     if (!PROVIDER_REGISTRY[provider]) {
       throw new Error(`Unknown provider: ${provider}`);
     }
-    const credentials = configuredCredentials(provider);
+    const credentials = resolveSuppliedCatalogCredentials(provider, supplied) ?? configuredCredentials(provider);
     if (!credentials) {
       throw new Error(`No configured credentials or base URL for provider: ${provider}`);
     }

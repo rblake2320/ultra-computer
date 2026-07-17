@@ -33,6 +33,15 @@ test("workflow 1: private launch renders and experimental surfaces default off",
   await expect(page.getByText("Swarm", { exact: true })).toHaveCount(0);
 });
 
+test("workflow 1b: provider credentials have an explicit save-and-connect action", async ({ page }) => {
+  await page.goto("/#/models");
+  await page.getByTestId("tab-add").click();
+  await page.getByTestId("provider-openai").click();
+  await page.getByTestId("input-qa-api-key").fill("not-a-real-key");
+  await expect(page.getByTestId("preset-gpt-5.6-sol")).toContainText("Save & connect");
+  await expect(page.getByText("The key is encrypted and stored with the model")).toBeVisible();
+});
+
 test("workflow 2: manual model creation and first passing test assign both roles", async ({ page }) => {
   test.skip(!localModel, "Ollama is not running on 127.0.0.1:11434");
   test.setTimeout(240_000);

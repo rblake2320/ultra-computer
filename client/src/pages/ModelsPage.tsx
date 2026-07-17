@@ -145,8 +145,8 @@ export function ModelsPage() {
   });
 
   const syncCatalogMutation = useMutation({
-    mutationFn: (provider: string) =>
-      apiRequest("POST", "/api/model-catalog/sync", { provider }),
+    mutationFn: (data: { provider: string; apiKey?: string; baseUrl?: string }) =>
+      apiRequest("POST", "/api/model-catalog/sync", data),
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["/api/models/providers"] });
       toast({
@@ -544,8 +544,12 @@ export function ModelsPage() {
                   variant="outline"
                   className="h-7 gap-1 text-xs"
                   disabled={!qaProvider || syncCatalogMutation.isPending}
-                  onClick={() => syncCatalogMutation.mutate(qaProvider)}
-                  title="Fetch the provider's current model list. Discovered models remain unverified until tested."
+                  onClick={() => syncCatalogMutation.mutate({
+                    provider: qaProvider,
+                    apiKey: qaAuth === "api_key" && qaApiKey ? qaApiKey : undefined,
+                    baseUrl: qaBaseUrl || undefined,
+                  })}
+                  title="Fetch the provider's current model list using the credential entered below or a saved server credential. Discovered models remain unverified until tested."
                 >
                   <RefreshCw className={`w-3 h-3 ${syncCatalogMutation.isPending ? "animate-spin" : ""}`} />
                   Sync current models
@@ -599,15 +603,21 @@ export function ModelsPage() {
                 {/* Credential input for selected auth method */}
                 <div className="mt-3">
                   {qaAuth === "api_key" && (
-                    <div className="flex gap-2">
-                      <Input
-                        type="password"
-                        value={qaApiKey}
-                        onChange={e => setQaApiKey(e.target.value)}
-                        placeholder={`Enter ${currentProviderInfo?.name} API key${currentProviderInfo?.apiKeyUrl ? " (sk-...)" : ""}`}
-                        className="h-8 text-sm flex-1"
-                        data-testid="input-qa-api-key"
-                      />
+                    <div>
+                      <div className="flex gap-2">
+                        <Input
+                          type="password"
+                          value={qaApiKey}
+                          onChange={e => setQaApiKey(e.target.value)}
+                          placeholder={`Enter ${currentProviderInfo?.name} API key${currentProviderInfo?.apiKeyUrl ? " (sk-...)" : ""}`}
+                          className="h-8 text-sm flex-1"
+                          data-testid="input-qa-api-key"
+                        />
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-1.5">
+                        Choose <span className="font-medium text-foreground">Save &amp; connect</span> below.
+                        The key is encrypted and stored with the model, then the connection is tested.
+                      </p>
                     </div>
                   )}
                   {qaAuth === "env_var" && (
@@ -647,7 +657,7 @@ export function ModelsPage() {
               </div>
 
               {/* Model presets */}
-              <p className="text-xs text-muted-foreground mb-2">Select a model to add:</p>
+              <p className="text-xs text-muted-foreground mb-2">Select a model to save its connection:</p>
               <div className="space-y-1.5">
                 {currentProviderInfo?.models.map(preset => {
                   const alreadyAdded = models.some(m => m.provider === qaProvider && m.modelId === preset.modelId);
@@ -698,7 +708,9 @@ export function ModelsPage() {
                       {!alreadyAdded && (
                         quickAddMutation.isPending
                           ? <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
-                          : <Plus className="w-4 h-4 text-muted-foreground group-hover:text-primary shrink-0" />
+                          : <span className="flex items-center gap-1.5 text-xs font-medium text-primary shrink-0">
+                              <Plus className="w-4 h-4" /> Save &amp; connect
+                            </span>
                       )}
                     </button>
                   );

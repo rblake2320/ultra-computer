@@ -205,8 +205,12 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   app.post("/api/model-catalog/sync", async (req, res) => {
     const provider = typeof req.body?.provider === "string" ? req.body.provider.trim() : "";
     if (!provider) return res.status(400).json({ error: "provider is required" });
+    const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : undefined;
+    const baseUrl = typeof req.body?.baseUrl === "string" ? req.body.baseUrl.trim() : undefined;
+    if (apiKey && apiKey.length > 4096) return res.status(400).json({ error: "apiKey is too long" });
+    if (baseUrl && baseUrl.length > 2048) return res.status(400).json({ error: "baseUrl is too long" });
     try {
-      res.json(await modelService.syncCatalog(provider));
+      res.json(await modelService.syncCatalog(provider, { apiKey, baseUrl }));
     } catch (error: any) {
       const message = error instanceof Error ? error.message : "Model catalog sync failed";
       const status = /Unknown provider|No configured credentials/.test(message) ? 400 : 502;

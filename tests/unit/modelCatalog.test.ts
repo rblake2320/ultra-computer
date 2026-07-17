@@ -4,9 +4,18 @@ import {
   parseGoogleModelList,
   parseOllamaModelList,
   parseOpenAIModelList,
+  resolveSuppliedCatalogCredentials,
 } from "../../server/models/catalogService.js";
 
 describe("provider model catalog parsing", () => {
+  it("uses a transient OpenAI key for catalog sync without persisting it", () => {
+    expect(resolveSuppliedCatalogCredentials("openai", { apiKey: "temporary-test-key" })).toEqual({
+      apiKey: "temporary-test-key",
+      baseUrl: "https://api.openai.com/v1",
+    });
+    expect(resolveSuppliedCatalogCredentials("openai", {})).toBeNull();
+  });
+
   it("records OpenAI-compatible discovery without inventing capabilities", () => {
     expect(parseOpenAIModelList("openai", {
       object: "list",

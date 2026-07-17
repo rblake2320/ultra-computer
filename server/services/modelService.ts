@@ -10,6 +10,7 @@ import {
 } from "../modelConnections.js";
 import type { Model, InsertModel } from "@shared/schema";
 import { modelCatalogService } from "../models/catalogService.js";
+import type { CatalogSyncCredentials } from "../models/catalogService.js";
 
 /** Safe model — strips sensitive credential fields before returning to clients. */
 export type SafeModel = Omit<Model, "apiKey" | "oauthTokens"> & {
@@ -89,8 +90,8 @@ export class ModelService {
     return modelCatalogService.list(provider);
   }
 
-  syncCatalog(provider: string) {
-    return modelCatalogService.sync(provider);
+  syncCatalog(provider: string, credentials?: CatalogSyncCredentials) {
+    return modelCatalogService.sync(provider, credentials);
   }
 }
 

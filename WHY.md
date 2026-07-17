@@ -260,3 +260,22 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** CLI parser/execution unit tests, authenticated E2E execution,
   full verification, and the GitHub Advanced Security CodeQL rerun.
 - **Related:** WHY-0003 and the 2026-07-16 security changelog.
+
+### WHY-0012: Provider credentials are saved only with an explicit model action
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** The provider form accepted an API key but exposed no visible
+  save control. Model cards implicitly performed persistence, while catalog
+  sync ignored the credential still present in the form.
+- **Decision:** Label each model action **Save & connect**, explain that the key
+  is encrypted and stored with that model, and allow catalog sync to use the
+  entered credential transiently without persisting it.
+- **Why:** Credential persistence must be intentional and understandable. A
+  provider-level credential table would add schema and lifecycle complexity
+  when the existing encrypted per-model storage is sufficient.
+- **Alternatives:** Persist immediately on input, or add a provider credential
+  schema. Rejected because implicit secret writes are unsafe and the additive
+  schema is unnecessary for this launch blocker.
+- **Evidence:** Browser reproduction, unit no-credential coverage, explicit UI
+  E2E coverage, and the release verification gate.

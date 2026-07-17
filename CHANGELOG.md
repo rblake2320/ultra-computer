@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - 2026-07-16
 
+### Fixed
+- Made provider setup explicit: entered API keys now show a visible
+  **Save & connect** action on each model, explain encrypted persistence and
+  connection testing, and can be used transiently for catalog synchronization
+  before a model exists.
+
 ### Security
 - Replaced user-controlled shell-string execution with a shell-free,
   executable-allowlisted command parser and a fixed process working directory;
