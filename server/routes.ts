@@ -17,7 +17,6 @@ import { seedBuiltInSkills, buildSkillVector, scheduleEmbeddingUpgrade } from ".
 import { memoryManager } from "./memoryManager.js";
 import { dockerSandbox } from "./tools.js";
 import { registerFileRoutes } from "./fileRoutes.js";
-import { registerOAuthRoutes } from "./oauthFlow.js";
 import { registerExportRoutes } from "./exportSession.js";
 import { registerBrowserRoutes } from "./browserRoutes.js";
 import { registerMarketplaceRoutes } from "./marketplaceRoutes.js";
@@ -79,11 +78,36 @@ function signOAuthState(payload: object): string {
 function verifyOAuthState(state: string): { connectorId: string; ts: number } | null {
   try {
     const { d, h } = JSON.parse(Buffer.from(state, "base64url").toString());
+    if (typeof d !== "string" || typeof h !== "string") return null;
     const expected = crypto.createHmac("sha256", OAUTH_STATE_SECRET).update(d).digest("hex");
-    if (!crypto.timingSafeEqual(Buffer.from(h), Buffer.from(expected))) return null;
-    return JSON.parse(d);
+    const actualBuffer = Buffer.from(h);
+    const expectedBuffer = Buffer.from(expected);
+    if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) return null;
+    const decoded = JSON.parse(d);
+    if (typeof decoded?.connectorId !== "string" || !Number.isFinite(decoded?.ts)) return null;
+    return decoded;
   } catch {
     return null;
+  }
+}
+
+function connectorOAuthRedirectUri(req: { protocol: string; get(name: string): string | undefined }): { uri?: string; error?: string } {
+  const configuredBase = process.env.OAUTH_REDIRECT_BASE_URL?.trim();
+  if (!configuredBase && process.env.NODE_ENV === "production") {
+    return { error: "OAUTH_REDIRECT_BASE_URL is required for connector OAuth in production" };
+  }
+  const base = configuredBase || `${req.protocol}://${req.get("host")}`;
+  try {
+    const parsed = new URL(base);
+    if (process.env.NODE_ENV === "production" && parsed.protocol !== "https:") {
+      return { error: "OAUTH_REDIRECT_BASE_URL must use HTTPS in production" };
+    }
+    if (!configuredBase && !["http:", "https:"].includes(parsed.protocol)) {
+      return { error: "Invalid OAuth redirect protocol" };
+    }
+    return { uri: `${parsed.origin}${parsed.pathname.replace(/\/$/, "")}/api/connectors/oauth/callback` };
+  } catch {
+    return { error: "OAUTH_REDIRECT_BASE_URL is invalid" };
   }
 }
 
@@ -119,7 +143,6 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   // ─── Register modular route groups ─────────────────────────────────────────
   registerFileRoutes(app);
-  registerOAuthRoutes(app);
   registerExportRoutes(app);
   registerBrowserRoutes(app);
   registerProtocolRoutes(app);
@@ -737,6 +760,14 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     // For OAuth connectors, store client credentials and return OAuth URL
     const def = getConnectorDef(req.params.id);
     if (def?.type === "oauth" && client_id) {
+      if (typeof client_id !== "string" || client_id.length > 1024) {
+        return res.status(400).json({ error: "client_id must be a string under 1025 characters" });
+      }
+      if (client_secret !== undefined && (typeof client_secret !== "string" || client_secret.length > 4096)) {
+        return res.status(400).json({ error: "client_secret must be a string under 4097 characters" });
+      }
+      const redirect = connectorOAuthRedirectUri(req);
+      if (!redirect.uri) return res.status(503).json({ error: redirect.error });
       const config = JSON.stringify({ client_id, client_secret, ...(apiKey ? { apiKey } : {}), ...extra });
       const updated = storage.updateConnector(req.params.id, {
         status: "pending",
@@ -746,10 +777,9 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       if (!updated) return res.status(404).json({ error: "Not found" });
       // Build OAuth authorization URL
       const state = signOAuthState({ connectorId: req.params.id, ts: Date.now() });
-      const redirectUri = `${req.protocol}://${req.get("host")}/api/connectors/oauth/callback`;
       const authUrl = new URL(def.oauthAuthUrl!);
       authUrl.searchParams.set("client_id", client_id);
-      authUrl.searchParams.set("redirect_uri", redirectUri);
+      authUrl.searchParams.set("redirect_uri", redirect.uri);
       authUrl.searchParams.set("response_type", "code");
       authUrl.searchParams.set("state", state);
       if (def.scopes?.length) authUrl.searchParams.set("scope", def.scopes.join(" "));
@@ -782,7 +812,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       return res.redirect("/?connector_error=invalid_state");
     }
     connectorId = decoded.connectorId;
-    if (Date.now() - decoded.ts > 10 * 60 * 1000) {
+    const stateAge = Date.now() - decoded.ts;
+    if (stateAge < -60_000 || stateAge > 10 * 60 * 1000) {
       return res.redirect("/?connector_error=state_expired");
     }
     const connector = storage.getConnector(connectorId);
@@ -792,14 +823,15 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     let config: Record<string, any> = {};
     try { config = JSON.parse(connector.config || "{}"); } catch { config = {}; }
     try {
-      const redirectUri = `${req.protocol}://${req.get("host")}/api/connectors/oauth/callback`;
+      const redirect = connectorOAuthRedirectUri(req);
+      if (!redirect.uri) return res.redirect("/?connector_error=redirect_not_configured");
       const tokenRes = await governedFetch(def.oauthTokenUrl, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
         body: new URLSearchParams({
           grant_type: "authorization_code",
           code: String(code),
-          redirect_uri: redirectUri,
+          redirect_uri: redirect.uri,
           client_id: config.client_id || "",
           client_secret: config.client_secret || "",
         }).toString(),
@@ -808,8 +840,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
         maxResponseBytes: 1024 * 1024,
       });
       if (!tokenRes.ok) {
-        const errText = await tokenRes.text();
-        console.error(`[connector oauth] Token exchange failed for ${connectorId}:`, errText);
+        await tokenRes.text();
+        console.error(`[connector oauth] Token exchange failed for ${connectorId} with HTTP ${tokenRes.status}`);
         return res.redirect(`/?connector_error=token_exchange_failed`);
       }
       const tokenData = await tokenRes.json() as any;

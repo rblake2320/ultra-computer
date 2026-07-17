@@ -42,6 +42,30 @@ test("workflow 1b: provider credentials have an explicit save-and-connect action
   await expect(page.getByText("The key is encrypted and stored with the model")).toBeVisible();
 });
 
+test("workflow 1c: authenticated connector creation and multipart upload work in the real UI", async ({ page }) => {
+  const connectorName = `E2E connector ${crypto.randomUUID().slice(0, 8)}`;
+  await page.goto("/#/connectors");
+  await page.getByRole("button", { name: "Add Custom", exact: true }).click();
+  await page.getByPlaceholder("My Custom API").fill(connectorName);
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect.poll(async () => (await api<any[]>("/api/connectors")).find(item => item.name === connectorName))
+    .toBeTruthy();
+  const connector = (await api<any[]>("/api/connectors")).find(item => item.name === connectorName);
+  await api(`/api/connectors/${connector.id}`, { method: "DELETE" });
+
+  const directory = `e2e-upload-${crypto.randomUUID()}`;
+  const relativePath = `${directory}/auth-proof.txt`;
+  await page.goto("/#/files");
+  await page.getByTestId("input-upload-destination").fill(directory);
+  await page.getByTestId("input-file-upload").setInputFiles({
+    name: "auth-proof.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("authenticated multipart proof"),
+  });
+  await expect.poll(async () => JSON.stringify(await api("/api/sandbox/files"))).toContain(relativePath);
+  await api(`/api/sandbox/files/${relativePath}`, { method: "DELETE" });
+});
+
 test("workflow 2: manual model creation and first passing test assign both roles", async ({ page }) => {
   test.skip(!localModel, "Ollama is not running on 127.0.0.1:11434");
   test.setTimeout(240_000);

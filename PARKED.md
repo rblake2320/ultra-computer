@@ -285,9 +285,11 @@ link so future contributors can tell whether the constraint still applies.
   WHY-0014. The file-transform, Docker host-shell, host-interpreter and browser
   typed-input/egress boundaries are closed by WHY-0015. Connector-at-rest and
   model-response credential leakage is closed by WHY-0016. Model readiness and
-  atomic core roles are closed by WHY-0017. Visible connector, messaging,
-  protocol, durability and experimental surfaces can still fail or report
-  false success.
+  atomic core roles are closed by WHY-0017. Connector UI, upload auth, audited
+  Identity request contracts and callback authentication are closed by
+  WHY-0018. Provider-native connector operations, messaging durability,
+  protocol, durable execution and experimental semantics can still fail or
+  report false success.
 - **Reactivate when:** Immediately, before public launch.
 - **Next decision:** Execute the ordered twelve-step repair plan in
   `reports/wiring-audit-2026-07-17.md`, with a passing real-boundary test for

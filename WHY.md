@@ -385,3 +385,29 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** 256 unit tests and eight real Playwright workflows, including a
   visible but unverified model that is correctly treated as no ready model.
 - **Related:** WHY-0012, WHY-0013 and PARK-0016.
+
+### WHY-0018: Client and callback boundaries have one explicit contract
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Connector code treated already-parsed API results as Fetch
+  responses, multipart uploads bypassed owner authentication, Identity actions
+  disagreed with their registered route shapes, and external OAuth/Gmail
+  callbacks were blocked by owner auth. Generic webhooks had no scoped proof.
+- **Decision:** Centralize authenticated browser Fetch, consume typed parsed
+  JSON once, share Identity request-shape builders, expose only callbacks that
+  perform their own verification, and require timestamped raw-body HMAC for
+  generic inbound webhooks. Use one signed connector OAuth flow and require an
+  explicit HTTPS redirect base in production.
+- **Why:** Authentication and serialization are boundary properties. Encoding
+  them once prevents individual screens from silently omitting the owner key or
+  inventing incompatible response semantics, while route-local callback proof
+  allows external providers in without opening owner operations.
+- **Alternatives:** Exempt all callback-looking paths or let every page build
+  its own headers and response parsing. Rejected because both make future
+  bypass and contract drift likely.
+- **Evidence:** 268 unit tests plus nine real Playwright workflows, including
+  authenticated connector creation and a destination-aware multipart upload;
+  real Express Identity flows, callback owner-gate tests and webhook HMAC/replay
+  tests cover the remaining local contracts.
+- **Related:** WHY-0013, WHY-0016 and PARK-0016.

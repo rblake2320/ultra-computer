@@ -51,6 +51,19 @@ Passing unit tests are not treated as proof that an external integration works.
   unverified visible-model negative path and real Ollama role assignment/chat.
   Overall launch verdict remains NO-GO pending connector/auth, protocol,
   durability and false-success repairs.
+- **2026-07-17 — Browser API and callback contracts closed locally:** Connector
+  UI mutations consume typed parsed JSON; multipart uploads share owner auth;
+  the audited Identity requests match their registered routes; connector OAuth
+  and Gmail callbacks reach their own verifiers; generic webhooks require
+  timestamped raw-body HMAC and callback traffic is rate-limited. Multipart
+  destination ordering and Windows public-path separators were also repaired.
+  Evidence: 268 unit tests and nine real Playwright workflows including
+  authenticated connector creation and destination-aware upload, plus real
+  Express Identity flows and callback/HMAC contracts.
+  Identity remains experimental/in-memory, and third-party connectors remain
+  unverified without approved test accounts. Overall launch verdict remains
+  NO-GO pending real connector operations, durability, protocol and
+  false-success repairs.
 
 ## Evidence Collected
 

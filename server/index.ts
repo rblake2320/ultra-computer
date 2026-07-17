@@ -144,8 +144,7 @@ const apiLimiter = rateLimit({
   message: { error: "Too many requests, please try again later" },
   skip: (req) =>
     !req.path.startsWith("/api")
-    || req.path === "/api/health"
-    || req.path.startsWith("/api/messaging/webhook/"),
+    || req.path === "/api/health",
   keyGenerator: normalizeIp,
 });
 app.use(apiLimiter);

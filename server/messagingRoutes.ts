@@ -83,6 +83,31 @@ function publicChannel(channel: any): any {
   return { ...channel, config: redactSecrets(channel.config ?? {}) };
 }
 
+export function verifyGenericWebhookSignature(
+  secret: string,
+  timestamp: string | undefined,
+  rawBody: Buffer,
+  signature: string | undefined,
+  nowMs = Date.now(),
+): string | null {
+  if (!timestamp || !signature) return "Missing webhook signature headers";
+  const timestampSeconds = Number(timestamp);
+  if (!Number.isInteger(timestampSeconds) || Math.abs(Math.floor(nowMs / 1000) - timestampSeconds) > 300) {
+    return "Webhook timestamp is invalid or expired";
+  }
+  const expected = `sha256=${crypto.createHmac("sha256", secret)
+    .update(timestamp)
+    .update(".")
+    .update(rawBody)
+    .digest("hex")}`;
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) {
+    return "Invalid webhook signature";
+  }
+  return null;
+}
+
 // ─── Route Registration ───────────────────────────────────────────────────────
 
 export function registerMessagingRoutes(app: Express): void {
@@ -717,6 +742,21 @@ export function registerMessagingRoutes(app: Express): void {
       const { channelId } = req.params as Record<string, string>;
       const channel = messagingHub.getChannel(channelId);
       if (!channel) return res.status(404).json({ error: "Channel not found" });
+
+      const webhookSecret = channel.config?.webhookSecret ?? channel.config?.secret;
+      if (typeof webhookSecret !== "string" || webhookSecret.length < 16) {
+        return res.status(503).json({ error: "Inbound webhook secret is not configured" });
+      }
+      const rawBody = req.rawBody instanceof Buffer
+        ? req.rawBody
+        : Buffer.from(JSON.stringify(req.body ?? {}));
+      const signatureError = verifyGenericWebhookSignature(
+        webhookSecret,
+        typeof req.headers["x-ultra-timestamp"] === "string" ? req.headers["x-ultra-timestamp"] : undefined,
+        rawBody,
+        typeof req.headers["x-ultra-signature"] === "string" ? req.headers["x-ultra-signature"] : undefined,
+      );
+      if (signatureError) return res.status(403).json({ error: signatureError });
 
       const body = req.body ?? {};
 

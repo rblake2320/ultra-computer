@@ -68,6 +68,10 @@ interface ConnectorDef {
   validateUrl: string | null;
 }
 
+interface ConnectorConnectResult {
+  oauthUrl?: string;
+}
+
 // ─── Category metadata ────────────────────────────────────────────────────────
 
 const CATEGORY_META: Record<string, { label: string; order: number }> = {
@@ -167,14 +171,11 @@ function ConnectDialog({ connector, def, onClose, onConnected }: ConnectDialogPr
     try {
       const body: Record<string, string> = { ...fieldValues };
 
-      const res = await apiRequest("POST", `/api/connectors/${connector.id}/connect`, body);
-      const data = await res.json();
-
-      if (!res.ok) {
-        toast({ title: "Connection failed", description: data.error, variant: "destructive" });
-        setIsConnecting(false);
-        return;
-      }
+      const data = await apiRequest<ConnectorConnectResult>(
+        "POST",
+        `/api/connectors/${connector.id}/connect`,
+        body,
+      );
 
       // OAuth flow: open popup window
       if (data.oauthUrl) {
@@ -400,18 +401,13 @@ function AddCustomDialog({ onClose, onCreated }: { onClose: () => void; onCreate
     }
     setIsCreating(true);
     try {
-      const res = await apiRequest("POST", "/api/connectors", {
+      await apiRequest<Connector>("POST", "/api/connectors", {
         name: form.name.trim(),
         description: form.description.trim(),
         type: form.type,
         category: "custom",
         mcpServerUrl: form.mcpServerUrl.trim() || undefined,
       });
-      if (!res.ok) {
-        const data = await res.json();
-        toast({ title: "Failed to create connector", description: data.error, variant: "destructive" });
-        return;
-      }
       toast({ title: "Connector created!", description: `${form.name} added to your connectors.` });
       qc.invalidateQueries({ queryKey: ["/api/connectors"] });
       onCreated();
@@ -532,11 +528,8 @@ export function ConnectorsPage() {
 
   // Disconnect mutation
   const disconnectMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await apiRequest("POST", `/api/connectors/${id}/disconnect`, {});
-      if (!res.ok) throw new Error("Failed to disconnect");
-      return res.json();
-    },
+    mutationFn: (id: string) =>
+      apiRequest<{ ok: true }>("POST", `/api/connectors/${id}/disconnect`, {}),
     onSuccess: (_, id) => {
       const c = connectors.find(c => c.id === id);
       toast({ title: `${c?.name || id} disconnected` });

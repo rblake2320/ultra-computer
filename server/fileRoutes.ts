@@ -28,6 +28,10 @@ function paramToPath(param: unknown): string {
   return "";
 }
 
+function toPublicPath(filePath: string): string {
+  return filePath.split(path.sep).join("/");
+}
+
 /**
  * Resolve a user-supplied relative path inside the sandbox, returning null if
  * traversal is detected.
@@ -89,7 +93,7 @@ function walkDir(
       return;
     }
     const fullPath = path.join(dir, item.name);
-    const relativePath = path.relative(baseDir, fullPath);
+    const relativePath = toPublicPath(path.relative(baseDir, fullPath));
     let stat: fs.Stats;
     try {
       stat = fs.statSync(fullPath);
@@ -294,7 +298,7 @@ export function registerFileRoutes(app: Express, options: FileRouteOptions = {})
       return res.status(500).json({ error: `Upload commit failed: ${message}` });
     }
 
-    const uploaded = promoted.map((filePath) => path.relative(SANDBOX_DIR, filePath));
+    const uploaded = promoted.map((filePath) => toPublicPath(path.relative(SANDBOX_DIR, filePath)));
     res.json({ ok: true, uploaded });
   });
 
@@ -344,7 +348,7 @@ export function registerFileRoutes(app: Express, options: FileRouteOptions = {})
         let s: fs.Stats | null = null;
         try { s = fs.statSync(itemFull); } catch { /* ignore */ }
         return {
-          path: path.relative(SANDBOX_DIR, itemFull),
+          path: toPublicPath(path.relative(SANDBOX_DIR, itemFull)),
           name: item.name,
           type: item.isDirectory() ? "dir" : "file",
           size: s?.size || 0,

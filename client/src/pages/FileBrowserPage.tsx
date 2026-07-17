@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, authenticatedFetch } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -346,13 +346,14 @@ export function FileBrowserPage() {
 
   const uploadFiles = useCallback(async (files: FileList | File[], destination = "") => {
     const formData = new FormData();
+    // Multer resolves each file destination as its part arrives, so metadata
+    // used by storage must precede the file parts in the multipart stream.
+    if (destination) formData.append("destination", destination);
     for (const file of Array.from(files)) {
       formData.append("files", file);
     }
-    if (destination) formData.append("destination", destination);
 
-    const base = (import.meta as any).env?.VITE_API_BASE || "";
-    const res = await fetch(`${base}/api/sandbox/files/upload`, {
+    const res = await authenticatedFetch("/api/sandbox/files/upload", {
       method: "POST",
       body: formData,
     });

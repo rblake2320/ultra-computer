@@ -229,7 +229,7 @@ set the production variables below, then run `npm run build && npm start`.
 | `RUN_TEMPORAL_WORKER` | Set `1` in the dedicated worker process. |
 | `TEMPORAL_DB_PASSWORD`, `TEMPORAL_PORT`, `TEMPORAL_UI_PORT` | Compose Temporal database secret and loopback ports. |
 | `SLACK_SIGNING_SECRET`, `GMAIL_PUSH_TOKEN`, `GITHUB_WEBHOOK_SECRET` | Optional webhook verification secrets. Unconfigured receivers reject requests outside development. |
-| `OAUTH_REDIRECT_BASE_URL` | Public base URL used to construct connector OAuth callbacks. |
+| `OAUTH_REDIRECT_BASE_URL` | Public HTTPS base URL used to construct connector OAuth callbacks; required before OAuth can start in production. |
 | `TUNNEL_TOKEN` | Optional Cloudflare Tunnel token for the `tunnel` profile. |
 | `BROWSER_POOL_SIZE` | Number of pre-warmed browser contexts; default `2`. |
 | `ULTRA_POLICY_DIR`, `ULTRA_POLICY_AUDIT_FILE` | Policy files and JSONL audit destinations. |
@@ -300,6 +300,11 @@ replacement of pinned models remain intentionally parked in `PARKED.md`.
 - Browser automation governs every navigation and subresource. Typed values
   are kept only for the immediate page action, are excluded from audits and
   persistence, and disable unrestricted evaluation/PDF export for that session.
+- Slack, Gmail and GitHub callbacks bypass the owner key only to reach their
+  provider-specific signature/token verifier. Generic inbound webhooks require
+  `X-Ultra-Timestamp` (Unix seconds) and `X-Ultra-Signature` set to
+  `sha256=HMAC_SHA256(webhookSecret, timestamp + "." + rawBody)`; timestamps
+  outside five minutes are rejected.
 - This is a single-owner API-key boundary. Multi-user RBAC and tenant isolation
   are not implemented; see `PARKED.md`.
 

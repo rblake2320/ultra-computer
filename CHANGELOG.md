@@ -11,6 +11,12 @@ All notable changes to this project will be documented in this file.
   platform wiring was production-proven and records a launch NO-GO.
 
 ### Fixed
+- Repaired connector create/connect/OAuth/disconnect response handling,
+  authenticated multipart uploads through the shared browser request boundary,
+  sent multipart destination metadata before file parts, normalized public file
+  paths across Windows/Linux,
+  aligned experimental Identity review/block requests with registered server
+  contracts, and made production OAuth redirect configuration explicit.
 - Required successful connection state and live credentials for all model
   routing; made core-role changes transactional and reconciled roles after
   test failure, disable, disconnect or deletion; aligned chat readiness and
@@ -28,6 +34,10 @@ All notable changes to this project will be documented in this file.
   check into a material paid request.
 
 ### Security
+- Allowed external OAuth and messaging callbacks through owner auth only when
+  the destination route performs signed-state, provider-signature, shared-token
+  or timestamped raw-body HMAC verification; restored rate limiting for public
+  callback traffic and retired the duplicate registered OAuth flow.
 - Encrypted complete connector credential configurations at rest, migrated
   legacy plaintext records on first use, sanitized model create/quick-add
   responses, and made internal default/orchestrator lookups decrypt credentials
