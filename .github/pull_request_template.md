@@ -22,7 +22,7 @@
 - [ ] `npm run verify` (full pipeline)
 - [ ] `gitleaks detect --no-banner --redact --source .`
 - [ ] `npm run smoke:prod`
-- [ ] `npm run live:docker` (when Docker Desktop available)
+- [ ] `npm run live:docker` (required `live-docker` CI check)
 
 ## Evidence Labels (per docs/VERIFICATION_POLICY.md)
 - VERIFIED LIVE / VERIFIED LOCALLY / UNIT-LEVEL ONLY / STATIC ONLY / NOT VERIFIED / BLOCKED

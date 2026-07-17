@@ -9,6 +9,8 @@ const networkName = `ultra-live-network-${process.pid}`;
 const encryptionKey = randomBytes(32).toString("hex");
 const dataVolume = `ultra-live-data-${process.pid}`;
 const sandboxVolume = `ultra-live-sandbox-${process.pid}`;
+const redisImage = process.env.LIVE_DOCKER_REDIS_IMAGE
+  || "redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99";
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -103,23 +105,6 @@ async function stopContainer(name) {
 
 async function main() {
   const redisName = `ultra-live-redis-${process.pid}`;
-
-  console.log("Building clean Docker image for live-local gate...");
-  await docker(["build", "--target", "app", "-f", "Dockerfile.live", "-t", image, "."]);
-
-  // Start Redis for BullMQ queue dispatch proof
-  console.log("Starting Redis container for queue dispatch proof...");
-  await docker(["network", "create", networkName], { capture: true });
-  await docker(["rm", "-f", redisName], { capture: true }).catch(() => {});
-  await docker([
-    "run", "-d", "--name", redisName,
-    "--network", networkName,
-    "--network-alias", "redis",
-    "redis:7-alpine", "redis-server", "--save", "", "--loglevel", "warning"
-  ], { capture: true });
-  // Small delay for Redis to be ready
-  await delay(1500);
-
   const normal = `ultra-live-${process.pid}`;
   const badPolicy = `ultra-live-bad-policy-${process.pid}`;
   const badAudit = `ultra-live-bad-audit-${process.pid}`;
@@ -127,9 +112,33 @@ async function main() {
     { name: dataVolume, target: "/app/data" },
     { name: sandboxVolume, target: "/app/sandbox" },
   ];
+  let imageBuilt = false;
+  let networkCreated = false;
+  let volumesCreated = false;
 
   try {
+    console.log("Building clean Docker image for live-local gate...");
+    await docker(["build", "--target", "app", "-f", "Dockerfile.live", "-t", image, "."]);
+    imageBuilt = true;
+
+    // Start Redis for BullMQ queue dispatch proof. Setup stays inside the
+    // cleanup boundary so an early Docker/network failure cannot leak state.
+    console.log("Starting Redis container for queue dispatch proof...");
+    await docker(["network", "create", networkName], { capture: true });
+    networkCreated = true;
+    await docker(["rm", "-f", redisName], { capture: true }).catch(() => {});
+    await docker([
+      "run", "-d", "--name", redisName,
+      "--network", networkName,
+      "--network-alias", "redis",
+      redisImage, "redis-server", "--save", "", "--loglevel", "warning"
+    ], { capture: true });
+    await delay(1500);
+
     console.log("Starting production container...");
+    await docker(["volume", "create", dataVolume], { capture: true });
+    await docker(["volume", "create", sandboxVolume], { capture: true });
+    volumesCreated = true;
     await startContainer(normal, { volumes: persistentVolumes });
 
     let result = await request("/api/models", { auth: false });
@@ -237,14 +246,14 @@ async function main() {
     await stopContainer(badPolicy);
     await stopContainer(badAudit);
     await stopContainer(redisName);
-    await docker(["network", "rm", networkName], { capture: true }).catch(() => {});
-    await docker(["volume", "rm", dataVolume, sandboxVolume], { capture: true }).catch((err) => {
-      console.warn(`volume cleanup skipped: ${err instanceof Error ? err.message : String(err)}`);
-    });
-    if (process.env.LIVE_DOCKER_CLEAN_IMAGE === "true") {
-      await docker(["image", "rm", image], { capture: true }).catch((err) => {
-        console.warn(`image cleanup skipped: ${err instanceof Error ? err.message : String(err)}`);
-      });
+    if (networkCreated) {
+      await docker(["network", "rm", networkName], { capture: true });
+    }
+    if (volumesCreated) {
+      await docker(["volume", "rm", dataVolume, sandboxVolume], { capture: true });
+    }
+    if (process.env.LIVE_DOCKER_CLEAN_IMAGE === "true" && imageBuilt) {
+      await docker(["image", "rm", image], { capture: true });
     }
   }
 }

@@ -23,13 +23,16 @@ Set these values in the deployment environment, never in committed files:
 
 ## Preflight
 
-1. Confirm Node.js 20+. Note: local development may use Node 20-24. CI enforces Node 20.x (`actions/setup-node@v4`). Confirm your local Node version matches CI before reporting a smoke result as CI-equivalent.
+1. Confirm Node.js 22, 23, or 24. CI verifies Node 22 and 24 on Linux and
+   Windows; production containers use Node 24.
 2. Run `npm ci`.
 3. Review `policies/*-access.json` for the release. They are deny-by-default; do not add broad allow rules for launch convenience.
 4. Run `npm run test:unit -- --run tests/unit/policyEngine.test.ts`.
 5. Run `npm run verify`.
 6. Run `gitleaks detect --no-banner --redact --source .`.
-7. Run `npm run live:docker` when Docker Desktop or a Linux Docker host is available.
+7. Run `npm run live:docker` when Docker Desktop or a Linux Docker host is
+   available. The protected `live-docker` CI context runs the same gate on
+   every pull request and protected-branch push.
 8. Label each verification result using `VERIFIED LIVE`, `VERIFIED LOCALLY`, `UNIT-LEVEL ONLY`, `STATIC ONLY`, `NOT VERIFIED`, or `BLOCKED`.
 9. For every `NOT VERIFIED` or `BLOCKED` live capability, record the exact reason and do not mark that capability green.
 10. For policy/control-plane changes, run `docs/OPERATIONAL_READINESS_GATE.md` and update `reports/policy-control-plane-readiness.md`.

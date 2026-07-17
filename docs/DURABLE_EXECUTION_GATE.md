@@ -43,7 +43,11 @@ git diff --check
 
 ## What Is Not Implemented Yet
 
-- No Temporal service, Temporal worker, Microsoft Durable Task Scheduler, or equivalent durable runtime is started by the repo gate.
+- The normal application message path is not backed by Temporal, Microsoft
+  Durable Task Scheduler, or an equivalent workflow runtime. The separate
+  `service-integration` CI job starts a Temporal sample and worker to prove
+  infrastructure connectivity only; it does not make application messages
+  crash-resumable.
 - The orchestrator does not yet resume exactly at step 6 of 10 after a crash. It records the last known step, but exact replay/resume requires a real deterministic workflow runtime or a larger internal workflow engine.
 - LLM calls and tool activities are not yet isolated as durable activities with runtime-managed retries, heartbeats, cancellation, and non-retryable error semantics.
 - Human approval/signal gates are not durable waits yet.
