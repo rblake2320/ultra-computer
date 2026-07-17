@@ -1,10 +1,14 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 const port = process.env.SMOKE_PORT ?? process.env.PORT ?? "5099";
 const grpcPort = process.env.SMOKE_GRPC_PORT ?? process.env.GRPC_PORT ?? "5100";
 const apiKey = process.env.ULTRA_API_KEY ?? `smoke-${randomBytes(24).toString("hex")}`;
+const smokeDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "ultra-prod-smoke-"));
 const env = {
   ...process.env,
   NODE_ENV: "production",
@@ -17,6 +21,7 @@ const env = {
   SLACK_SIGNING_SECRET: process.env.SLACK_SIGNING_SECRET ?? "test-slack-secret",
   GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET ?? "test-github-secret",
   ENCRYPTION_KEY: process.env.ENCRYPTION_KEY ?? randomBytes(32).toString("hex"),
+  DATABASE_PATH: path.join(smokeDirectory, "smoke.db"),
 };
 
 const child = spawn(process.execPath, ["dist/index.cjs"], {
@@ -36,6 +41,8 @@ const stop = async () => {
   child.kill("SIGTERM");
   await delay(500);
   if (child.exitCode === null) child.kill("SIGKILL");
+  await delay(100);
+  fs.rmSync(smokeDirectory, { recursive: true, force: true });
 };
 
 try {

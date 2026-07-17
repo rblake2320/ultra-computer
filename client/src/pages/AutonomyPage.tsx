@@ -206,7 +206,7 @@ function CronPanel({ stats }: { stats: CronStats }) {
     <Card className="p-4">
       <div className="flex items-center gap-2 mb-3">
         <Clock className="w-4 h-4 text-muted-foreground" />
-        <span className="text-xs font-medium">Cron Scheduler</span>
+        <span className="text-xs font-medium">Cron Scheduler (health checks only)</span>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
@@ -273,7 +273,7 @@ function LearningPanel({ stats }: { stats: LearningStats }) {
     <Card className="p-4">
       <div className="flex items-center gap-2 mb-3">
         <Brain className="w-4 h-4 text-muted-foreground" />
-        <span className="text-xs font-medium">Self-Learning Engine</span>
+        <span className="text-xs font-medium">Local Execution Analytics</span>
         {stats.rulesCount > 0 && (
           <Badge variant="outline" className="text-[10px] gap-1 bg-violet-500/10 text-violet-400 border-violet-500/30">
             {stats.rulesCount} rules learned
@@ -317,7 +317,7 @@ function SkillHealthPanel({ health }: { health: SkillHealth }) {
     <Card className="p-4">
       <div className="flex items-center gap-2 mb-3">
         <Lightbulb className="w-4 h-4 text-muted-foreground" />
-        <span className="text-xs font-medium">Skill Auto-Improvement</span>
+        <span className="text-xs font-medium">Skill Improvement Suggestions</span>
       </div>
       <div className="grid grid-cols-3 gap-2 mb-3">
         <div className="text-center p-2 rounded-lg bg-emerald-500/10">
@@ -410,7 +410,7 @@ export function AutonomyPage() {
       <div className="flex flex-col h-full">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card/50">
           <Activity className="w-4 h-4 text-primary" />
-          <h1 className="font-semibold text-sm">Autonomy Dashboard</h1>
+          <h1 className="font-semibold text-sm">Experimental Operations Dashboard</h1>
         </div>
         <div className="flex items-center justify-center flex-1">
           <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
@@ -424,8 +424,8 @@ export function AutonomyPage() {
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card/50">
         <Activity className="w-4 h-4 text-primary" />
-        <h1 className="font-semibold text-sm">Autonomy Dashboard</h1>
-        <p className="text-xs text-muted-foreground flex-1">Self-healing, self-learning, long-running task management</p>
+        <h1 className="font-semibold text-sm">Experimental Operations Dashboard</h1>
+        <p className="text-xs text-muted-foreground flex-1">Local health, checkpoint, circuit-breaker, and execution-history analytics</p>
         <div className="flex gap-2">
           <Button
             size="sm" variant="ghost" className="h-7 text-xs gap-1"
@@ -531,24 +531,24 @@ export function AutonomyPage() {
               <Card className="p-4 col-span-2">
                 <div className="flex items-center gap-2 mb-3">
                   <TrendingUp className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-xs font-medium">How Self-Learning Works</span>
+                  <span className="text-xs font-medium">How Local Analytics Works</span>
                 </div>
                 <div className="grid grid-cols-4 gap-4 text-xs text-muted-foreground">
                   <div className="space-y-1">
                     <p className="font-medium text-foreground flex items-center gap-1"><BarChart3 className="w-3 h-3 text-blue-400" />1. Track</p>
-                    <p>Every task execution is logged — model used, skills activated, duration, outcome, and any errors.</p>
+                    <p>Instrumented orchestrator and swarm executions record model, skill, duration, outcome, and error metadata.</p>
                   </div>
                   <div className="space-y-1">
                     <p className="font-medium text-foreground flex items-center gap-1"><Brain className="w-3 h-3 text-violet-400" />2. Analyze</p>
-                    <p>Every 6 hours, the engine analyzes patterns — which models work best for which tasks, recurring failures, speed trends.</p>
+                    <p>While experimental mode is enabled, local records are analyzed at startup and every 6 hours for model, failure, and duration patterns.</p>
                   </div>
                   <div className="space-y-1">
                     <p className="font-medium text-foreground flex items-center gap-1"><Lightbulb className="w-3 h-3 text-amber-400" />3. Learn</p>
-                    <p>Rules are derived from evidence — "prefer model X for code tasks", "add compaction before skill Y".</p>
+                    <p>Heuristic recommendations are derived from the locally recorded sample; they are not external evaluations.</p>
                   </div>
                   <div className="space-y-1">
                     <p className="font-medium text-foreground flex items-center gap-1"><Target className="w-3 h-3 text-emerald-400" />4. Improve</p>
-                    <p>Low-risk improvements auto-apply. High-impact changes surface as suggestions for review.</p>
+                    <p>Only supported trigger-keyword additions may auto-apply. Content rewrites and other changes remain suggestions for owner review.</p>
                   </div>
                 </div>
               </Card>

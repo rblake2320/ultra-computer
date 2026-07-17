@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { listBrowserSessions, getBrowserSessionInfo, executeBrowserTool, takeSessionScreenshot } from "./browserTool.js";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
+import { sanitizeToolArgsForExposure } from "./redaction.js";
 
 function enforceToolPolicy(res: Response, tool: string, metadata: Record<string, unknown>): boolean {
   const context = { domain: "tool" as const, action: "tool:execute", tool, metadata };
@@ -89,7 +90,7 @@ export function registerBrowserRoutes(app: Express) {
       if (direction !== undefined) args.direction = String(direction);
       if (session !== undefined) args.session = String(session);
 
-      if (!enforceToolPolicy(res, "browser_action", args)) return;
+      if (!enforceToolPolicy(res, "browser_action", sanitizeToolArgsForExposure("browser_action", args))) return;
       const result = await executeBrowserTool("browser_action", args);
       res.json(result);
     } catch (err: any) {

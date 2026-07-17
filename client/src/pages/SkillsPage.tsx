@@ -98,7 +98,7 @@ export function SkillsPage() {
               </ScrollArea>
             </div>
             <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              <span>Used <strong className="text-foreground">{detailSkill.usageCount}x</strong></span>
+              <span>Matched <strong className="text-foreground">{detailSkill.usageCount}x</strong></span>
               <span>Status: <strong className={detailSkill.enabled ? "text-green-500" : "text-red-500"}>{detailSkill.enabled ? "Enabled" : "Disabled"}</strong></span>
             </div>
           </div>
@@ -175,7 +175,7 @@ export function SkillsPage() {
                         <Badge variant="secondary" className="text-[10px]">built-in</Badge>
                         {skill.usageCount > 0 && (
                           <Badge variant="outline" className="text-[10px] gap-1">
-                            <Zap className="w-2.5 h-2.5" />{skill.usageCount}x used
+                            <Zap className="w-2.5 h-2.5" />{skill.usageCount}x matched
                           </Badge>
                         )}
                       </div>
@@ -218,7 +218,7 @@ export function SkillsPage() {
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-semibold text-sm">{skill.name}</span>
                         {skill.usageCount > 0 && (
-                          <Badge variant="outline" className="text-[10px]">{skill.usageCount}x used</Badge>
+                          <Badge variant="outline" className="text-[10px]">{skill.usageCount}x matched</Badge>
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground">{skill.description}</p>

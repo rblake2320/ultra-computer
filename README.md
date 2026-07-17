@@ -30,8 +30,8 @@ Ultra Computer is a complete agent orchestration system that manages AI model ro
 | **Browser Automation** | Playwright-based browser tool for web interactions |
 | **Marketplace** | Community skill marketplace with quality scoring pipeline |
 | **Autonomy Suite** | Self-healing watchdog, task checkpointing, cron scheduler, circuit breakers |
-| **Protocol Hub** | A2A, MCP, and CLI protocol adapters for agent interoperability |
-| **Messaging Hub** | Omni-channel messaging (Slack, Gmail, Webhooks) with delivery queues |
+| **Protocol Hub** | MCP 2025-11-25 Streamable HTTP and contained CLI adapters; external A2A is disabled until v1 support is real |
+| **Messaging Hub** | Restart-persistent Slack, Gmail, and signed Webhook configuration, inbound routing, and delivery queues |
 | **NIP Engine** | AI-to-AI bidirectional NLP instruction protocol with safety monitoring |
 | **Identity System** | Tamper-proof cryptographic identity with verification tiers and trust scoring |
 
@@ -154,9 +154,15 @@ npm run doctor -- --live
 
 Reliability behavior added in this pass:
 
-- The first model that passes its connection test becomes Default and
-  Orchestrator when those roles are otherwise empty.
-- A no-model conversation persists actionable guidance instead of crashing.
+- Only enabled models with a successful connection status and currently
+  resolvable credentials receive work. The first model that passes its live
+  test becomes Default and Orchestrator when those roles are otherwise empty.
+- Role changes are atomic; failed targets cannot clear a working role, and
+  disconnect/delete/failure reconciles both roles to another ready model.
+- A conversation with only failed or untested model records persists
+  actionable setup guidance instead of attempting a request or crashing.
+- OpenAI reasoning models, including `gpt-5.6-sol`, use medium reasoning effort
+  unless an internal caller explicitly selects another supported effort.
 - A2A send and stream failures report failed tasks instead of echoing input as
   a successful-looking answer.
 - Protocol webhooks dispatch through the registered handler and return failure
@@ -169,8 +175,8 @@ Reliability behavior added in this pass:
 ## Production-Shaped Docker Deployment
 
 Create `.env` from `.env.example`, then set unique values for
-`ULTRA_API_KEY`, `ENCRYPTION_KEY`, and `TEMPORAL_DB_PASSWORD`. Generate the two
-application secrets independently:
+`ULTRA_API_KEY` and `ENCRYPTION_KEY`. Generate the two application secrets
+independently:
 
 ```bash
 npm run gen:key
@@ -183,11 +189,10 @@ Open `http://127.0.0.1:5000/` and enter the configured `ULTRA_API_KEY` at
 the owner-access screen. The browser validates it against the local server and
 keeps it only in that tab's `sessionStorage`; closing the tab ends the session.
 
-The stack runs the HTTP/gRPC application, Redis, Temporal, PostgreSQL, and a
-separate Temporal worker. Host-published ports bind to loopback. SQLite state is
-stored in the `app-data` volume; Temporal state is stored in
-`temporal-postgres-data`. Terminate inbound HTTPS at a trusted reverse proxy or
-the optional Cloudflare Tunnel profile:
+The standard stack runs the HTTP/gRPC application and Redis. Host-published
+ports bind to loopback, SQLite state is stored in the `app-data` volume, and
+Redis uses AOF persistence in `redis-data`. Terminate inbound HTTPS at a trusted
+reverse proxy or the optional Cloudflare Tunnel profile:
 
 ```bash
 docker compose --profile tunnel up -d --build
@@ -221,11 +226,10 @@ set the production variables below, then run `npm run build && npm start`.
 | `REDIS_URL` or `REDIS_HOST`/`REDIS_PORT` | Redis connection; host/port default to `localhost:6379`. |
 | `REDIS_CACHE_PERSIST` | Set `true` to persist the model-response cache through Redis. |
 | `REQUIRE_TASK_QUEUE` | Production requires the queue unless explicitly set to `0`; `1` requires it in other modes. |
-| `TEMPORAL_ADDRESS`, `TEMPORAL_TASK_QUEUE` | Temporal endpoint and queue; defaults `localhost:7233` and `ultra-computer`. |
-| `RUN_TEMPORAL_WORKER` | Set `1` in the dedicated worker process. |
-| `TEMPORAL_DB_PASSWORD`, `TEMPORAL_PORT`, `TEMPORAL_UI_PORT` | Compose Temporal database secret and loopback ports. |
+| `TEMPORAL_ADDRESS`, `TEMPORAL_TASK_QUEUE`, `RUN_TEMPORAL_WORKER` | Used only by the optional `temporal-proof` profile and proof worker. Normal application messages do not dispatch through Temporal. |
+| `TEMPORAL_DB_PASSWORD`, `TEMPORAL_PORT`, `TEMPORAL_UI_PORT` | Optional `temporal-proof` profile database secret and loopback ports. |
 | `SLACK_SIGNING_SECRET`, `GMAIL_PUSH_TOKEN`, `GITHUB_WEBHOOK_SECRET` | Optional webhook verification secrets. Unconfigured receivers reject requests outside development. |
-| `OAUTH_REDIRECT_BASE_URL` | Public base URL used to construct connector OAuth callbacks. |
+| `OAUTH_REDIRECT_BASE_URL` | Public HTTPS base URL used to construct connector OAuth callbacks; required before OAuth can start in production. |
 | `TUNNEL_TOKEN` | Optional Cloudflare Tunnel token for the `tunnel` profile. |
 | `BROWSER_POOL_SIZE` | Number of pre-warmed browser contexts; default `2`. |
 | `ULTRA_POLICY_DIR`, `ULTRA_POLICY_AUDIT_FILE` | Policy files and JSONL audit destinations. |
@@ -288,6 +292,19 @@ replacement of pinned models remain intentionally parked in `PARKED.md`.
   requires HTTPS in production unless explicitly excepted.
 - The Compose app is non-root and read-only with writable state mounted only at
   designated volumes. It intentionally does not mount the Docker socket.
+- File transforms accept only files under the canonical `sandbox/` root and
+  publish through bounded temporary files. The code interpreter never runs on
+  the application host: it requires the Docker sandbox and fails closed when
+  Docker is unavailable. Runtime package installation is not supported; use a
+  reviewed sandbox image containing the required dependencies.
+- Browser automation governs every navigation and subresource. Typed values
+  are kept only for the immediate page action, are excluded from audits and
+  persistence, and disable unrestricted evaluation/PDF export for that session.
+- Slack, Gmail and GitHub callbacks bypass the owner key only to reach their
+  provider-specific signature/token verifier. Generic inbound webhooks require
+  `X-Ultra-Timestamp` (Unix seconds) and `X-Ultra-Signature` set to
+  `sha256=HMAC_SHA256(webhookSecret, timestamp + "." + rawBody)`; timestamps
+  outside five minutes are rejected.
 - This is a single-owner API-key boundary. Multi-user RBAC and tenant isolation
   are not implemented; see `PARKED.md`.
 
@@ -315,10 +332,18 @@ the command name as blanket live proof.
 `npm run live:docker` builds and runs a clean Linux production container from a version-pinned Node base image as a non-root runtime user, then exercises selected real HTTP paths. The image installs the Chromium runtime used by the Playwright browser tool. It is Docker live-local proof, not Hyper-V/Azure VM proof and not proof of real third-party provider behavior. Immutable multi-architecture base-image digests remain tracked in PARK-0004. Set `LIVE_DOCKER_CLEAN_IMAGE=true` to remove the local proof image after the run.
 
 Durable execution status is tracked in `docs/DURABLE_EXECUTION_GATE.md` and
-`reports/durable-execution-readiness.md`. The production-shaped Compose gate
-proves real Redis dispatch and a real three-activity Temporal workflow with
-history and idempotent result retrieval. It does not yet prove recovery from a
-worker terminated during an in-flight activity; that chaos case is PARK-0008.
+`reports/durable-execution-readiness.md`. BullMQ dispatch, the durable run
+ledger, and duplicate side-effect admission are application paths. The
+optional `temporal-proof` profile proves only a self-contained three-activity
+sample; normal messages do not use it, so it is not application crash-resume
+evidence. Start that isolated proof environment with
+`docker compose --profile temporal-proof up -d`.
+
+Protocol compatibility is recorded in `docs/PROTOCOL_STATUS.md`. MCP uses the
+current stable 2025-11-25 Streamable HTTP contract. A2A external routes return
+HTTP 501 because the current A2A specification is 1.0 while the retained legacy
+engine is 0.3; Ultra Computer does not advertise the obsolete engine as
+interoperable.
 
 ---
 

@@ -1,16 +1,15 @@
 /**
  * temporalWorker.ts
  *
- * Temporal worker that registers orchestrator steps as durable activities.
- * Run this alongside the main server to enable production-grade durable execution:
+ * Proof-only Temporal worker for the current whole-orchestrator activity.
+ * Normal application messages are handled by BullMQ/direct execution and do
+ * not schedule this workflow. Do not use this worker as production durability
+ * evidence until orchestration is split into idempotent, resumable activities.
  *
  *   TEMPORAL_ADDRESS=localhost:7233 npm run temporal:worker
  *
- * With the worker running, each /api/conversations/:id/messages request:
- * 1. Enqueues a Temporal workflow (not just a BullMQ job)
- * 2. The workflow calls activities: memoryRecall, skillMatch, plan, toolCall, synthesize
- * 3. If the worker crashes at any step, Temporal resumes from the last completed activity
- * 4. Completed activities are NOT re-executed (event history prevents duplication)
+ * Starting this worker only registers the proof workflow. A separate proof
+ * client must schedule it explicitly.
  *
  * Requirements:
  *   - Temporal server running (docker compose up temporal)

@@ -1,6 +1,6 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { once } from "node:events";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   AnthropicAdapter,
   collectNormalizedEvents,
@@ -8,6 +8,7 @@ import {
   OpenAIResponsesAdapter,
   type ModelRequest,
 } from "../../server/models/index.js";
+import { connectionTestRequest } from "../../server/modelRouter.js";
 
 interface CapturedRequest {
   method: string;
@@ -17,6 +18,11 @@ interface CapturedRequest {
 }
 
 const servers: http.Server[] = [];
+const previousLocalEgressAllowlist = process.env.ULTRA_LOCAL_EGRESS_ALLOWLIST;
+
+beforeEach(() => {
+  process.env.ULTRA_LOCAL_EGRESS_ALLOWLIST = "127.0.0.1";
+});
 
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
@@ -77,9 +83,57 @@ afterEach(async () => {
     server.close();
     await once(server, "close");
   }));
+  if (previousLocalEgressAllowlist === undefined) {
+    delete process.env.ULTRA_LOCAL_EGRESS_ALLOWLIST;
+  } else {
+    process.env.ULTRA_LOCAL_EGRESS_ALLOWLIST = previousLocalEgressAllowlist;
+  }
 });
 
 describe("provider adapter protocol contracts", () => {
+  it("serializes the real connection probe within OpenAI Responses limits", async () => {
+    const fixture = await contractServer((_request, response) => {
+      json(response, {
+        id: "resp_probe",
+        object: "response",
+        created_at: 1,
+        status: "completed",
+        error: null,
+        incomplete_details: null,
+        instructions: null,
+        metadata: {},
+        model: "future-model",
+        output_text: "pong",
+        output: [],
+        usage: {
+          input_tokens: 6,
+          output_tokens: 1,
+          total_tokens: 7,
+          input_tokens_details: { cached_tokens: 0 },
+          output_tokens_details: { reasoning_tokens: 0 },
+        },
+      });
+    });
+    const adapter = new OpenAIResponsesAdapter({
+      apiKey: "contract-test-key",
+      baseURL: `${fixture.baseURL}/v1`,
+    });
+
+    await adapter.generate(connectionTestRequest({ modelId: "future-model" }), {
+      requestId: "connection-probe-contract",
+    });
+
+    expect(fixture.requests).toHaveLength(1);
+    expect(fixture.requests[0]).toMatchObject({
+      path: "/v1/responses",
+      body: {
+        model: "future-model",
+        max_output_tokens: 64,
+        store: false,
+      },
+    });
+  });
+
   it("uses OpenAI Responses natively with multimodal input and tool calls", async () => {
     const fixture = await contractServer((_request, response) => {
       json(response, {

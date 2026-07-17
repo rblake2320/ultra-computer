@@ -42,6 +42,15 @@ import {
 
 export function registerAutonomyRoutes(app: Express) {
 
+  const rejectUnsupportedCronExecution = (taskType: unknown, res: any): boolean => {
+    if (taskType === undefined || taskType === "health_check") return false;
+    res.status(501).json({
+      error: `Cron task type "${String(taskType)}" is not implemented. Only health_check jobs execute in this release.`,
+      supportedTaskTypes: ["health_check"],
+    });
+    return true;
+  };
+
   // ═══════════════════════════════════════════════════════════════════════════
   // HEALTH & WATCHDOG
   // ═══════════════════════════════════════════════════════════════════════════
@@ -168,6 +177,7 @@ export function registerAutonomyRoutes(app: Express) {
 
   app.post("/api/autonomy/cron", (req, res) => {
     try {
+      if (rejectUnsupportedCronExecution(req.body?.taskType, res)) return;
       const job = createCronJob(req.body);
       res.json(job);
     } catch (err: any) {
@@ -177,6 +187,7 @@ export function registerAutonomyRoutes(app: Express) {
 
   app.patch("/api/autonomy/cron/:id", (req, res) => {
     try {
+      if (rejectUnsupportedCronExecution(req.body?.taskType, res)) return;
       const job = updateCronJob(req.params.id, req.body);
       res.json(job);
     } catch (err: any) {
@@ -187,6 +198,9 @@ export function registerAutonomyRoutes(app: Express) {
   app.post("/api/autonomy/cron/:id/toggle", (req, res) => {
     const enabled = req.body.enabled !== undefined ? Boolean(req.body.enabled) : undefined;
     if (enabled === undefined) return res.status(400).json({ error: "enabled field required" });
+    const existing = getCronJob(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Cron job not found" });
+    if (enabled && rejectUnsupportedCronExecution(existing.taskType, res)) return;
     const job = toggleJob(req.params.id, enabled);
     res.json(job);
   });

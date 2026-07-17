@@ -10,13 +10,15 @@
 
 import fs from "fs";
 import path from "path";
-import https from "https";
-import http from "http";
+import crypto from "node:crypto";
 import OpenAI from "openai";
 import { storage } from "./storage.js";
+import { isModelRoutable } from "./modelReadiness.js";
 import type { ToolSchema, ToolResult } from "./tools.js";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 import { redactString } from "./redaction.js";
+import { governedFetch } from "./governedFetch.js";
+import { createGovernedProviderFetch } from "./models/providerFetch.js";
 import {
   imageReservationCostNanoUsd,
   reserveFixedCost,
@@ -27,6 +29,7 @@ import {
 
 const SANDBOX_DIR = path.join(process.cwd(), "sandbox");
 const IMAGES_DIR = path.join(SANDBOX_DIR, "images");
+export const MAX_GENERATED_IMAGE_BYTES = 25 * 1024 * 1024;
 
 function ensureDirs() {
   if (!fs.existsSync(SANDBOX_DIR)) fs.mkdirSync(SANDBOX_DIR, { recursive: true });
@@ -118,7 +121,7 @@ async function executeGenerateImage(
 
   // ── Find an image-capable model ───────────────────────────────────────────
 
-  const allModels = storage.getModels().filter((m) => m.enabled);
+  const allModels = storage.getModels().filter(isModelRoutable);
 
   let imageModel = allModels.find((m) => {
     // Match by explicit model ID if caller provided one
@@ -133,8 +136,8 @@ async function executeGenerateImage(
 
   if (!imageModel) {
     const suggestion = args.model
-      ? `No enabled model with ID '${args.model}' and 'image' capability found.`
-      : "No enabled models with 'image' capability found.";
+      ? `No connected model with ID '${args.model}' and 'image' capability found.`
+      : "No connected models with 'image' capability found.";
     return {
       success: false,
       output: "",
@@ -172,29 +175,11 @@ async function executeGenerateImage(
 
   const clientOptions: ConstructorParameters<typeof OpenAI>[0] = {
     apiKey: imageModel.apiKey,
+    fetch: createGovernedProviderFetch(`provider:image:${imageModel.id}`),
+    maxRetries: 0,
   };
   if (imageModel.baseUrl) {
     clientOptions.baseURL = imageModel.baseUrl;
-  }
-
-  const providerUrl = imageModel.baseUrl || "https://api.openai.com/v1";
-  const providerContext = {
-    domain: "network" as const,
-    action: "network:ai_provider",
-    tool: "generate_image",
-    url: providerUrl,
-    method: "POST",
-    metadata: { provider: imageModel.provider, modelId: imageModel.modelId },
-  };
-  const providerDecision = evaluatePolicy(providerContext);
-  writePolicyAudit(providerContext, providerDecision);
-  if (!providerDecision.allowed) {
-    return {
-      success: false,
-      output: "",
-      error: `Policy denied: ${providerDecision.reason}`,
-      durationMs: Date.now() - start,
-    };
   }
 
   const openai = new OpenAI(clientOptions);
@@ -225,7 +210,6 @@ async function executeGenerateImage(
       n,
       size: size as OpenAI.Images.ImageGenerateParams["size"],
       quality: quality as OpenAI.Images.ImageGenerateParams["quality"],
-      response_format: "url",
     });
   } catch (err: any) {
     // A transport/provider failure after dispatch may still be billable.
@@ -258,14 +242,11 @@ async function executeGenerateImage(
 
   const artifacts: { path: string; type: string }[] = [];
   const savedPaths: string[] = [];
+  const failures: string[] = [];
   const timestamp = Date.now();
 
   for (let i = 0; i < imageResponse.data.length; i++) {
     const imageData = imageResponse.data[i];
-    const imageUrl = imageData.url;
-
-    if (!imageUrl) continue;
-
     const filename = `generated_${timestamp}_${i + 1}.png`;
     const outputPath = path.join(IMAGES_DIR, filename);
 
@@ -282,18 +263,30 @@ async function executeGenerateImage(
       if (!fileDecision.allowed) {
         throw new Error(`Policy denied: ${fileDecision.reason}`);
       }
-      await downloadFile(imageUrl, outputPath);
-      artifacts.push({ path: outputPath, type: "image/png" });
-      savedPaths.push(`images/${filename}`);
+      const saved = await materializeGeneratedImage(
+        imageData,
+        outputPath,
+        `image-generation:${timestamp}:${i}`,
+      );
+      artifacts.push({ path: saved.path, type: saved.mediaType });
+      savedPaths.push(`images/${path.basename(saved.path)}`);
     } catch (downloadErr: any) {
-      // If download fails, record the URL so the agent can still use it
-      savedPaths.push(redactString(`(download failed, URL: ${imageUrl})`));
+      failures.push(`Image ${i + 1}: ${redactString(downloadErr?.message || "could not be saved")}`);
     }
+  }
+
+  if (artifacts.length === 0) {
+    return {
+      success: false,
+      output: "",
+      error: `The provider returned image data, but no image could be saved. ${failures.join(" ")}`.trim(),
+      durationMs: Date.now() - start,
+    };
   }
 
   const revisedPrompt = imageResponse.data[0]?.revised_prompt;
   const outputLines: string[] = [
-    `Generated ${savedPaths.length} image(s) using model '${imageModel.name}' (${imageModel.modelId}).`,
+    `Generated and saved ${savedPaths.length} image(s) using model '${imageModel.name}' (${imageModel.modelId}).`,
     `Prompt: ${redactString(prompt)}`,
   ];
   if (revisedPrompt && revisedPrompt !== prompt) {
@@ -302,6 +295,10 @@ async function executeGenerateImage(
   outputLines.push("");
   outputLines.push("Saved files:");
   savedPaths.forEach((p) => outputLines.push(`  • ${p}`));
+  if (failures.length) {
+    outputLines.push("", "Some provider results could not be saved:");
+    failures.forEach((failure) => outputLines.push(`  • ${failure}`));
+  }
 
   return {
     success: true,
@@ -314,66 +311,79 @@ async function executeGenerateImage(
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Download a file from a URL and save it to disk.
- * Uses Node's built-in http/https modules to avoid extra dependencies.
+ * Decode provider image bytes or download a provider URL through governed,
+ * DNS-pinned egress. Writes atomically so failed operations leave no artifact.
  */
-function downloadFile(url: string, dest: string, hopCount = 0): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const parsedUrl = new URL(url);
-    const policyContext = {
-      domain: "network" as const,
-      action: "network:image_download",
-      tool: "generate_image",
-      url: parsedUrl.toString(),
-      method: "GET",
-      metadata: { dest, hopCount },
-    };
-    const policyDecision = evaluatePolicy(policyContext);
-    writePolicyAudit(policyContext, policyDecision);
-    if (!policyDecision.allowed) {
-      reject(new Error(`Policy denied: ${policyDecision.reason}`));
-      return;
+export function decodeGeneratedImageBase64(
+  encoded: string,
+  maxBytes = MAX_GENERATED_IMAGE_BYTES,
+): Buffer {
+  const normalized = encoded.replace(/\s+/g, "");
+  if (!normalized || !/^[A-Za-z0-9+/]*={0,2}$/.test(normalized) || normalized.length % 4 !== 0) {
+    throw new Error("Provider returned invalid base64 image data");
+  }
+  if (normalized.length > Math.ceil(maxBytes / 3) * 4) {
+    throw new Error(`Generated image exceeds the ${maxBytes}-byte limit`);
+  }
+  const bytes = Buffer.from(normalized, "base64");
+  if (!bytes.length || bytes.length > maxBytes) {
+    throw new Error(`Generated image exceeds the ${maxBytes}-byte limit`);
+  }
+  return bytes;
+}
+
+export async function materializeGeneratedImage(
+  image: { url?: string | null; b64_json?: string | null },
+  dest: string,
+  sessionId: string,
+): Promise<{ path: string; mediaType: string }> {
+  let bytes: Buffer;
+  if (image.b64_json) {
+    bytes = decodeGeneratedImageBase64(image.b64_json);
+  } else if (image.url) {
+    const response = await governedFetch(
+      image.url,
+      { method: "GET", headers: { Accept: "image/*" } },
+      sessionId,
+      "network",
+      "image_download",
+      { timeoutMs: 60_000, maxRedirects: 5, maxResponseBytes: MAX_GENERATED_IMAGE_BYTES },
+    );
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} downloading generated image`);
     }
+    const contentType = response.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
+    if (contentType && !contentType.startsWith("image/")) {
+      throw new Error(`Provider image URL returned unsupported content type '${contentType}'`);
+    }
+    bytes = Buffer.from(await response.arrayBuffer());
+    if (!bytes.length) throw new Error("Provider image URL returned an empty response");
+  } else {
+    throw new Error("Provider result contained neither image bytes nor an image URL");
+  }
 
-    const client = parsedUrl.protocol === "https:" ? https : http;
+  const format = detectGeneratedImageFormat(bytes);
+  const finalPath = dest.replace(/\.[^.\\/]+$/, format.extension);
+  const temporaryPath = `${finalPath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    await fs.promises.writeFile(temporaryPath, bytes, { flag: "wx", mode: 0o600 });
+    await fs.promises.rename(temporaryPath, finalPath);
+    return { path: finalPath, mediaType: format.mediaType };
+  } catch (error) {
+    await fs.promises.rm(temporaryPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
 
-    const request = client.get(url, { timeout: 60_000 }, (response) => {
-      // Follow redirects (up to 5 hops)
-      if (
-        (response.statusCode === 301 ||
-          response.statusCode === 302 ||
-          response.statusCode === 307 ||
-          response.statusCode === 308) &&
-        response.headers.location
-      ) {
-        response.destroy();
-        if (hopCount >= 5) {
-          reject(new Error('Too many redirects (max 5)'));
-          return;
-        }
-        const nextUrl = new URL(response.headers.location, parsedUrl).toString();
-        downloadFile(nextUrl, dest, hopCount + 1).then(resolve, reject);
-        return;
-      }
-
-      if (response.statusCode && response.statusCode >= 400) {
-        reject(new Error(`HTTP ${response.statusCode} downloading image`));
-        return;
-      }
-
-      const file = fs.createWriteStream(dest);
-      response.pipe(file);
-      file.on("finish", () => file.close((err) => (err ? reject(err) : resolve())));
-      file.on("error", (err) => {
-        fs.unlink(dest, () => {}); // clean up partial file
-        reject(err);
-      });
-    });
-
-    request.on("error", reject);
-    request.on("timeout", () => {
-      request.destroy();
-      reject(new Error("Download timed out (60s)"));
-    });
-  });
+function detectGeneratedImageFormat(bytes: Buffer): { extension: string; mediaType: string } {
+  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    return { extension: ".png", mediaType: "image/png" };
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return { extension: ".jpg", mediaType: "image/jpeg" };
+  }
+  if (bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP") {
+    return { extension: ".webp", mediaType: "image/webp" };
+  }
+  throw new Error("Provider returned bytes that are not a supported PNG, JPEG, or WebP image");
 }

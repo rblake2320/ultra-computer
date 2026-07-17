@@ -1,15 +1,9 @@
 import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { KeyRound, LoaderCircle, ShieldCheck } from "lucide-react";
 import { browserApiKey, setBrowserApiKey } from "@/lib/queryClient";
+import { validateOwnerApiKey } from "@/lib/ownerAuth";
 
 type AccessState = "checking" | "granted" | "required";
-
-async function validateApiKey(key: string): Promise<boolean> {
-  const response = await fetch("/api/app-config", {
-    headers: key ? { Authorization: `Bearer ${key}` } : {},
-  });
-  return response.status !== 401 && response.status !== 403;
-}
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [access, setAccess] = useState<AccessState>("checking");
@@ -19,7 +13,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    validateApiKey(browserApiKey())
+    validateOwnerApiKey(browserApiKey())
       .then((valid) => active && setAccess(valid ? "granted" : "required"))
       .catch(() => {
         if (!active) return;
@@ -39,7 +33,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     setSubmitting(true);
     setError(null);
     try {
-      if (!await validateApiKey(candidate)) {
+      if (!await validateOwnerApiKey(candidate)) {
         setError("That API key was rejected by the server.");
         return;
       }

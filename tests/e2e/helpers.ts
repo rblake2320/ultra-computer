@@ -37,6 +37,7 @@ export async function startServer(databasePath: string, experimental = false): P
       ENCRYPTION_KEY: "a".repeat(64),
       ULTRA_API_KEY: API_KEY,
       ULTRA_EXPERIMENTAL: experimental ? "1" : "0",
+      ULTRA_LOCAL_EGRESS_ALLOWLIST: "127.0.0.1",
     },
     stdio: "pipe",
     windowsHide: true,

@@ -32,11 +32,13 @@ import {
   responseWithToolCalls,
   textFromContent,
 } from "./adapterUtils.js";
+import { createGovernedProviderFetch } from "./providerFetch.js";
 
 export interface OpenAIAdapterConfig {
   apiKey: string;
   baseURL?: string;
   timeoutMs?: number;
+  sessionId?: string;
 }
 
 function createClient(config: OpenAIAdapterConfig): OpenAI {
@@ -44,6 +46,10 @@ function createClient(config: OpenAIAdapterConfig): OpenAI {
     apiKey: config.apiKey,
     baseURL: config.baseURL,
     timeout: config.timeoutMs ?? 120_000,
+    fetch: createGovernedProviderFetch(config.sessionId ?? "provider:openai"),
+    // Hidden SDK retries can create additional paid requests outside the
+    // application's reservation model. Retry policy belongs to the router.
+    maxRetries: 0,
   });
 }
 

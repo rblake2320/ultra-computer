@@ -9,15 +9,19 @@ import { modelService } from "./services/modelService.js";
 import { knowledgeService } from "./services/knowledgeService.js";
 import { validate } from "./validateRequest.js";
 import { insertConversationSchema, insertModelSchema } from "@shared/schema";
-import { runOrchestrator, subscribeToConversation, unsubscribeFromConversation } from "./orchestrator.js";
+import {
+  replayConversationEvents,
+  runOrchestrator,
+  subscribeToConversation,
+  unsubscribeFromConversation,
+} from "./orchestrator.js";
 import { testModelConnection } from "./modelRouter.js";
 import { connectModel, disconnectModel, testConnection, quickAdd, discoverEnvVars, getProviderCatalog, PROVIDER_REGISTRY } from "./modelConnections.js";
-import { seedConnectors, connectWithApiKey, callMCPTool, validateConnectorKey, getConnectorDef, BUILT_IN_CONNECTORS } from "./connectorRegistry.js";
+import { seedConnectors, connectWithApiKey, callMCPTool, validateConnectorKey, validateMCPConnection, getConnectorDef, BUILT_IN_CONNECTORS } from "./connectorRegistry.js";
 import { seedBuiltInSkills, buildSkillVector, scheduleEmbeddingUpgrade } from "./skillSystem.js";
 import { memoryManager } from "./memoryManager.js";
 import { dockerSandbox } from "./tools.js";
 import { registerFileRoutes } from "./fileRoutes.js";
-import { registerOAuthRoutes } from "./oauthFlow.js";
 import { registerExportRoutes } from "./exportSession.js";
 import { registerBrowserRoutes } from "./browserRoutes.js";
 import { registerMarketplaceRoutes } from "./marketplaceRoutes.js";
@@ -44,6 +48,8 @@ import { registerSwarmRoutes } from "./swarmRoutes.js";
 import { swarmEngine } from "./swarmEngine.js";
 import { warmBrowserPool } from "./browserTool.js";
 import { getSpendStatus, HARD_MAX_SPEND_USD } from "./spendGuard.js";
+import { experimentalFeaturesEnabled } from "./experimentalFeatures.js";
+import { prepareSkillScriptCopy } from "./skillScriptActions.js";
 
 const sseConnectionsPerIp = new Map<string, number>();
 const MAX_SSE_PER_IP = 5;
@@ -79,11 +85,36 @@ function signOAuthState(payload: object): string {
 function verifyOAuthState(state: string): { connectorId: string; ts: number } | null {
   try {
     const { d, h } = JSON.parse(Buffer.from(state, "base64url").toString());
+    if (typeof d !== "string" || typeof h !== "string") return null;
     const expected = crypto.createHmac("sha256", OAUTH_STATE_SECRET).update(d).digest("hex");
-    if (!crypto.timingSafeEqual(Buffer.from(h), Buffer.from(expected))) return null;
-    return JSON.parse(d);
+    const actualBuffer = Buffer.from(h);
+    const expectedBuffer = Buffer.from(expected);
+    if (actualBuffer.length !== expectedBuffer.length || !crypto.timingSafeEqual(actualBuffer, expectedBuffer)) return null;
+    const decoded = JSON.parse(d);
+    if (typeof decoded?.connectorId !== "string" || !Number.isFinite(decoded?.ts)) return null;
+    return decoded;
   } catch {
     return null;
+  }
+}
+
+function connectorOAuthRedirectUri(req: { protocol: string; get(name: string): string | undefined }): { uri?: string; error?: string } {
+  const configuredBase = process.env.OAUTH_REDIRECT_BASE_URL?.trim();
+  if (!configuredBase && process.env.NODE_ENV === "production") {
+    return { error: "OAUTH_REDIRECT_BASE_URL is required for connector OAuth in production" };
+  }
+  const base = configuredBase || `${req.protocol}://${req.get("host")}`;
+  try {
+    const parsed = new URL(base);
+    if (process.env.NODE_ENV === "production" && parsed.protocol !== "https:") {
+      return { error: "OAUTH_REDIRECT_BASE_URL must use HTTPS in production" };
+    }
+    if (!configuredBase && !["http:", "https:"].includes(parsed.protocol)) {
+      return { error: "Invalid OAuth redirect protocol" };
+    }
+    return { uri: `${parsed.origin}${parsed.pathname.replace(/\/$/, "")}/api/connectors/oauth/callback` };
+  } catch {
+    return { error: "OAUTH_REDIRECT_BASE_URL is invalid" };
   }
 }
 
@@ -119,14 +150,13 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   // ─── Register modular route groups ─────────────────────────────────────────
   registerFileRoutes(app);
-  registerOAuthRoutes(app);
   registerExportRoutes(app);
   registerBrowserRoutes(app);
   registerProtocolRoutes(app);
   registerMessagingRoutes(app);
   registerCacheRoutes(app);
 
-  const experimental = process.env.ULTRA_EXPERIMENTAL === "1";
+  const experimental = experimentalFeaturesEnabled();
   app.get("/api/app-config", (_req, res) => res.json({ experimental }));
 
   if (experimental) {
@@ -141,7 +171,10 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     startCheckpointHeartbeats();
     startScheduler(async (job) => {
       if (job.taskType === "health_check") return JSON.stringify(getHealthStatus());
-      return `Job ${job.name} executed`;
+      throw new Error(
+        `Cron task type "${job.taskType}" is not implemented. ` +
+        "Only health_check jobs execute in this release."
+      );
     });
     startLearningLoop();
     startAutoImproveLoop();
@@ -205,8 +238,12 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   app.post("/api/model-catalog/sync", async (req, res) => {
     const provider = typeof req.body?.provider === "string" ? req.body.provider.trim() : "";
     if (!provider) return res.status(400).json({ error: "provider is required" });
+    const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : undefined;
+    const baseUrl = typeof req.body?.baseUrl === "string" ? req.body.baseUrl.trim() : undefined;
+    if (apiKey && apiKey.length > 4096) return res.status(400).json({ error: "apiKey is too long" });
+    if (baseUrl && baseUrl.length > 2048) return res.status(400).json({ error: "baseUrl is too long" });
     try {
-      res.json(await modelService.syncCatalog(provider));
+      res.json(await modelService.syncCatalog(provider, { apiKey, baseUrl }));
     } catch (error: any) {
       const message = error instanceof Error ? error.message : "Model catalog sync failed";
       const status = /Unknown provider|No configured credentials/.test(message) ? 400 : 502;
@@ -238,13 +275,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (!name || !provider || !modelId) return res.status(400).json({ error: "name, provider, modelId required" });
     if (typeof name !== "string" || name.length > 500) return res.status(400).json({ error: "name must be a string (max 500 chars)" });
     if (typeof modelId !== "string" || modelId.length > 500) return res.status(400).json({ error: "modelId must be a string (max 500 chars)" });
-
-    // If setting as default, unset others
-    if (isDefault) {
-      storage.getModels().forEach(m => storage.updateModel(m.id, { isDefault: false }));
-    }
-    if (isOrchestrator) {
-      storage.getModels().forEach(m => storage.updateModel(m.id, { isOrchestrator: false }));
+    if (isDefault || isOrchestrator) {
+      return res.status(400).json({ error: "Connect and successfully test a model before assigning default or orchestrator roles" });
     }
 
     let model;
@@ -304,9 +336,6 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       return res.status(e.statusCode ?? 400).json({ error: e.message });
     }
 
-    const { isDefault, isOrchestrator } = input;
-    if (isDefault) storage.getModels().forEach(m => storage.updateModel(m.id, { isDefault: false }));
-    if (isOrchestrator) storage.getModels().forEach(m => storage.updateModel(m.id, { isOrchestrator: false }));
     // Whitelist allowed fields to prevent mass assignment
     const { name, modelId, enabled, speedTier, notes, isDefault: _isDefault, isOrchestrator: _isOrch, contextWindow, capabilities } = input;
     const allowedUpdate: Record<string, any> = {};
@@ -321,7 +350,10 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (capabilities !== undefined) allowedUpdate.capabilities = capabilities;
     try {
       res.json(modelService.update(req.params.id, allowedUpdate));
-    } catch {
+    } catch (error: any) {
+      if (String(error?.message).startsWith("Only a connected")) {
+        return res.status(409).json({ error: error.message });
+      }
       res.status(404).json({ error: "Model not found" });
     }
   });
@@ -536,8 +568,9 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       unsubscribeFromConversation(convId, send);
     };
 
-    const send = (event: any) => {
+    const send = (event: any, eventId?: number) => {
       try {
+        if (eventId !== undefined) res.write(`id: ${eventId}\n`);
         res.write(`data: ${JSON.stringify(event)}\n\n`);
         eventCount++;
         if (eventCount >= SSE_MAX_EVENTS) {
@@ -553,6 +586,14 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     };
 
     subscribeToConversation(convId, send);
+    const replayAfterRaw = req.get("last-event-id") ?? req.query.lastEventId;
+    const replayAfter = typeof replayAfterRaw === "string" ? Number(replayAfterRaw) : Number.NaN;
+    if (Number.isSafeInteger(replayAfter) && replayAfter >= 0) {
+      for (const buffered of replayConversationEvents(convId, replayAfter)) {
+        send(buffered.event, buffered.id);
+        if (eventCount >= SSE_MAX_EVENTS) break;
+      }
+    }
 
     // Keep-alive ping
     const ping = setInterval(() => {
@@ -737,7 +778,17 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     }
     // For OAuth connectors, store client credentials and return OAuth URL
     const def = getConnectorDef(req.params.id);
+    const connector = storage.getConnector(req.params.id);
+    if (!connector) return res.status(404).json({ error: "Not found" });
     if (def?.type === "oauth" && client_id) {
+      if (typeof client_id !== "string" || client_id.length > 1024) {
+        return res.status(400).json({ error: "client_id must be a string under 1025 characters" });
+      }
+      if (client_secret !== undefined && (typeof client_secret !== "string" || client_secret.length > 4096)) {
+        return res.status(400).json({ error: "client_secret must be a string under 4097 characters" });
+      }
+      const redirect = connectorOAuthRedirectUri(req);
+      if (!redirect.uri) return res.status(503).json({ error: redirect.error });
       const config = JSON.stringify({ client_id, client_secret, ...(apiKey ? { apiKey } : {}), ...extra });
       const updated = storage.updateConnector(req.params.id, {
         status: "pending",
@@ -747,21 +798,39 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       if (!updated) return res.status(404).json({ error: "Not found" });
       // Build OAuth authorization URL
       const state = signOAuthState({ connectorId: req.params.id, ts: Date.now() });
-      const redirectUri = `${req.protocol}://${req.get("host")}/api/connectors/oauth/callback`;
       const authUrl = new URL(def.oauthAuthUrl!);
       authUrl.searchParams.set("client_id", client_id);
-      authUrl.searchParams.set("redirect_uri", redirectUri);
+      authUrl.searchParams.set("redirect_uri", redirect.uri);
       authUrl.searchParams.set("response_type", "code");
       authUrl.searchParams.set("state", state);
       if (def.scopes?.length) authUrl.searchParams.set("scope", def.scopes.join(" "));
       return res.json({ ...updated, config: undefined, oauthUrl: authUrl.toString(), state });
     }
-    // For API key connectors, validate the key first
-    if (apiKey && def?.validateUrl) {
+    if (connector.type === "oauth") {
+      return res.status(400).json({ error: "client_id is required to start the OAuth flow" });
+    }
+    // API-key connectors are never marked connected without a real provider check.
+    if (connector.type === "api_key") {
+      if (!apiKey) {
+        return res.status(400).json({ error: "apiKey is required" });
+      }
       const validation = await validateConnectorKey(req.params.id, apiKey);
       if (!validation.valid) {
-        return res.status(400).json({ error: validation.error || "API key validation failed" });
+        return res.status(422).json({ error: validation.error || "API key validation failed" });
       }
+    }
+    if (connector.type === "mcp") {
+      const resolvedServerUrl = serverUrl || connector.mcpServerUrl || def?.mcpServerUrl;
+      if (!resolvedServerUrl || typeof resolvedServerUrl !== "string") {
+        return res.status(400).json({ error: "A Streamable HTTP MCP server URL is required" });
+      }
+      const validation = await validateMCPConnection(req.params.id, resolvedServerUrl, apiKey);
+      if (!validation.valid) {
+        return res.status(422).json({ error: validation.error || "MCP initialization failed" });
+      }
+    }
+    if (!def && !["api_key", "mcp"].includes(connector.type)) {
+      return res.status(422).json({ error: `Connector type '${connector.type}' has no implemented connection flow` });
     }
     const updated = connectWithApiKey(req.params.id, apiKey || "", { serverUrl, ...extra });
     if (!updated) return res.status(404).json({ error: "Not found" });
@@ -783,7 +852,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       return res.redirect("/?connector_error=invalid_state");
     }
     connectorId = decoded.connectorId;
-    if (Date.now() - decoded.ts > 10 * 60 * 1000) {
+    const stateAge = Date.now() - decoded.ts;
+    if (stateAge < -60_000 || stateAge > 10 * 60 * 1000) {
       return res.redirect("/?connector_error=state_expired");
     }
     const connector = storage.getConnector(connectorId);
@@ -793,14 +863,15 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     let config: Record<string, any> = {};
     try { config = JSON.parse(connector.config || "{}"); } catch { config = {}; }
     try {
-      const redirectUri = `${req.protocol}://${req.get("host")}/api/connectors/oauth/callback`;
+      const redirect = connectorOAuthRedirectUri(req);
+      if (!redirect.uri) return res.redirect("/?connector_error=redirect_not_configured");
       const tokenRes = await governedFetch(def.oauthTokenUrl, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
         body: new URLSearchParams({
           grant_type: "authorization_code",
           code: String(code),
-          redirect_uri: redirectUri,
+          redirect_uri: redirect.uri,
           client_id: config.client_id || "",
           client_secret: config.client_secret || "",
         }).toString(),
@@ -809,8 +880,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
         maxResponseBytes: 1024 * 1024,
       });
       if (!tokenRes.ok) {
-        const errText = await tokenRes.text();
-        console.error(`[connector oauth] Token exchange failed for ${connectorId}:`, errText);
+        await tokenRes.text();
+        console.error(`[connector oauth] Token exchange failed for ${connectorId} with HTTP ${tokenRes.status}`);
         return res.redirect(`/?connector_error=token_exchange_failed`);
       }
       const tokenData = await tokenRes.json() as any;
@@ -1033,9 +1104,10 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   app.post("/api/skill-scripts/:id/run", (req, res) => {
     const script = storage.getSkillScript(req.params.id);
     if (!script) return res.status(404).json({ error: "Not found" });
-    storage.incrementSkillScriptUsage(script.id);
-    // Return the script content — the frontend will insert it into a chat as a tool call
-    res.json({ content: script.content, language: script.language, name: script.name });
+    // This endpoint historically claimed to run a script while only returning
+    // its text. Preserve the response fields for existing clients, but make the
+    // operation explicit and do not increment execution usage.
+    res.json(prepareSkillScriptCopy(script));
   });
 
   // ─── Sandbox / Docker ──────────────────────────────────────────────────────
@@ -1074,7 +1146,10 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       if (isNaN(val) || val < 1000 || val > 600_000) return res.status(400).json({ error: "execTimeoutMs must be between 1000 and 600000" });
       update.execTimeoutMs = val;
     }
-    if (networkEnabled !== undefined) update.networkEnabled = Boolean(networkEnabled);
+    if (networkEnabled !== undefined) {
+      if (typeof networkEnabled !== "boolean") return res.status(400).json({ error: "networkEnabled must be a boolean" });
+      update.networkEnabled = networkEnabled;
+    }
     if (maxContainers !== undefined) {
       const val = Number(maxContainers);
       if (isNaN(val) || val < 1 || val > 50) return res.status(400).json({ error: "maxContainers must be between 1 and 50" });
@@ -1085,9 +1160,18 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       if (isNaN(val) || val < 30_000 || val > 3_600_000) return res.status(400).json({ error: "idleTimeoutMs must be between 30000 and 3600000" });
       update.idleTimeoutMs = val;
     }
-    if (enabled !== undefined) update.enabled = Boolean(enabled);
+    if (enabled !== undefined) {
+      if (typeof enabled !== "boolean") return res.status(400).json({ error: "enabled must be a boolean" });
+      update.enabled = enabled;
+    }
 
-    dockerSandbox.updateConfig(update);
+    try {
+      dockerSandbox.updateConfig(update);
+    } catch (error) {
+      return res.status(400).json({
+        error: error instanceof Error ? error.message : "Invalid sandbox configuration",
+      });
+    }
 
     // Persist config to settings
     storage.setSetting("sandbox_config", JSON.stringify(dockerSandbox.getConfig()));

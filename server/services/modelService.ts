@@ -6,10 +6,13 @@ import {
   quickAdd,
   discoverEnvVars,
   getProviderCatalog,
+  reconcileModelRoles,
   type AuthMethod,
 } from "../modelConnections.js";
 import type { Model, InsertModel } from "@shared/schema";
 import { modelCatalogService } from "../models/catalogService.js";
+import type { CatalogSyncCredentials } from "../models/catalogService.js";
+import { isModelRoutable, modelRoutabilityIssue } from "../modelReadiness.js";
 
 /** Safe model — strips sensitive credential fields before returning to clients. */
 export type SafeModel = Omit<Model, "apiKey" | "oauthTokens"> & {
@@ -17,7 +20,7 @@ export type SafeModel = Omit<Model, "apiKey" | "oauthTokens"> & {
   oauthTokens: null;
 };
 
-function sanitize(model: Model): SafeModel {
+export function sanitizeModel(model: Model): SafeModel {
   return {
     ...model,
     apiKey: null,
@@ -27,29 +30,45 @@ function sanitize(model: Model): SafeModel {
 
 export class ModelService {
   list(): SafeModel[] {
-    return storage.getModels().map(sanitize);
+    return storage.getModels().map(sanitizeModel);
   }
 
   get(id: string): SafeModel {
     const model = storage.getModel(id);
     if (!model) throw new Error(`Model ${id} not found`);
-    return sanitize(model);
+    return sanitizeModel(model);
   }
 
-  create(input: InsertModel): Model {
-    return storage.createModel(input);
+  create(input: InsertModel): SafeModel {
+    return sanitizeModel(storage.createModel(input));
   }
 
   update(id: string, input: Partial<InsertModel>): SafeModel {
-    const updated = storage.updateModel(id, input);
+    const existing = storage.getModel(id);
+    if (!existing) throw new Error(`Model ${id} not found`);
+    const prospective = { ...existing, ...input } as Model;
+    if ((input.isDefault === true || input.isOrchestrator === true) && !isModelRoutable(prospective)) {
+      throw new Error(`Only a connected, credential-ready model can hold a core role: ${modelRoutabilityIssue(prospective)}`);
+    }
+    const { isDefault, isOrchestrator, ...ordinary } = input;
+    let updated = Object.keys(ordinary).length ? storage.updateModel(id, ordinary) : existing;
     if (!updated) throw new Error(`Model ${id} not found`);
-    return sanitize(updated);
+    if (isDefault !== undefined || isOrchestrator !== undefined) {
+      updated = storage.setModelRoles(id, { isDefault, isOrchestrator });
+      if (!updated) throw new Error(`Model ${id} not found`);
+    }
+    if (!isModelRoutable(updated) || isDefault === false || isOrchestrator === false) {
+      reconcileModelRoles();
+      updated = storage.getModel(id) ?? updated;
+    }
+    return sanitizeModel(updated);
   }
 
   delete(id: string): void {
     const existing = storage.getModel(id);
     if (!existing) throw new Error(`Model ${id} not found`);
     storage.deleteModel(id);
+    reconcileModelRoles();
   }
 
   async connect(
@@ -74,7 +93,11 @@ export class ModelService {
     authMethod: AuthMethod,
     credentials: { apiKey?: string; envVarName?: string; baseUrl?: string },
   ) {
-    return quickAdd(provider, presetModelId, authMethod, credentials);
+    const result = await quickAdd(provider, presetModelId, authMethod, credentials);
+    return {
+      ...result,
+      model: result.model ? sanitizeModel(result.model) : null,
+    };
   }
 
   getProviders() {
@@ -89,8 +112,8 @@ export class ModelService {
     return modelCatalogService.list(provider);
   }
 
-  syncCatalog(provider: string) {
-    return modelCatalogService.sync(provider);
+  syncCatalog(provider: string, credentials?: CatalogSyncCredentials) {
+    return modelCatalogService.sync(provider, credentials);
   }
 }
 

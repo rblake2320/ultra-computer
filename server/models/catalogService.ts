@@ -19,6 +19,11 @@ interface DiscoveryCredentials {
   baseUrl: string;
 }
 
+export interface CatalogSyncCredentials {
+  apiKey?: string;
+  baseUrl?: string;
+}
+
 export interface CatalogSyncResult {
   provider: string;
   discovered: number;
@@ -34,6 +39,19 @@ function catalogId(provider: string, modelId: string): string {
     .digest("hex")
     .slice(0, 24);
   return `${provider}:${digest}`;
+}
+
+export function resolveSuppliedCatalogCredentials(
+  provider: string,
+  supplied?: CatalogSyncCredentials,
+): DiscoveryCredentials | null {
+  if (!supplied?.apiKey?.trim() && !supplied?.baseUrl?.trim()) return null;
+  const apiKey = supplied.apiKey?.trim() ?? "";
+  const baseUrl = supplied.baseUrl?.trim()
+    || CANONICAL_BASE_URLS[provider]
+    || PROVIDER_REGISTRY[provider]?.defaultBaseUrl;
+  if (!baseUrl || (provider !== "ollama" && !apiKey)) return null;
+  return { apiKey, baseUrl };
 }
 
 function configuredCredentials(provider: string): DiscoveryCredentials | null {
@@ -171,12 +189,18 @@ async function discoverProviderModels(
   provider: string,
   credentials: DiscoveryCredentials,
 ): Promise<ProviderModelDescriptor[]> {
+  const withoutTrailingSlashes = (value: string): string => {
+    let end = value.length;
+    while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
+    return value.slice(0, end);
+  };
+  const baseUrl = withoutTrailingSlashes(credentials.baseUrl);
   let url: string;
   let headers: Record<string, string> = { Accept: "application/json" };
   let parse: (payload: unknown) => ProviderModelDescriptor[];
 
   if (provider === "anthropic") {
-    url = `${credentials.baseUrl.replace(/\/+$/, "")}/v1/models`;
+    url = `${baseUrl}/v1/models`;
     headers = {
       ...headers,
       "anthropic-version": "2023-06-01",
@@ -184,15 +208,15 @@ async function discoverProviderModels(
     };
     parse = parseAnthropicModelList;
   } else if (provider === "google") {
-    url = `${credentials.baseUrl.replace(/\/+$/, "")}/v1beta/models`;
+    url = `${baseUrl}/v1beta/models`;
     headers["x-goog-api-key"] = credentials.apiKey;
     parse = parseGoogleModelList;
   } else if (provider === "ollama") {
-    const base = credentials.baseUrl.replace(/\/v1\/?$/, "").replace(/\/+$/, "");
+    const base = baseUrl.endsWith("/v1") ? baseUrl.slice(0, -3) : baseUrl;
     url = `${base}/api/tags`;
     parse = parseOllamaModelList;
   } else {
-    url = `${credentials.baseUrl.replace(/\/+$/, "")}/models`;
+    url = `${baseUrl}/models`;
     if (credentials.apiKey) headers.Authorization = `Bearer ${credentials.apiKey}`;
     parse = (payload) => parseOpenAIModelList(provider, payload);
   }
@@ -238,11 +262,14 @@ export class ModelCatalogService {
     return storage.getModelCatalog(provider);
   }
 
-  async sync(provider: string): Promise<CatalogSyncResult> {
+  async sync(
+    provider: string,
+    supplied?: CatalogSyncCredentials,
+  ): Promise<CatalogSyncResult> {
     if (!PROVIDER_REGISTRY[provider]) {
       throw new Error(`Unknown provider: ${provider}`);
     }
-    const credentials = configuredCredentials(provider);
+    const credentials = resolveSuppliedCatalogCredentials(provider, supplied) ?? configuredCredentials(provider);
     if (!credentials) {
       throw new Error(`No configured credentials or base URL for provider: ${provider}`);
     }

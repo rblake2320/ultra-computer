@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, connectEventSource } from "../lib/queryClient";
+import {
+  ADDABLE_MESSAGING_CHANNEL_TYPES,
+  type AddableMessagingChannelType,
+  type MessagingChannelAction,
+  performMessagingChannelAction,
+} from "../lib/messagingChannels";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
@@ -179,7 +185,7 @@ function ChannelsTab() {
   const qc = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState<string | null>(null);
-  const [newType, setNewType] = useState<ChannelType>("slack");
+  const [newType, setNewType] = useState<AddableMessagingChannelType>("slack");
   const [newName, setNewName] = useState("");
   const [newConfig, setNewConfig] = useState<Record<string, string>>({});
   const [editConfig, setEditConfig] = useState<Record<string, string>>({});
@@ -201,11 +207,22 @@ function ChannelsTab() {
     onError: (e: Error) => toast({ title: "Failed to add channel", description: e.message, variant: "destructive" }),
   });
 
-  const testMutation = useMutation({
-    mutationFn: (id: string) => apiRequest("POST", `/api/messaging/channels/${id}/test`),
-    onSuccess: (_, id) => toast({ title: `Connection test passed`, description: `Channel ${id}` }),
-    onError: (e: Error, id) =>
-      toast({ title: `Test failed for ${id}`, description: e.message, variant: "destructive" }),
+  const actionMutation = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: MessagingChannelAction }) =>
+      performMessagingChannelAction(apiRequest, id, action),
+    onSuccess: (_, { id, action }) => {
+      qc.invalidateQueries({ queryKey: ["/api/messaging/channels"] });
+      const title = action === "test"
+        ? "Connection test passed"
+        : action === "connect"
+          ? "Channel connected"
+          : "Channel disconnected";
+      toast({ title, description: `Channel ${id}` });
+    },
+    onError: (e: Error, { id, action }) => {
+      const title = action === "test" ? `Test failed for ${id}` : `Channel ${action} failed`;
+      toast({ title, description: e.message, variant: "destructive" });
+    },
   });
 
   const removeMutation = useMutation({
@@ -249,15 +266,16 @@ function ChannelsTab() {
             <div className="space-y-4 pt-2">
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Channel Type</label>
-                <Select value={newType} onValueChange={(v) => { setNewType(v as ChannelType); setNewConfig({}); }}>
+                <Select value={newType} onValueChange={(v) => { setNewType(v as AddableMessagingChannelType); setNewConfig({}); }}>
                   <SelectTrigger data-testid="new-channel-type" className="h-8 text-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="slack">Slack</SelectItem>
-                    <SelectItem value="gmail">Gmail</SelectItem>
-                    <SelectItem value="webhook">Webhook</SelectItem>
-                    <SelectItem value="websocket">WebSocket</SelectItem>
+                    {ADDABLE_MESSAGING_CHANNEL_TYPES.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type.charAt(0).toUpperCase() + type.slice(1)}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -335,12 +353,25 @@ function ChannelsTab() {
                     size="sm"
                     variant="outline"
                     className="text-xs h-7 px-2"
-                    onClick={() => testMutation.mutate(ch.id)}
-                    disabled={testMutation.isPending}
+                    onClick={() => actionMutation.mutate({ id: ch.id, action: "test" })}
+                    disabled={actionMutation.isPending}
                     data-testid={`channel-test-${ch.id}`}
                   >
-                    {testMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+                    {actionMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
                     Test
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-7 px-2"
+                    onClick={() => actionMutation.mutate({
+                      id: ch.id,
+                      action: ch.status === "connected" ? "disconnect" : "connect",
+                    })}
+                    disabled={actionMutation.isPending}
+                    data-testid={`channel-${ch.status === "connected" ? "disconnect" : "connect"}-${ch.id}`}
+                  >
+                    {ch.status === "connected" ? "Disconnect" : "Connect"}
                   </Button>
                   <Dialog open={configOpen === ch.id} onOpenChange={(o) => {
                     setConfigOpen(o ? ch.id : null);

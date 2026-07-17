@@ -85,7 +85,14 @@ interface Webhook {
 
 interface DashboardData {
   protocols: {
-    a2a: { available: boolean; agentCard: AgentCard | null; remoteAgents: RemoteAgent[] };
+    a2a: {
+      available: boolean;
+      agentCard: AgentCard | null;
+      remoteAgents: RemoteAgent[];
+      reason?: string;
+      currentProtocolVersion?: string;
+      legacyEngineVersion?: string;
+    };
     mcp: { available: boolean; servers: MCPServer[] };
     cli: { available: boolean; installedTools: CLITool[] };
     http: { available: boolean; webhooks: Webhook[] };
@@ -218,6 +225,12 @@ function A2ATab({ dashboard }: { dashboard: DashboardData | undefined }) {
 
   return (
     <div className="space-y-4">
+      {!a2aData?.available && a2aData?.reason && (
+        <Alert variant="destructive" className="py-2">
+          <AlertCircle className="w-3 h-3" />
+          <AlertDescription className="text-xs">{a2aData.reason}</AlertDescription>
+        </Alert>
+      )}
       {/* Agent Card */}
       <Card className="p-4">
         <button
@@ -271,7 +284,7 @@ function A2ATab({ dashboard }: { dashboard: DashboardData | undefined }) {
           <Button
             size="sm"
             className="h-8 gap-1.5 text-xs"
-            disabled={!discoverUrl.trim() || discoverMutation.isPending}
+            disabled={!a2aData?.available || !discoverUrl.trim() || discoverMutation.isPending}
             onClick={() => discoverMutation.mutate(discoverUrl.trim())}
             data-testid="a2a-discover-button"
           >

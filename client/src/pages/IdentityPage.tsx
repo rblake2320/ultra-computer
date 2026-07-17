@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
+import {
+  blockIdentityRequest,
+  unblockIdentityPath,
+  verificationApprovalBody,
+  verificationRejectionBody,
+  type IdentityBlockRecord,
+} from "../lib/identityApiContract";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
@@ -75,15 +82,6 @@ interface VerificationRequest {
   submittedAt: number;
   reviewedAt?: number;
   rejectionReason?: string;
-}
-
-interface BlockEntry {
-  id: string;
-  blockedCryptoId: string;
-  displayName?: string;
-  tier?: IdentityTier;
-  reason?: string;
-  blockedAt: number;
 }
 
 interface AuditEntry {
@@ -644,8 +642,11 @@ function DirectoryTab({ myCryptoId }: { myCryptoId: string | null }) {
   const directoryError = directoryQuery.isError;
 
   const blockMutation = useMutation({
-    mutationFn: ({ targetId, reason }: { targetId: string; reason?: string }) =>
-      apiRequest("POST", `/api/identity/${myCryptoId}/blocks`, { targetCryptoId: targetId, reason }),
+    mutationFn: ({ targetId, reason }: { targetId: string; reason?: string }) => {
+      if (!myCryptoId) throw new Error("Register an identity before blocking another identity.");
+      const request = blockIdentityRequest(myCryptoId, targetId, reason);
+      return apiRequest("POST", request.path, request.body);
+    },
     onSuccess: () => {
       toast({ title: "Identity blocked" });
       queryClient.invalidateQueries({ queryKey: [`/api/identity/${myCryptoId}/blocks`] });
@@ -887,8 +888,14 @@ function VerificationTab({ cryptoId }: { cryptoId: string | null }) {
   });
 
   const approveMutation = useMutation({
-    mutationFn: (requestId: string) =>
-      apiRequest("POST", `/api/identity/verifications/${requestId}/approve`, {}),
+    mutationFn: (requestId: string) => {
+      if (!cryptoId) throw new Error("Register an identity before reviewing verification requests.");
+      return apiRequest(
+        "POST",
+        `/api/identity/verifications/${requestId}/approve`,
+        verificationApprovalBody(cryptoId),
+      );
+    },
     onSuccess: () => {
       toast({ title: "Verification approved" });
       queryClient.invalidateQueries({ queryKey: ["/api/identity/verifications"] });
@@ -898,7 +905,13 @@ function VerificationTab({ cryptoId }: { cryptoId: string | null }) {
 
   const rejectMutation = useMutation({
     mutationFn: ({ requestId, reason }: { requestId: string; reason: string }) =>
-      apiRequest("POST", `/api/identity/verifications/${requestId}/reject`, { reason }),
+      cryptoId
+        ? apiRequest(
+            "POST",
+            `/api/identity/verifications/${requestId}/reject`,
+            verificationRejectionBody(cryptoId, reason),
+          )
+        : Promise.reject(new Error("Register an identity before reviewing verification requests.")),
     onSuccess: () => {
       toast({ title: "Verification rejected" });
       setRejectId(null);
@@ -1005,7 +1018,7 @@ function VerificationTab({ cryptoId }: { cryptoId: string | null }) {
                               size="sm"
                               className="h-7 text-xs bg-blue-700 hover:bg-blue-600"
                               onClick={() => approveMutation.mutate(req.id)}
-                              disabled={approveMutation.isPending}
+                              disabled={!cryptoId || approveMutation.isPending}
                             >
                               <CheckCircle2 className="w-3 h-3 mr-1" /> Approve
                             </Button>
@@ -1034,7 +1047,7 @@ function VerificationTab({ cryptoId }: { cryptoId: string | null }) {
                                 size="sm"
                                 variant="destructive"
                                 className="h-8 text-xs"
-                                disabled={!rejectReason.trim() || rejectMutation.isPending}
+                                disabled={!cryptoId || !rejectReason.trim() || rejectMutation.isPending}
                                 onClick={() => rejectMutation.mutate({ requestId: req.id, reason: rejectReason })}
                               >
                                 {rejectMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Confirm Reject"}
@@ -1101,8 +1114,13 @@ function BlockListTab({ cryptoId }: { cryptoId: string | null }) {
   const [blockTarget, setBlockTarget]   = useState("");
   const [blockReason, setBlockReason]   = useState("");
 
-  const blocksQuery = useQuery<{ blocks: BlockEntry[]; blockedByCount: number }>({
+  const blocksQuery = useQuery<IdentityBlockRecord[]>({
     queryKey: [`/api/identity/${cryptoId}/blocks`],
+    enabled: !!cryptoId,
+  });
+
+  const identityDetailsQuery = useQuery<{ blockedByCount: number }>({
+    queryKey: [`/api/identity/${cryptoId}/full`],
     enabled: !!cryptoId,
   });
 
@@ -1112,7 +1130,12 @@ function BlockListTab({ cryptoId }: { cryptoId: string | null }) {
 
   const blockMutation = useMutation({
     mutationFn: (body: { targetCryptoId: string; reason?: string }) =>
-      apiRequest("POST", `/api/identity/${cryptoId}/blocks`, body),
+      cryptoId
+        ? (() => {
+            const request = blockIdentityRequest(cryptoId, body.targetCryptoId, body.reason);
+            return apiRequest("POST", request.path, request.body);
+          })()
+        : Promise.reject(new Error("Register an identity before blocking another identity.")),
     onSuccess: () => {
       toast({ title: "Identity blocked" });
       setBlockTarget("");
@@ -1123,8 +1146,10 @@ function BlockListTab({ cryptoId }: { cryptoId: string | null }) {
   });
 
   const unblockMutation = useMutation({
-    mutationFn: (blockId: string) =>
-      apiRequest("DELETE", `/api/identity/${cryptoId}/blocks/${blockId}`, undefined),
+    mutationFn: (blockedId: string) =>
+      cryptoId
+        ? apiRequest("DELETE", unblockIdentityPath(cryptoId, blockedId), undefined)
+        : Promise.reject(new Error("Register an identity before unblocking another identity.")),
     onSuccess: () => {
       toast({ title: "Identity unblocked" });
       queryClient.invalidateQueries({ queryKey: [`/api/identity/${cryptoId}/blocks`] });
@@ -1141,8 +1166,8 @@ function BlockListTab({ cryptoId }: { cryptoId: string | null }) {
     );
   }
 
-  const blocks        = blocksQuery.data?.blocks ?? [];
-  const blockedByCount = blocksQuery.data?.blockedByCount ?? 0;
+  const blocks = blocksQuery.data ?? [];
+  const blockedByCount = identityDetailsQuery.data?.blockedByCount ?? 0;
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
@@ -1234,22 +1259,21 @@ function BlockListTab({ cryptoId }: { cryptoId: string | null }) {
                   <div key={block.id} className="flex items-start justify-between p-3 rounded-lg border border-border bg-muted/20">
                     <div className="space-y-1 flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm truncate">{block.displayName || "Unknown"}</span>
-                        {block.tier && <TierBadge tier={block.tier} />}
+                        <span className="font-medium text-sm truncate">Blocked identity</span>
                       </div>
-                      <code className="text-xs text-muted-foreground font-mono">{truncate(block.blockedCryptoId, 32)}</code>
+                      <code className="text-xs text-muted-foreground font-mono">{truncate(block.blockedId, 32)}</code>
                       {block.reason && (
                         <p className="text-xs text-muted-foreground">{block.reason}</p>
                       )}
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> Blocked {formatDate(block.blockedAt)}
+                        <Clock className="w-3 h-3" /> Blocked {formatDate(block.createdAt)}
                       </p>
                     </div>
                     <Button
                       size="sm"
                       variant="outline"
                       className="ml-3 h-7 text-xs shrink-0"
-                      onClick={() => unblockMutation.mutate(block.id)}
+                      onClick={() => unblockMutation.mutate(block.blockedId)}
                       disabled={unblockMutation.isPending}
                     >
                       <Unlock className="w-3 h-3 mr-1" /> Unblock

@@ -4,7 +4,107 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - 2026-07-16
 
+### Audited
+- Added a complete UI-to-external-boundary wiring audit with evidence labels,
+  exact live-test exclusions, symptom-to-root-cause traces and an ordered
+  repair plan. The audit supersedes the unsupported claim that all visible
+  platform wiring was production-proven and records a launch NO-GO.
+- Added a standing project rule that wiring claims require UI-to-service
+  boundary evidence and explicit labels for every unexercised dependency.
+
+### Fixed
+- Routed OpenAI-compatible and Anthropic SDK traffic, including image
+  generation, through the governed DNS-pinned egress boundary; disabled hidden
+  SDK retries so one spend reservation cannot produce extra billable attempts.
+  Custom Google base URLs now fail closed until its SDK transport can use the
+  same boundary.
+- Added bounded event IDs and cursor replay to conversation SSE, renewed stream
+  authorization on reconnect, separated fallback attempts in the UI, and
+  persisted the actual model used rather than the originally selected model.
+- Accepted and validated provider base64 or URL image results, enforced content
+  signatures and size/time/redirect bounds, wrote artifacts atomically, and
+  fail when no returned image can be saved.
+- Made OpenAI reasoning-capable models default to medium reasoning effort while
+  preserving explicit internal overrides.
+- Removed the startup `DROP TABLE IF EXISTS swarms` statement and added a real
+  legacy-database fixture proving startup preserves the table and its data.
+- Made owner access fail closed on HTTP errors or malformed success payloads;
+  removed the visible Archive action that had no implementation.
+- Disabled external A2A routes with an explicit current-version explanation
+  instead of advertising obsolete 0.3 interoperability against the current
+  1.0 specification.
+- Made experimental surfaces truthful: Swarm failures propagate, unsupported
+  cron types return 501, NIP no longer fabricates negotiation or wildcard
+  trust, Skills copy rather than claim execution, and Marketplace is labeled
+  local/unsigned with new instructions disabled for review.
+- Made the durable run claim the admission gate for orchestrator side effects,
+  so duplicate HTTP/BullMQ/inbound delivery cannot repeat a completed or
+  already-running model/tool execution.
+- Persisted messaging channels, encrypted configuration, subscriptions,
+  histories, delivery records and retry state; restored pending delivery after
+  restart, preserved redacted secrets during edits, and routed deduplicated
+  inbound events into persisted conversations and orchestration.
+- Added real messaging Connect/Disconnect controls and made connection tests
+  fail unless the server explicitly returns `ok: true`; removed the selectable
+  WebSocket channel because no adapter exists.
+- Replaced the connector registry's nonstandard `/tools/{name}` request with a
+  current MCP Streamable HTTP JSON-RPC handshake and `tools/call`, including
+  negotiated session headers, response-envelope validation and cleanup.
+- Made API-key connectors fail closed when no live validation exists or any
+  provider returns a non-success response; non-MCP connector tool calls now
+  report their unsupported status instead of simulating a generic operation.
+- Repaired connector create/connect/OAuth/disconnect response handling,
+  authenticated multipart uploads through the shared browser request boundary,
+  sent multipart destination metadata before file parts, normalized public file
+  paths across Windows/Linux,
+  aligned experimental Identity review/block requests with registered server
+  contracts, and made production OAuth redirect configuration explicit.
+- Required successful connection state and live credentials for all model
+  routing; made core-role changes transactional and reconciled roles after
+  test failure, disable, disconnect or deletion; aligned chat readiness and
+  manual setup copy with the same contract.
+- Unified BullMQ on the authoritative `REDIS_URL` so Redis authentication, TLS
+  and database selection reach every queue connection; readiness now follows
+  connection loss and recovery, failed clients close cleanly, and Compose
+  persists queue state with Redis AOF storage.
+- Made provider setup explicit: entered API keys now show a visible
+  **Save & connect** action on each model, explain encrypted persistence and
+  connection testing, and can be used transiently for catalog synchronization
+  before a model exists.
+- Raised the connection probe output allowance from an invalid 10 tokens to a
+  bounded 64 tokens, satisfying provider minimums without turning a health
+  check into a material paid request.
+- Made the shell policy accept Windows short-name temporary paths used by the
+  approved Python interpreter, replaced provider catalog trailing-slash regexes
+  with linear string handling, and kept untrusted MCP names out of log format
+  strings after cross-platform CI and CodeQL found the gaps.
+
 ### Security
+- Allowed external OAuth and messaging callbacks through owner auth only when
+  the destination route performs signed-state, provider-signature, shared-token
+  or timestamped raw-body HMAC verification; restored rate limiting for public
+  callback traffic and retired the duplicate registered OAuth flow.
+
+### Documentation
+- Corrected the Temporal readiness claim: the historical three-activity proof
+  is an isolated sample, normal application messages do not dispatch through
+  Temporal, and the sample stack now requires the `temporal-proof` profile.
+- Added current protocol status and an approval-gated database migration/outbox
+  plan, including historical upgrade, backup, rollback and crash-window proof.
+- Encrypted complete connector credential configurations at rest, migrated
+  legacy plaintext records on first use, sanitized model create/quick-add
+  responses, and made internal default/orchestrator lookups decrypt credentials
+  consistently without exposing them to clients.
+- Contained file transforms to one canonical sandbox with symlink-aware path
+  checks, input/output limits, temporary snapshots and atomic publication.
+- Removed host package installation and host interpreter execution; submitted
+  code now requires the network-isolated, resource-bounded Docker sandbox.
+- Replaced every Docker host-shell command with argument-array process calls,
+  validated sandbox configuration and mounts, and added a read-only root,
+  output bounds and persistent cleanup without shell substitution.
+- Redacted browser typing values before policy audits, SSE, IPC and SQLite;
+  scrubbed later results, masked screenshots, disabled extraction after private
+  input, and governed every browser request and subresource.
 - Replaced user-controlled shell-string execution with a shell-free,
   executable-allowlisted command parser and a fixed process working directory;
   added regression coverage for operators, quoting, executable selection, and

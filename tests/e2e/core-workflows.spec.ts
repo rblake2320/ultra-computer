@@ -33,6 +33,39 @@ test("workflow 1: private launch renders and experimental surfaces default off",
   await expect(page.getByText("Swarm", { exact: true })).toHaveCount(0);
 });
 
+test("workflow 1b: provider credentials have an explicit save-and-connect action", async ({ page }) => {
+  await page.goto("/#/models");
+  await page.getByTestId("tab-add").click();
+  await page.getByTestId("provider-openai").click();
+  await page.getByTestId("input-qa-api-key").fill("not-a-real-key");
+  await expect(page.getByTestId("preset-gpt-5.6-sol")).toContainText("Save & connect");
+  await expect(page.getByText("The key is encrypted and stored with the model")).toBeVisible();
+});
+
+test("workflow 1c: authenticated connector creation and multipart upload work in the real UI", async ({ page }) => {
+  const connectorName = `E2E connector ${crypto.randomUUID().slice(0, 8)}`;
+  await page.goto("/#/connectors");
+  await page.getByRole("button", { name: "Add Custom", exact: true }).click();
+  await page.getByPlaceholder("My Custom API").fill(connectorName);
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect.poll(async () => (await api<any[]>("/api/connectors")).find(item => item.name === connectorName))
+    .toBeTruthy();
+  const connector = (await api<any[]>("/api/connectors")).find(item => item.name === connectorName);
+  await api(`/api/connectors/${connector.id}`, { method: "DELETE" });
+
+  const directory = `e2e-upload-${crypto.randomUUID()}`;
+  const relativePath = `${directory}/auth-proof.txt`;
+  await page.goto("/#/files");
+  await page.getByTestId("input-upload-destination").fill(directory);
+  await page.getByTestId("input-file-upload").setInputFiles({
+    name: "auth-proof.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("authenticated multipart proof"),
+  });
+  await expect.poll(async () => JSON.stringify(await api("/api/sandbox/files"))).toContain(relativePath);
+  await api(`/api/sandbox/files/${relativePath}`, { method: "DELETE" });
+});
+
 test("workflow 2: manual model creation and first passing test assign both roles", async ({ page }) => {
   test.skip(!localModel, "Ollama is not running on 127.0.0.1:11434");
   test.setTimeout(240_000);
@@ -75,12 +108,22 @@ test("workflow 3: a real local model persists a real assistant response", async 
 test("workflow 3b: no-model chat persists guidance instead of crashing", async () => {
   await stopServer(server);
   server = await startServer(tempDbPath());
+  await api("/api/models", {
+    method: "POST",
+    body: JSON.stringify({
+      name: "Visible but unverified",
+      provider: "ollama",
+      modelId: "not-probed",
+      authMethod: "none",
+      capabilities: ["chat"],
+    }),
+  });
   const conversation = await api<any>("/api/conversations", { method: "POST", body: JSON.stringify({ title: "no-model" }) });
   await api(`/api/conversations/${conversation.id}/messages`, { method: "POST", body: JSON.stringify({ content: "hello" }) });
   await expect.poll(async () => {
     const messages = await api<any[]>(`/api/conversations/${conversation.id}/messages`);
     return messages.find((message) => message.role === "assistant")?.content ?? "";
-  }, { timeout: 30_000 }).toContain("No model is configured");
+  }, { timeout: 30_000 }).toContain("No connected model is ready");
   await stopServer(server);
   server = await startServer(databasePath);
 });

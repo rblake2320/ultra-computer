@@ -272,3 +272,84 @@ link so future contributors can tell whether the constraint still applies.
 - **Next decision:** Reconcile each reservation to exact provider usage or a
   proven zero charge; never release it based only on age or process state.
 - **Related:** WHY-0009 and PARK-0013.
+
+### PARK-0016: Platform-wide wiring remediation
+
+- **Status:** Active backlog — launch blocking, not accepted risk
+- **Owner:** Engineering and security
+- **Parked on:** 2026-07-17
+- **Reason:** The complete wiring audit found boundaries that are broken,
+  misleading, unsafe, orphaned or not live-proven. They cannot be repaired
+  honestly as part of a read-only inspection.
+- **Current risk:** The audit-time container health failure is closed by
+  WHY-0014. The file-transform, Docker host-shell, host-interpreter and browser
+  typed-input/egress boundaries are closed by WHY-0015. Connector-at-rest and
+  model-response credential leakage is closed by WHY-0016. Model readiness and
+  atomic core roles are closed by WHY-0017. Connector UI, upload auth, audited
+  Identity request contracts and callback authentication are closed by
+  WHY-0018. WHY-0019 closes duplicate orchestrator admission and removes the
+  false Temporal application claim. WHY-0020 closes messaging restart state,
+  inbound orchestration and MCP transport while making unsupported
+  provider-native operations fail explicitly. Transactional outbound delivery,
+  remaining protocols, migrations and experimental semantics can still fail or
+  report false success.
+- **Reactivate when:** Immediately, before public launch.
+- **Next decision:** Execute the ordered twelve-step repair plan in
+  `reports/wiring-audit-2026-07-17.md`, with a passing real-boundary test for
+  each repaired seam.
+- **Related:** WHY-0013. This item must not be interpreted as approval to
+  launch while work is deferred.
+
+### PARK-0017: Versioned database migrations and transactional messaging outbox
+
+- **Status:** Human review required — launch blocking
+- **Owner:** Data/runtime engineering and product operations
+- **Parked on:** 2026-07-17
+- **Reason:** A real migration executor and outbox alter production schema,
+  startup, backup, recovery and message-delivery behavior. The repository's
+  hard constraints require explicit owner approval before those changes.
+- **Current risk:** Older databases are not proven upgradeable, and an outbound
+  provider acceptance followed by a process crash can leave delivery state
+  ambiguous. The prior unconditional legacy-table drop is removed, but that
+  alone is not migration safety.
+- **Reactivate when:** The owner approves
+  `docs/DATABASE_MIGRATION_PLAN.md`, including supported historical versions,
+  backup/rollback policy, downtime and the outbox scope.
+- **Next decision:** Implement the ordered transactional runner and fixture
+  matrix, then the outbox schema with provider-specific idempotency evidence.
+- **Related:** WHY-0019, PARK-0016 and
+  `docs/DATABASE_MIGRATION_PLAN.md`.
+
+### PARK-0018: Current A2A 1.0 interoperability
+
+- **Status:** Parked — external routes disabled
+- **Owner:** Protocol engineering and security
+- **Parked on:** 2026-07-17
+- **Reason:** The repository's retained engine and the current stable
+  JavaScript SDK model A2A 0.3, while the released specification is 1.0. Local
+  legacy tests cannot establish current interoperability.
+- **Current risk:** Ultra Computer has no external A2A capability. This is
+  represented truthfully as HTTP 501 and an unavailable dashboard state, so it
+  is not a launch blocker for the supported core/MCP product surface.
+- **Reactivate when:** A stable reviewed A2A 1.0 implementation is available and
+  the official compatibility kit plus a controlled external-peer test can run.
+- **Next decision:** Prefer the official stable SDK when it supports 1.0; then
+  meet every gate in `docs/PROTOCOL_STATUS.md` before re-enabling UI/routes.
+- **Related:** WHY-0023 and PARK-0016.
+
+### PARK-0019: Durable multi-process SSE replay
+
+- **Status:** Parked
+- **Owner:** Runtime engineering
+- **Parked on:** 2026-07-17
+- **Reason:** Current event IDs and the bounded 500-event/100-conversation replay
+  buffer close ordinary same-process reconnect loss without a schema change.
+  Restart or multi-replica replay needs a durable event store and retention
+  policy.
+- **Current risk:** A reconnect after process restart or against another replica
+  refetches persisted messages but cannot replay transient progress events.
+- **Reactivate when:** The versioned migration plan is approved or a managed
+  event-log backend is selected.
+- **Next decision:** Store redacted events with cursors, ownership, retention and
+  replay bounds; prove restart and cross-replica recovery.
+- **Related:** WHY-0019 and PARK-0017.

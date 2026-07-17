@@ -47,3 +47,22 @@ export function redactEnv(env?: Record<string, string>): Record<string, string> 
   }
   return safe;
 }
+
+/**
+ * Produce the only form of tool arguments allowed in audits, events, IPC and
+ * persistence. Browser typing values are always secret because the tool cannot
+ * know whether a field contains a password, token or private user text.
+ */
+export function sanitizeToolArgsForExposure(
+  toolName: string,
+  args: Record<string, string>,
+): Record<string, string> {
+  const safe = redactValue(args);
+  if (toolName === "browser_action" && args.action === "type" && "value" in safe) {
+    safe.value = "[REDACTED BROWSER INPUT]";
+  }
+  if (toolName === "browser_evaluate" && "script" in safe) {
+    safe.script = "[REDACTED BROWSER SCRIPT]";
+  }
+  return safe;
+}

@@ -26,12 +26,16 @@ const OPENAI_COMPATIBLE_PROVIDERS = new Set([
   "xai",
 ]);
 
-function credentialsFor(model: Model): { apiKey: string; baseURL?: string } {
+function credentialsFor(model: Model): { apiKey: string; baseURL?: string; sessionId: string } {
   const credentials = resolveCredentials(model);
   if (!credentials.isValid) {
     throw new Error(`No valid credentials configured for ${model.provider} model ${model.name}`);
   }
-  return { apiKey: credentials.apiKey, baseURL: credentials.baseUrl };
+  return {
+    apiKey: credentials.apiKey,
+    baseURL: credentials.baseUrl,
+    sessionId: `provider:${model.provider}:${model.id}`,
+  };
 }
 
 const factories = new Map<string, ProviderAdapterFactory>();

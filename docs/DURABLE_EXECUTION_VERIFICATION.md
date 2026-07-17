@@ -1,5 +1,11 @@
 # Durable Execution Verification
 
+> **Scope correction — 2026-07-17:** This document preserves historical proof
+> of a self-contained Temporal sample. It does not prove application
+> crash-resume: normal Ultra Computer messages use BullMQ/direct orchestration
+> and do not start this workflow. Use the explicit `temporal-proof` Compose
+> profile only for the sample.
+
 ## VERIFIED LIVE — 2026-06-13
 
 **Proof run:** `scripts/temporal-proof-run.ts` against real Temporal server v1.24.2
@@ -26,7 +32,7 @@ VERIFIED LIVE — Temporal durable execution proof PASSED
 
 ```bash
 # 1. Start the stack
-docker compose up -d
+docker compose --profile temporal-proof up -d
 
 # 2. Register the default namespace (auto-setup uses container IP, not localhost)
 npm run temporal:namespace
@@ -37,25 +43,35 @@ npm run temporal:proof
 
 ---
 
-## Application integration (what's wired in the app)
+## Application integration status
 
-The following are wired and ready for production use:
+The following proof components exist, but are not the normal application path:
 - `server/temporalWorkflow.ts` — deterministic Temporal workflow
 - `server/temporalActivities.ts` — orchestrator wrapped as a Temporal activity
 - `server/temporalWorker.ts` — Temporal worker registration with NativeConnection
 
-### Start the application worker
+Starting this worker alone does not route application messages through
+Temporal. The whole-orchestrator activity also lacks safe, individually
+resumable side-effect boundaries and must not be described as production
+durability.
+
+### Start the proof worker
 
 ```bash
 RUN_TEMPORAL_WORKER=1 npx tsx server/temporalWorker.ts
 ```
 
-## Step-by-step: Prove crash-resume with app worker
+## Historical app crash-resume procedure — not valid proof
+
+The steps below are retained to explain the prior claim, but sending a message
+to the REST API does not create a Temporal workflow. They must not be used as a
+verification gate until application ingress uses a workflow whose provider and
+tool side effects are decomposed into idempotent activities.
 
 ### 1. Start the full stack
 
 ```bash
-docker compose up -d
+docker compose --profile temporal-proof up -d
 npm run temporal:namespace
 ```
 
@@ -101,27 +117,31 @@ Find your workflow in the "Running" or "Failed" list. Note the last completed ac
 TEMPORAL_ADDRESS=localhost:7233 RUN_TEMPORAL_WORKER=1 npx tsx server/temporalWorker.ts
 ```
 
-Temporal automatically picks up where it left off. Completed activities (from event history) are NOT re-executed.
+Temporal can recover workflows it owns, but the REST message above is not one
+of those workflows in the current application.
 
 ### 7. Verify in the UI
 
-The workflow should complete. The event history shows only ONE execution of each completed activity, proving no duplication on resume.
+No application workflow is expected from that REST request. Only the isolated
+proof script can produce the sample workflow described above.
 
 ## Evidence labels
 
 - Proof script PASSED → `VERIFIED LIVE: durable execution 3-step workflow`
 - Event history: 3/3 ACTIVITY_TASK_COMPLETED → `VERIFIED LIVE: event sourcing`
 - Idempotent result fetch → `VERIFIED LIVE: idempotent activity execution`
-- App worker wired → `WIRED: crash-resume for orchestrator activity`
-- App crash-resume → `ENVIRONMENT_REQUIRED: needs local stack + ULTRA_API_KEY`
+- App worker integration → `NOT WIRED: no ingress starts the workflow`
+- App crash-resume → `NOT VERIFIED`
 
-## Why this is production-grade
+## What the sample demonstrates
 
 Temporal's event sourcing means:
 - Crashed workers resume from the last completed activity boundary
 - Completed activities are replayed from history, not re-executed
 - Retry policy (`maximumAttempts: 5`, `nonRetryableErrorTypes`) maps to `classifyRetry()` categories
-- Workflow IDs (`workflowIdFromMessage(messageId)`) prevent duplicate workflows per message
+- The sample's workflow ID prevents duplicate starts for that sample. The
+  application separately uses a durable run claim to prevent a duplicate
+  message from entering orchestrator side effects.
 
 ## Known: Temporal namespace setup quirk
 
@@ -134,4 +154,4 @@ This is a one-time setup step; the namespace persists in the postgres backend.
 
 - Rate-limit live behavior (requires a provider returning 429)
 - Multi-worker scaling (requires multiple worker replicas)
-- App crash-resume under real load (requires ULTRA_API_KEY + running model connectors)
+- Application workflow dispatch and crash-resume (not implemented)

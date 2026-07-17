@@ -39,6 +39,17 @@ export function registerProtocolRoutes(app: Express) {
   // A2A PROTOCOL — Agent-to-Agent
   // ───────────────────────────────────────────────────────────────────────────
 
+  const sendA2AUnavailable = (_req: Request, res: Response) => res.status(501).json({
+    error: a2aProtocol.A2A_EXTERNAL_STATUS.reason,
+    code: "A2A_V1_NOT_IMPLEMENTED",
+    ...a2aProtocol.A2A_EXTERNAL_STATUS,
+  });
+
+  // A2A v1 is a breaking protocol migration from the retained v0.3 engine.
+  // Fail closed at every external route instead of advertising false support.
+  app.use("/api/protocols/a2a", sendA2AUnavailable);
+  app.get("/.well-known/agent-card.json", sendA2AUnavailable);
+
   /**
    * GET /api/protocols/a2a/card
    * Returns the Ultra Computer Agent Card JSON.
@@ -321,8 +332,10 @@ export function registerProtocolRoutes(app: Express) {
     if (!script || typeof script !== "string") {
       return res.status(400).json({ error: "script (string) is required" });
     }
-    if (!language || typeof language !== "string") {
-      return res.status(400).json({ error: "language (string) is required" });
+    if (!cliToolEngine.isSupportedLanguage(language)) {
+      return res.status(400).json({
+        error: `language must be one of: ${cliToolEngine.SUPPORTED_LANGUAGES.join(", ")}`,
+      });
     }
     // Allowlist matches the SupportedLanguage type in cliToolEngine.ts
     const allowedLanguages: import("./cliToolEngine.js").SupportedLanguage[] = ["bash", "python3", "node", "typescript"];
@@ -536,10 +549,14 @@ export function registerProtocolRoutes(app: Express) {
       return res.status(400).json({ error: "code too long (max 100,000 chars)" });
     }
     try {
-      const result = await cliToolEngine.executeCodeInterpreter(code, language as import("./cliToolEngine.js").SupportedLanguage);
+      const result = await cliToolEngine.executeCodeInterpreter(
+        code,
+        language as import("./cliToolEngine.js").SupportedLanguage,
+      );
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      const message = err instanceof Error ? err.message : "Code interpreter failed";
+      res.status(/requires the isolated Docker sandbox/i.test(message) ? 503 : 500).json({ error: message });
     }
   });
 
@@ -555,14 +572,20 @@ export function registerProtocolRoutes(app: Express) {
     if (!outputPath || typeof outputPath !== "string") {
       return res.status(400).json({ error: "outputPath (string) is required" });
     }
-    if (!transformType || typeof transformType !== "string") {
-      return res.status(400).json({ error: "transformType (string) is required" });
+    if (!cliToolEngine.isTransformType(transformType)) {
+      return res.status(400).json({
+        error: `transformType must be one of: ${cliToolEngine.SUPPORTED_TRANSFORM_TYPES.join(", ")}`,
+      });
     }
     try {
-            const result = await cliToolEngine.executeFileTransform(inputPath, outputPath, transformType as import("./cliToolEngine.js").TransformType, options || {});
+      const result = await cliToolEngine.executeFileTransform(inputPath, outputPath, transformType, options || {});
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      const message = err instanceof Error ? err.message : "File transform failed";
+      const status = /inside the sandbox|must be different|already exists|exceeds|must be an existing/i.test(message)
+        ? 400
+        : 500;
+      res.status(status).json({ error: message });
     }
   });
 
@@ -576,20 +599,18 @@ export function registerProtocolRoutes(app: Express) {
    */
   app.get("/api/protocols/dashboard", async (_req: Request, res: Response) => {
     const results = await Promise.allSettled([
-      Promise.resolve(a2aProtocol.getAgentCard()).catch(() => null),
-      Promise.resolve(a2aProtocol.listRegisteredAgents()).catch(() => []),
       Promise.resolve(mcpProtocol.listConnectedServers()).catch(() => []),
       Promise.resolve(cliToolEngine.getInstalledTools()).catch(() => []),
     ]);
 
-    const [agentCardResult, remoteAgentsResult, mcpServersResult, cliToolsResult] = results;
+    const [mcpServersResult, cliToolsResult] = results;
 
     res.json({
       protocols: {
         a2a: {
-          available: agentCardResult.status === "fulfilled" && agentCardResult.value !== undefined,
-          agentCard: agentCardResult.status === "fulfilled" ? agentCardResult.value : null,
-          remoteAgents: remoteAgentsResult.status === "fulfilled" ? (remoteAgentsResult.value ?? []) : [],
+          ...a2aProtocol.A2A_EXTERNAL_STATUS,
+          agentCard: null,
+          remoteAgents: [],
         },
         mcp: {
           available: mcpServersResult.status === "fulfilled" && mcpServersResult.value !== undefined,

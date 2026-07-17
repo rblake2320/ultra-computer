@@ -92,6 +92,14 @@ describe("policy engine", () => {
     });
     expect(readCommand.allowed).toBe(true);
 
+    const windowsPythonTempCommand = evaluatePolicy({
+      domain: "shell",
+      action: "shell:execute",
+      tool: "script.execute",
+      command: 'python "C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\ultra-script.py"',
+    });
+    expect(windowsPythonTempCommand.allowed).toBe(true);
+
     const networkCommand = evaluatePolicy({
       domain: "shell",
       action: "shell:execute",

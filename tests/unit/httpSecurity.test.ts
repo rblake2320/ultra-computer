@@ -99,8 +99,8 @@ describe("sandbox upload limits", () => {
     expect(body).toEqual({
       ok: true,
       uploaded: [
-        path.join(destination, "first.txt"),
-        path.join(destination, "second.md"),
+        `${destination}/first.txt`,
+        `${destination}/second.md`,
       ],
     });
     expect(fs.readFileSync(path.join(sandboxDir, destination, "first.txt"), "utf8")).toBe("first");

@@ -11,6 +11,7 @@
 import crypto from "crypto";
 import { storage } from "./storage.js";
 import type { Model } from "@shared/schema";
+import { isModelRoutable } from "./modelReadiness.js";
 import { governedFetch } from "./governedFetch.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -724,6 +725,7 @@ export async function connectModel(
     lastTestedAt: Date.now() as any,
     lastTestLatency: (result.latencyMs || null) as any,
   });
+  reconcileModelRoles(result.ok ? modelId : undefined);
 
   return result;
 }
@@ -745,17 +747,24 @@ export function disconnectModel(modelId: string): boolean {
     lastTestLatency: null as any,
   });
 
+  reconcileModelRoles();
+
   return true;
 }
 
-/** Assign the first model that proves connectivity to any unfilled core role. */
-function autoAssignRoles(modelId: string): void {
-  const model = storage.getModel(modelId);
-  if (!model || !model.enabled) return;
-  const updates: Record<string, boolean> = {};
-  if (!storage.getDefaultModel()) updates.isDefault = true;
-  if (!storage.getOrchestratorModel()) updates.isOrchestrator = true;
-  if (Object.keys(updates).length > 0) storage.updateModel(modelId, updates);
+/** Keep both core roles on connected, credential-ready models when possible. */
+export function reconcileModelRoles(preferredModelId?: string): void {
+  const routable = storage.getModels().filter(isModelRoutable);
+  const preferred = preferredModelId
+    ? routable.find(model => model.id === preferredModelId)
+    : undefined;
+  const currentDefault = routable.find(model => model.isDefault);
+  const currentOrchestrator = routable.find(model => model.isOrchestrator);
+  const defaultTarget = currentDefault ?? preferred ?? routable[0];
+  const orchestratorTarget = currentOrchestrator ?? preferred ?? defaultTarget ?? routable[0];
+
+  storage.setModelRoles(defaultTarget?.id ?? null, { isDefault: Boolean(defaultTarget) });
+  storage.setModelRoles(orchestratorTarget?.id ?? null, { isOrchestrator: Boolean(orchestratorTarget) });
 }
 
 /**
@@ -767,7 +776,15 @@ export async function testConnection(modelId: string): Promise<{ ok: boolean; er
 
   const creds = resolveCredentials(model);
   if (!creds.isValid) {
-    return { ok: false, error: `No valid credentials — auth method: ${creds.method}` };
+    const error = `No valid credentials — auth method: ${creds.method}`;
+    storage.updateModel(modelId, {
+      connectionStatus: "error",
+      connectionError: error,
+      lastTestedAt: Date.now() as any,
+      lastTestLatency: null as any,
+    });
+    reconcileModelRoles();
+    return { ok: false, error };
   }
 
   const start = Date.now();
@@ -784,7 +801,7 @@ export async function testConnection(modelId: string): Promise<{ ok: boolean; er
       lastTestLatency: (result.latencyMs || null) as any,
     });
 
-    if (result.ok) autoAssignRoles(modelId);
+    reconcileModelRoles(result.ok ? modelId : undefined);
 
     return result;
   } catch (e: any) {
@@ -795,6 +812,7 @@ export async function testConnection(modelId: string): Promise<{ ok: boolean; er
       lastTestedAt: Date.now() as any,
       lastTestLatency: latencyMs as any,
     });
+    reconcileModelRoles();
     return { ok: false, error: e.message, latencyMs };
   }
 }

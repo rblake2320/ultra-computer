@@ -11,7 +11,7 @@
 ## Verification
 - Diagnostics: `npm run doctor`; add `-- --live` only for intentional real
   probes against every enabled model.
-- Authenticated local E2E: `npm run test:e2e` (seven tests; requires real Ollama
+- Authenticated local E2E: `npm run test:e2e` (eight tests; requires real Ollama
   for the two inference/model-connection paths; zero skips are required for a
   full local claim).
 - Typecheck: `npm run check`
@@ -45,6 +45,9 @@
 - Generated protobuf files: `shared/generated/**`.
 - Audit evidence images under `audit/*.png` are historical artifacts.
 - Do not read, print, or commit `.env*`, private keys, webhook secrets, or API keys.
+- Never capture a DOM/accessibility snapshot while a credential field is
+  populated; inspect form structure with value-excluding metadata and clear
+  any credential exposed to tool output before continuing.
 - Agent/tool permissions live in `policies/*-access.json` and are deny-by-default. Do not broaden policy rules to make a feature or test pass; wire the feature through the policy evaluator and keep the policy as the hard constraint.
 - Do not round policy evaluator tests up to live tool proof. They are unit-level evidence unless the real governed route and real external capability were exercised.
 - Do not call agent execution production-durable unless a real durable runtime such as Temporal, Microsoft Durable Task, or an equivalent is started and crash/restart/resume behavior is exercised. BullMQ, local JSON ledgers, and unit tests are useful boundaries but not exact workflow replay proof.
@@ -65,6 +68,9 @@
 - Never pass request, model, or agent text to a system shell. CLI execution must
   select a fixed allowlisted executable, pass a structured argument array with
   `shell: false`, and keep the process working directory server-controlled.
+- Credential forms must expose an explicit persistence action and explain when
+  a secret is stored. Do not hide secret persistence behind an unlabeled card
+  click or imply that an unsaved credential is already configured.
 
 ## Versions
 - Node.js 24 is the container and CI baseline; Node 22 remains supported.

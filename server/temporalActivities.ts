@@ -1,9 +1,9 @@
 /**
  * temporalActivities.ts
  *
- * Temporal activities wrapping the orchestrator steps.
- * Each activity is idempotent, has a timeout, and can be retried by Temporal.
- * Completed activities are NOT re-executed on workflow resume (event history).
+ * Proof-only activity wrapping the entire orchestrator. The orchestrator has a
+ * duplicate-admission gate, but it is not yet resumable at each side effect;
+ * this activity must not be described as production crash recovery.
  */
 
 import { runOrchestrator } from "./orchestrator.js";
@@ -17,8 +17,8 @@ export interface OrchestratorActivityInput {
 
 /**
  * Run the orchestrator as a Temporal activity.
- * Temporal will retry this on transient failure and resume from here after a crash.
- * On success, the workflow history records it as complete — it will not re-run.
+ * The workflow records a successful whole run. A retry after partial execution
+ * is intentionally not claimed as safe production resume semantics.
  */
 export async function runOrchestratorActivity(input: OrchestratorActivityInput): Promise<string> {
   const { conversationId, userMessage, messageId } = input;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../lib/queryClient";
 import { safeJsonParse } from "../lib/safeJson";
@@ -157,9 +157,6 @@ const TIER_CONFIG: Record<string, { label: string; color: string; icon: typeof A
   unranked: { label: "Unranked", color: "text-muted-foreground", icon: Gauge, bg: "bg-muted/50 border-border text-muted-foreground" },
 };
 
-// Stable per-session anonymous user ID
-const localUserId = `user-${window.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)}`;
-
 function TierBadge({ tier, score, size = "sm" }: { tier: string | null; score: number | null; size?: "sm" | "md" }) {
   const t = TIER_CONFIG[tier || "unranked"] || TIER_CONFIG.unranked;
   const TierIcon = t.icon;
@@ -174,7 +171,7 @@ function TierBadge({ tier, score, size = "sm" }: { tier: string | null; score: n
             </span>
           </TooltipTrigger>
           <TooltipContent side="top" className="text-xs">
-            <p>{t.label} tier — Quality score: {score != null ? score.toFixed(1) : "unscored"}</p>
+            <p>{t.label} tier — Local heuristic score: {score != null ? score.toFixed(1) : "unscored"}</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -339,7 +336,7 @@ function ScoreBreakdownPanel({ skillId }: { skillId: string }) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Gauge className="w-4 h-4 text-muted-foreground" />
-          <span className="text-xs font-medium">Quality Score</span>
+          <span className="text-xs font-medium">Local Heuristic Score</span>
         </div>
         <div className="flex items-center gap-2">
           <TierBadge tier={breakdown.scoreTier} score={breakdown.qualityScore} size="md" />
@@ -402,7 +399,10 @@ function SkillDetailView({ skillId, onBack }: { skillId: string; onBack: () => v
       qc.invalidateQueries({ queryKey: ["/api/marketplace/skills", skillId, "score"] });
       qc.invalidateQueries({ queryKey: ["/api/skills"] });
       qc.invalidateQueries({ queryKey: ["/api/marketplace/installs"] });
-      toast({ title: "Skill installed successfully" });
+      toast({
+        title: "Skill stored locally",
+        description: "Unsigned instruction skills remain disabled until you review and enable them.",
+      });
     },
     onError: (e: any) => toast({ title: "Install failed", description: e.message, variant: "destructive" }),
   });
@@ -424,14 +424,14 @@ function SkillDetailView({ skillId, onBack }: { skillId: string; onBack: () => v
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/marketplace"] });
-      toast({ title: "Skill forked successfully" });
+      toast({ title: "Local copy created" });
     },
     onError: (e: any) => toast({ title: "Fork failed", description: e.message, variant: "destructive" }),
   });
 
   const rateMutation = useMutation({
     mutationFn: (data: { rating: number; review?: string }) =>
-      apiRequest("POST", `/api/marketplace/skills/${skillId}/rate`, { ...data, userId: localUserId }),
+      apiRequest("POST", `/api/marketplace/skills/${skillId}/rate`, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/marketplace/skills", skillId] });
       qc.invalidateQueries({ queryKey: ["/api/marketplace/skills", skillId, "score"] });
@@ -470,7 +470,7 @@ function SkillDetailView({ skillId, onBack }: { skillId: string; onBack: () => v
           </div>
           <p className="text-xs text-muted-foreground">{detail.description}</p>
           <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1"><User className="w-3 h-3" />{detail.authorName}</span>
+            <span className="flex items-center gap-1" title="Self-declared local author; identity is not verified"><User className="w-3 h-3" />{detail.authorName} (self-declared)</span>
             <span className="flex items-center gap-1"><Tag className="w-3 h-3" />v{detail.currentVersion}</span>
             <span className="flex items-center gap-1"><Download className="w-3 h-3" />{formatNumber(detail.installCount)} installs</span>
             <span className="flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400" />{detail.avgRating} ({detail.ratingCount})</span>
@@ -510,7 +510,7 @@ function SkillDetailView({ skillId, onBack }: { skillId: string; onBack: () => v
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="h-8">
           <TabsTrigger value="overview" className="text-xs h-7">Content</TabsTrigger>
-          <TabsTrigger value="score" className="text-xs h-7">Quality Score</TabsTrigger>
+          <TabsTrigger value="score" className="text-xs h-7">Local Score</TabsTrigger>
           <TabsTrigger value="versions" className="text-xs h-7">Versions ({detail.versions.length})</TabsTrigger>
           <TabsTrigger value="ratings" className="text-xs h-7">Ratings ({detail.ratings.length})</TabsTrigger>
         </TabsList>
@@ -560,7 +560,7 @@ function SkillDetailView({ skillId, onBack }: { skillId: string; onBack: () => v
           <div className="space-y-3">
             {/* Submit rating */}
             <Card className="p-3">
-              <p className="text-xs font-medium mb-2">Rate this skill</p>
+              <p className="text-xs font-medium mb-2">Your local rating</p>
               <div className="flex items-center gap-3">
                 <div className="flex gap-1">
                   {[1, 2, 3, 4, 5].map(n => (
@@ -589,7 +589,7 @@ function SkillDetailView({ skillId, onBack }: { skillId: string; onBack: () => v
             </Card>
 
             {detail.ratings.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-4">No ratings yet. Be the first to rate this skill.</p>
+              <p className="text-xs text-muted-foreground text-center py-4">No local owner rating yet.</p>
             ) : (
               detail.ratings.map(r => (
                 <Card key={r.id} className="p-3">
@@ -633,7 +633,7 @@ function PublishDialog({ onPublished }: { onPublished: () => void }) {
       qc.invalidateQueries({ queryKey: ["/api/marketplace"] });
       setOpen(false);
       setForm({ name: "", description: "", authorName: "", category: "general", tags: "", content: "", skillType: "instruction", language: "", triggerKeywords: "", license: "MIT" });
-      toast({ title: "Skill published to marketplace" });
+      toast({ title: "Skill saved to local registry" });
       onPublished();
     },
     onError: (e: any) => toast({ title: "Publish failed", description: e.message, variant: "destructive" }),
@@ -643,12 +643,12 @@ function PublishDialog({ onPublished }: { onPublished: () => void }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="sm" className="gap-1" data-testid="button-publish">
-          <Upload className="w-3 h-3" />Publish Skill
+          <Upload className="w-3 h-3" />Add Local Skill
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-sm">Publish to Marketplace</DialogTitle>
+          <DialogTitle className="text-sm">Save to Local Skill Registry</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 mt-2">
           <div className="grid grid-cols-2 gap-3">
@@ -764,7 +764,7 @@ function PublishDialog({ onPublished }: { onPublished: () => void }) {
             })} disabled={!form.name || !form.description || !form.authorName || !form.content || publish.isPending}
               data-testid="button-confirm-publish"
             >
-              {publish.isPending ? "Publishing..." : "Publish"}
+              {publish.isPending ? "Saving..." : "Save Locally"}
             </Button>
           </div>
         </div>
@@ -822,13 +822,6 @@ export function MarketplacePage() {
     queryKey: ["/api/marketplace/stats"],
   });
 
-  const seedMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/marketplace/seed"),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/marketplace"] });
-    },
-  });
-
   const rescoreMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/marketplace/scoring/run"),
     onSuccess: (data: any) => {
@@ -838,14 +831,6 @@ export function MarketplacePage() {
     onError: (e: any) => toast({ title: "Scoring failed", description: e.message, variant: "destructive" }),
   });
 
-  // Auto-seed on first load if empty
-  useEffect(() => {
-    if (skillsData && skillsData.total === 0 && !seedMutation.isPending) {
-      seedMutation.mutate();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skillsData?.total]);
-
   const skills = skillsData?.skills || [];
 
   if (selectedSkillId) {
@@ -853,7 +838,7 @@ export function MarketplacePage() {
       <div className="flex flex-col h-full">
         <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card/50">
           <Store className="w-4 h-4 text-primary" />
-          <h1 className="font-semibold text-sm">Skill Marketplace</h1>
+          <h1 className="font-semibold text-sm">Local Skill Registry</h1>
         </div>
         <div className="flex-1 overflow-auto p-4">
           <SkillDetailView skillId={selectedSkillId} onBack={() => setSelectedSkillId(null)} />
@@ -867,10 +852,10 @@ export function MarketplacePage() {
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card/50">
         <Store className="w-4 h-4 text-primary" />
-        <h1 className="font-semibold text-sm">Skill Marketplace</h1>
+        <h1 className="font-semibold text-sm">Local Skill Registry</h1>
         <div className="flex-1 flex items-center gap-3">
           <p className="text-xs text-muted-foreground">
-            {stats ? `${stats.totalSkills} skills \u00b7 ${formatNumber(stats.totalInstalls)} total installs` : "Community skill registry"}
+            {stats ? `${stats.totalSkills} local skills \u00b7 ${formatNumber(stats.totalInstalls)} local installs` : "Owner-only local registry"}
           </p>
           {stats?.tierDistribution && <TierDistribution tierDist={stats.tierDistribution} />}
         </div>
@@ -889,6 +874,9 @@ export function MarketplacePage() {
       </div>
 
       <div className="flex-1 overflow-auto p-4">
+        <Card className="mb-4 p-3 border-amber-500/30 bg-amber-500/5 text-xs text-muted-foreground">
+          Local-only experimental registry. There is no external marketplace, author verification, content signing, or community rating service. Review all content before enabling it.
+        </Card>
         {/* Stats bar */}
         {stats && stats.totalSkills > 0 && (
           <div className="flex gap-4 mb-4">
@@ -897,7 +885,7 @@ export function MarketplacePage() {
               { icon: Download, label: "Installs", value: formatNumber(stats.totalInstalls) },
               { icon: Award, label: "Platinum", value: stats.tierDistribution?.platinum || 0 },
               { icon: Sparkles, label: "Gold", value: stats.tierDistribution?.gold || 0 },
-              { icon: Shield, label: "Verified", value: stats.verified },
+              { icon: Shield, label: "Locally Verified", value: stats.verified },
             ].map(s => (
               <Card key={s.label} className="flex-1 p-3 flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -939,10 +927,10 @@ export function MarketplacePage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="quality">Quality Score</SelectItem>
+              <SelectItem value="quality">Local Heuristic Score</SelectItem>
               <SelectItem value="popular">Most Popular</SelectItem>
               <SelectItem value="newest">Newest</SelectItem>
-              <SelectItem value="rating">Top Rated</SelectItem>
+              <SelectItem value="rating">Owner Rated</SelectItem>
             </SelectContent>
           </Select>
         </div>

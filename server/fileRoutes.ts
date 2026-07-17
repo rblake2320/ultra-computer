@@ -4,22 +4,19 @@ import fs from "fs";
 import multer from "multer";
 import { pipeline, Transform } from "stream";
 import { randomUUID } from "crypto";
-import { resolveInside } from "./pathSafety.js";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
+import {
+  ensureSandboxDir,
+  resolveSandboxPath,
+  SANDBOX_DIR,
+} from "./sandboxPaths.js";
 
-const SANDBOX_DIR = path.join(process.cwd(), "sandbox");
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const MAX_UPLOAD_FILES = 8;
 const MAX_UPLOAD_FIELDS = 4;
 const MAX_UPLOAD_PARTS = MAX_UPLOAD_FILES + MAX_UPLOAD_FIELDS;
 const MAX_DIRECTORY_ENTRIES = 10_000;
-
-function ensureSandboxDir() {
-  if (!fs.existsSync(SANDBOX_DIR)) {
-    fs.mkdirSync(SANDBOX_DIR, { recursive: true });
-  }
-}
 
 /**
  * In Express 5, wildcard params are returned as arrays.
@@ -29,6 +26,10 @@ function paramToPath(param: unknown): string {
   if (Array.isArray(param)) return param.join("/");
   if (typeof param === "string") return param;
   return "";
+}
+
+function toPublicPath(filePath: string): string {
+  return filePath.split(path.sep).join("/");
 }
 
 /**
@@ -43,7 +44,7 @@ function paramToPath(param: unknown): string {
  */
 function resolveSafe(relativePath: string): string | null {
   ensureSandboxDir();
-  return resolveInside(SANDBOX_DIR, relativePath);
+  return resolveSandboxPath(relativePath);
 }
 
 function isFilesystemAllowed(action: "filesystem:read" | "filesystem:write" | "filesystem:list", filePath: string, metadata?: Record<string, unknown>): { ok: boolean; reason?: string } {
@@ -92,7 +93,7 @@ function walkDir(
       return;
     }
     const fullPath = path.join(dir, item.name);
-    const relativePath = path.relative(baseDir, fullPath);
+    const relativePath = toPublicPath(path.relative(baseDir, fullPath));
     let stat: fs.Stats;
     try {
       stat = fs.statSync(fullPath);
@@ -297,7 +298,7 @@ export function registerFileRoutes(app: Express, options: FileRouteOptions = {})
       return res.status(500).json({ error: `Upload commit failed: ${message}` });
     }
 
-    const uploaded = promoted.map((filePath) => path.relative(SANDBOX_DIR, filePath));
+    const uploaded = promoted.map((filePath) => toPublicPath(path.relative(SANDBOX_DIR, filePath)));
     res.json({ ok: true, uploaded });
   });
 
@@ -347,7 +348,7 @@ export function registerFileRoutes(app: Express, options: FileRouteOptions = {})
         let s: fs.Stats | null = null;
         try { s = fs.statSync(itemFull); } catch { /* ignore */ }
         return {
-          path: path.relative(SANDBOX_DIR, itemFull),
+          path: toPublicPath(path.relative(SANDBOX_DIR, itemFull)),
           name: item.name,
           type: item.isDirectory() ? "dir" : "file",
           size: s?.size || 0,

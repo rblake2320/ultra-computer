@@ -28,6 +28,7 @@ export interface GoogleAdapterConfig {
   apiKey: string;
   baseURL?: string;
   timeoutMs?: number;
+  sessionId?: string;
 }
 
 function contentPart(part: ModelContentPart): Part {
@@ -199,10 +200,14 @@ export class GoogleAdapter implements ProviderAdapter {
   private readonly client: GoogleGenAI;
 
   constructor(config: GoogleAdapterConfig) {
+    if (config.baseURL) {
+      throw new TypeError(
+        "Custom Google base URLs are disabled until the SDK supports Ultra Computer's governed transport",
+      );
+    }
     this.client = new GoogleGenAI({
       apiKey: config.apiKey,
       httpOptions: {
-        baseUrl: config.baseURL,
         timeout: config.timeoutMs ?? 120_000,
       },
     });

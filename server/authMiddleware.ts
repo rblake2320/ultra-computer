@@ -10,7 +10,10 @@
  * Exempted routes (no auth required even when key is set):
  *   GET  /api/health
  *   POST /api/messaging/webhook/slack
+ *   POST /api/messaging/webhook/gmail
  *   POST /api/messaging/webhook/github
+ *   POST /api/messaging/webhook/:channelId (route-level HMAC)
+ *   GET  /api/connectors/oauth/callback (signed OAuth state)
  *
  * If ULTRA_API_KEY is NOT set the middleware logs a startup warning and
  * passes all traffic through (dev/open mode).
@@ -25,11 +28,13 @@ import { verifyStreamToken } from "./streamAuth.js";
 // Routes that must remain publicly accessible regardless of auth config.
 const EXEMPT_ROUTES: Array<{ method: string; path: string }> = [
   { method: "GET", path: "/api/health" },
-  { method: "POST", path: "/api/messaging/webhook/slack" },
-  { method: "POST", path: "/api/messaging/webhook/github" },
+  { method: "GET", path: "/api/connectors/oauth/callback" },
 ];
 
 function isExempt(req: Request): boolean {
+  if (req.method === "POST" && req.path.startsWith("/api/messaging/webhook/")) {
+    return true;
+  }
   return EXEMPT_ROUTES.some(
     (r) =>
       r.method === req.method &&

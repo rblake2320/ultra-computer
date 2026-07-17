@@ -16,7 +16,7 @@ import {
 } from "../components/ui/select";
 import { useToast } from "../hooks/use-toast";
 import {
-  Library, Plus, Trash2, Search, Star, StarOff, Play, Copy, Download,
+  Library, Plus, Trash2, Search, Star, StarOff, Copy, Download,
   Upload, Clock, Hash, Tag, Code2, FileCode, Edit3, X, ChevronDown,
   ChevronRight, History, Terminal
 } from "lucide-react";
@@ -105,18 +105,16 @@ export function SkillLibraryPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/skill-scripts"] }),
   });
 
-  const runScript = useMutation({
+  const copyScript = useMutation({
     mutationFn: (id: string) => apiRequest("POST", `/api/skill-scripts/${id}/run`),
-    onSuccess: (data: { content: string; language: string; name: string }) => {
-      qc.invalidateQueries({ queryKey: ["/api/skill-scripts"] });
-      // Copy script content to clipboard for easy pasting into chat
-      navigator.clipboard.writeText(data.content).catch(() => {});
+    onSuccess: async (data: { content: string; language: string; name: string; executed?: boolean; notice?: string }) => {
+      await navigator.clipboard.writeText(data.content);
       toast({
-        title: `Running: ${data.name}`,
-        description: "Script content copied to clipboard. Paste it into a chat session to execute.",
+        title: `Copied: ${data.name}`,
+        description: data.notice || "Script content copied for review. No script was executed.",
       });
     },
-    onError: (e: any) => toast({ title: "Run failed", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Copy failed", description: e.message, variant: "destructive" }),
   });
 
   // Filter scripts
@@ -365,7 +363,7 @@ export function SkillLibraryPage() {
             onDelete={() => deleteScript.mutate(selected.id)}
             onCopy={() => copyToClipboard(selected.content)}
             onExport={() => handleExport(selected)}
-            onRun={() => runScript.mutate(selected.id)}
+            onRun={() => copyScript.mutate(selected.id)}
             onShowVersions={() => setShowVersions(showVersions === selected.id ? null : selected.id)}
             showVersions={showVersions === selected.id}
             versions={showVersions === selected.id ? versions : []}
@@ -452,7 +450,7 @@ function ScriptDetail({
         <div className="flex gap-1">
           {!editing && (
             <>
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 hover:text-green-500" onClick={onRun} title="Run (copy to clipboard)"><Play className="w-3.5 h-3.5" /></Button>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 hover:text-green-500" onClick={onRun} title="Copy for review (does not execute)"><Copy className="w-3.5 h-3.5" /></Button>
               <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onCopy} title="Copy"><Copy className="w-3.5 h-3.5" /></Button>
               <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onExport} title="Export"><Download className="w-3.5 h-3.5" /></Button>
               <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onShowVersions} title="Version history"><History className="w-3.5 h-3.5" /></Button>

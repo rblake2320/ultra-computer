@@ -31,7 +31,7 @@ export function registerMarketplaceRoutes(app: Express) {
 
     const skills = storage.getMarketplaceSkills({ category, search, sort, limit, offset });
     const total = storage.getMarketplaceSkills({ category, search }).length;
-    res.json({ skills, total, limit, offset });
+    res.json({ skills, total, limit, offset, registryScope: "local_only" });
   });
 
   // ─── Get single skill detail ──────────────────────────────────────────────
@@ -46,7 +46,16 @@ export function registerMarketplaceRoutes(app: Express) {
     const installed = storage.getMarketplaceInstallBySkill(skill.id);
     const avgRating = skill.ratingCount > 0 ? +(skill.ratingSum / skill.ratingCount).toFixed(1) : 0;
 
-    res.json({ ...skill, versions, ratings, installed: installed || null, avgRating });
+    res.json({
+      ...skill,
+      versions,
+      ratings,
+      installed: installed || null,
+      avgRating,
+      registryScope: "local_only",
+      authorIdentityVerified: false,
+      contentSignatureVerified: false,
+    });
   });
 
   // ─── Publish a new skill ──────────────────────────────────────────────────
@@ -118,14 +127,28 @@ export function registerMarketplaceRoutes(app: Express) {
     const existing = storage.getMarketplaceSkill(req.params.id);
     if (!existing) return res.status(404).json({ error: "Skill not found" });
 
-    const { tags, ...rest } = req.body;
-    const updateData: any = { ...rest };
+    const {
+      name, description, longDescription, authorName, authorEmail,
+      category, tags, license, repoUrl, visibility,
+    } = req.body ?? {};
+    const updateData: Record<string, unknown> = {};
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (longDescription !== undefined) updateData.longDescription = longDescription;
+    if (authorName !== undefined) updateData.authorName = authorName;
+    if (authorEmail !== undefined) updateData.authorEmail = authorEmail;
+    if (category !== undefined) {
+      if (!VALID_CATEGORIES.includes(category)) {
+        return res.status(400).json({ error: `category must be one of: ${VALID_CATEGORIES.join(", ")}` });
+      }
+      updateData.category = category;
+    }
+    if (license !== undefined) updateData.license = license;
+    if (repoUrl !== undefined) updateData.repoUrl = repoUrl;
+    if (visibility !== undefined) updateData.visibility = visibility;
     if (tags !== undefined) {
       updateData.tags = Array.isArray(tags) ? JSON.stringify(tags) : tags;
     }
-    // Don't allow changing slug or id
-    delete updateData.id;
-    delete updateData.slug;
 
     const updated = storage.updateMarketplaceSkill(req.params.id, updateData);
     res.json(updated);
@@ -218,7 +241,9 @@ export function registerMarketplaceRoutes(app: Express) {
         triggerKeywords: latest.triggerKeywords,
         embeddings: null,
         isBuiltIn: false,
-        enabled: true,
+        // Marketplace content is local and unsigned. Installation stores it
+        // disabled so the owner can inspect it before activation.
+        enabled: false,
       });
       localType = "instruction";
     }
@@ -333,8 +358,14 @@ export function registerMarketplaceRoutes(app: Express) {
     const skill = storage.getMarketplaceSkill(req.params.id);
     if (!skill) return res.status(404).json({ error: "Skill not found" });
 
-    const { rating, review, userId } = req.body;
-    if (!rating || !userId) return res.status(400).json({ error: "rating and userId required" });
+    const { rating, review } = req.body;
+    if (!rating) return res.status(400).json({ error: "rating required" });
+    if (review !== undefined && (typeof review !== "string" || review.length > 5_000)) {
+      return res.status(400).json({ error: "review must be a string no longer than 5000 characters" });
+    }
+    // Ultra Computer is currently a single-owner local application. Do not
+    // accept caller-selected identities that can manufacture rating consensus.
+    const userId = "local-owner";
     // Use Number() instead of parseInt() to correctly handle non-integer strings
     const ratingNum = Number(rating);
     if (isNaN(ratingNum) || ratingNum < 1 || ratingNum > 5) return res.status(400).json({ error: "rating must be 1-5" });
@@ -430,6 +461,7 @@ export function registerMarketplaceRoutes(app: Express) {
       featured: all.filter(s => s.featured).length,
       verified: all.filter(s => s.verified).length,
       tierDistribution,
+      registryScope: "local_only",
     });
   });
 

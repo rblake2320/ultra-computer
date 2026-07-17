@@ -144,8 +144,7 @@ const apiLimiter = rateLimit({
   message: { error: "Too many requests, please try again later" },
   skip: (req) =>
     !req.path.startsWith("/api")
-    || req.path === "/api/health"
-    || req.path.startsWith("/api/messaging/webhook/"),
+    || req.path === "/api/health",
   keyGenerator: normalizeIp,
 });
 app.use(apiLimiter);
@@ -216,8 +215,7 @@ app.get("/api/health", (_req, res) => {
     (process.env.NODE_ENV === "production" &&
       process.env.REQUIRE_TASK_QUEUE !== "0");
   const temporalState: RuntimeCheckState =
-    process.env.RUN_TEMPORAL_WORKER === "1" ||
-    process.env.TEMPORAL_ADDRESS ? "external" :
+    process.env.RUN_TEMPORAL_WORKER === "1" ? "external" :
     "disabled";
   const health = buildRuntimeHealth({
     database: { state: databaseState, required: true },

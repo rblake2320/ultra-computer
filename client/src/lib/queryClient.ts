@@ -20,14 +20,24 @@ export function setBrowserApiKey(value: string): void {
   }
 }
 
-export async function apiRequest(method: string, path: string, body?: any) {
-  const url = `${API_BASE}${path}`;
+export async function authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const key = browserApiKey();
-  const res = await fetch(url, {
+  const headers = new Headers(init.headers);
+  if (key && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${key}`);
+  }
+
+  return fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+  });
+}
+
+export async function apiRequest<T = any>(method: string, path: string, body?: any): Promise<T> {
+  const res = await authenticatedFetch(path, {
     method,
     headers: {
       "Content-Type": "application/json",
-      ...(key ? { Authorization: `Bearer ${key}` } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
@@ -35,7 +45,7 @@ export async function apiRequest(method: string, path: string, body?: any) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || `HTTP ${res.status}`);
   }
-  return res.json();
+  return res.json() as Promise<T>;
 }
 
 export async function getSSEUrl(path: string): Promise<string> {
@@ -57,13 +67,21 @@ export function connectEventSource(
   let closed = false;
   let source: EventSource | null = null;
   let reconnectTimer: number | undefined;
+  let lastEventId = "";
 
   const connect = async () => {
     try {
-      const url = await getSSEUrl(path);
+      const authenticatedUrl = await getSSEUrl(path);
       if (closed) return;
+      const separator = authenticatedUrl.includes("?") ? "&" : "?";
+      const url = lastEventId
+        ? `${authenticatedUrl}${separator}lastEventId=${encodeURIComponent(lastEventId)}`
+        : authenticatedUrl;
       source = new EventSource(url);
-      source.onmessage = handlers.onMessage;
+      source.onmessage = (event) => {
+        if (event.lastEventId) lastEventId = event.lastEventId;
+        handlers.onMessage(event);
+      };
       source.onopen = () => handlers.onOpen?.();
       source.onerror = () => {
         source?.close();

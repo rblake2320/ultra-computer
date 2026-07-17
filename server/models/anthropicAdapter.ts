@@ -25,11 +25,13 @@ import {
   responseWithToolCalls,
   textFromContent,
 } from "./adapterUtils.js";
+import { createGovernedProviderFetch } from "./providerFetch.js";
 
 export interface AnthropicAdapterConfig {
   apiKey: string;
   baseURL?: string;
   timeoutMs?: number;
+  sessionId?: string;
 }
 
 function imageSource(part: Extract<ModelContentPart, { type: "image" }>) {
@@ -157,6 +159,10 @@ export class AnthropicAdapter implements ProviderAdapter {
       apiKey: config.apiKey,
       baseURL: config.baseURL,
       timeout: config.timeoutMs ?? 120_000,
+      fetch: createGovernedProviderFetch(config.sessionId ?? "provider:anthropic"),
+      // The spend guard reserves one provider attempt. Do not allow the SDK to
+      // issue additional billable attempts invisibly.
+      maxRetries: 0,
     });
   }
 

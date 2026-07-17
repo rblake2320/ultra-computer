@@ -15,9 +15,13 @@ import { promisify } from "util";
 import { dockerSandbox } from "./dockerSandbox.js";
 import { BROWSER_TOOL_SCHEMAS, executeBrowserTool } from "./browserTool.js";
 import { IMAGE_GEN_TOOL_SCHEMAS, executeImageGenTool } from "./imageGenTool.js";
-import { resolveInside } from "./pathSafety.js";
+import {
+  resolveSandboxPath as resolveCanonicalSandboxPath,
+  SANDBOX_DIR,
+  ensureSandboxDir,
+} from "./sandboxPaths.js";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
-import { redactString } from "./redaction.js";
+import { redactString, sanitizeToolArgsForExposure } from "./redaction.js";
 import { isPrivateHost } from "./networkSecurity.js";
 import { governedFetch } from "./governedFetch.js";
 
@@ -31,8 +35,7 @@ async function getMCPModule() {
 const execAsync = promisify(exec);
 
 // All agent-created files live here — mounted into Docker containers as /workspace
-const SANDBOX_DIR = path.join(process.cwd(), "sandbox");
-if (!fs.existsSync(SANDBOX_DIR)) fs.mkdirSync(SANDBOX_DIR, { recursive: true });
+ensureSandboxDir();
 
 // Re-export sandbox management for routes
 export { dockerSandbox } from "./dockerSandbox.js";
@@ -239,7 +242,13 @@ async function executeMCPTool(prefixedName: string, args: Record<string, string>
 export async function executeTool(name: string, args: Record<string, string>, sessionId: string = "default"): Promise<ToolResult> {
   const start = Date.now();
   try {
-    const context = { domain: "tool" as const, action: "tool:execute", tool: name, sessionId, metadata: args };
+    const context = {
+      domain: "tool" as const,
+      action: "tool:execute",
+      tool: name,
+      sessionId,
+      metadata: sanitizeToolArgsForExposure(name, args),
+    };
     const decision = evaluatePolicy(context);
     writePolicyAudit(context, decision);
     if (!decision.allowed) return policyDeniedResult(decision.reason, start);
@@ -771,7 +780,7 @@ async function executeSearchWeb(query: string, numResultsStr: string | undefined
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function resolveSandboxPath(filename: string): string {
-  const resolved = resolveInside(SANDBOX_DIR, filename);
+  const resolved = resolveCanonicalSandboxPath(filename);
   if (!resolved) {
     throw new Error("Path traversal blocked — must stay within sandbox");
   }

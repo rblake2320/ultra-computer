@@ -10,6 +10,7 @@ export default defineConfig({
     // with SQLITE_IOERR_TRUNCATE (observed on Node 24 CI). Run files serially;
     // tests within each file remain sequential by Vitest default.
     fileParallelism: false,
+    globalSetup: ["./tests/unit/globalSetup.ts"],
     include: ["tests/unit/**/*.test.ts"],
     coverage: {
       provider: "v8",

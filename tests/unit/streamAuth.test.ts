@@ -13,9 +13,10 @@ describe("scoped stream authentication", () => {
   });
 
   it("rejects expired, tampered, malformed, and overlong tokens", () => {
-    const now = Date.now();
     const token = createStreamToken("/api/events/stream", 1_000, env);
-    expect(verifyStreamToken(token, "/api/events/stream", env, now + 1_001)).toBe(false);
+    const [encoded] = token.split(".");
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as { exp: number };
+    expect(verifyStreamToken(token, "/api/events/stream", env, payload.exp + 1)).toBe(false);
     expect(verifyStreamToken(`${token}x`, "/api/events/stream", env)).toBe(false);
     expect(verifyStreamToken("invalid", "/api/events/stream", env)).toBe(false);
     expect(() => createStreamToken("/api/events", 120_001, env)).toThrow("TTL");

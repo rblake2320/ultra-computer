@@ -14,6 +14,24 @@ import { storage } from "./storage.js";
 import { runOrchestrator, subscribeToConversation, unsubscribeFromConversation } from "./orchestrator.js";
 import { governedFetch } from "./governedFetch.js";
 
+/**
+ * Current external interoperability status. A2A v1 is a breaking migration
+ * from the retained v0.3 engine, so all network-facing entry points fail
+ * closed until the v1 message, task, transport, and A2A-Version contracts are
+ * implemented and reviewed together.
+ */
+export const A2A_EXTERNAL_STATUS = Object.freeze({
+  available: false,
+  currentProtocolVersion: "1.0",
+  legacyEngineVersion: "0.3.0",
+  reason:
+    "A2A v1 external interoperability is not implemented. The legacy v0.3 engine is local-only and unsupported.",
+});
+
+function assertExternalA2AUnavailable(): void {
+  throw new Error(A2A_EXTERNAL_STATUS.reason);
+}
+
 // ---------------------------------------------------------------------------
 // A2A Type Definitions
 // ---------------------------------------------------------------------------
@@ -754,6 +772,7 @@ export async function handleA2ARequest(body: unknown): Promise<JsonRpcResponse> 
  * @throws If the network request fails or the response is not a valid AgentCard.
  */
 export async function discoverAgent(baseUrl: string): Promise<AgentCard> {
+  assertExternalA2AUnavailable();
   const normalizedBase = baseUrl.replace(/\/$/, "");
   const cardUrl = `${normalizedBase}/.well-known/agent-card.json`;
 
@@ -800,6 +819,7 @@ export async function sendMessage(
   message: Omit<A2AMessage, "messageId"> & { messageId?: string },
   taskId?: string
 ): Promise<A2ATask> {
+  assertExternalA2AUnavailable();
   const normalizedBase = agentUrl.replace(/\/$/, "");
 
   const fullMessage: A2AMessage = {
@@ -858,6 +878,7 @@ export async function* streamMessage(
   message: Omit<A2AMessage, "messageId"> & { messageId?: string },
   taskId?: string
 ): AsyncGenerator<{ event: string; data: unknown }> {
+  assertExternalA2AUnavailable();
   const normalizedBase = agentUrl.replace(/\/$/, "");
 
   const fullMessage: A2AMessage = {
@@ -955,6 +976,7 @@ export async function* streamMessage(
  * @returns The current A2ATask object from the remote agent.
  */
 export async function getTask(agentUrl: string, taskId: string): Promise<A2ATask> {
+  assertExternalA2AUnavailable();
   const normalizedBase = agentUrl.replace(/\/$/, "");
 
   const rpcBody: JsonRpcRequest = {
@@ -990,6 +1012,7 @@ export async function getTask(agentUrl: string, taskId: string): Promise<A2ATask
  * @returns The updated A2ATask (state should be "canceled").
  */
 export async function cancelTask(agentUrl: string, taskId: string): Promise<A2ATask> {
+  assertExternalA2AUnavailable();
   const normalizedBase = agentUrl.replace(/\/$/, "");
 
   const rpcBody: JsonRpcRequest = {

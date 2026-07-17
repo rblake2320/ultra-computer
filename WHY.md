@@ -260,3 +260,280 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** CLI parser/execution unit tests, authenticated E2E execution,
   full verification, and the GitHub Advanced Security CodeQL rerun.
 - **Related:** WHY-0003 and the 2026-07-16 security changelog.
+
+### WHY-0012: Provider credentials are saved only with an explicit model action
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** The provider form accepted an API key but exposed no visible
+  save control. Model cards implicitly performed persistence, while catalog
+  sync ignored the credential still present in the form.
+- **Decision:** Label each model action **Save & connect**, explain that the key
+  is encrypted and stored with that model, and allow catalog sync to use the
+  entered credential transiently without persisting it.
+- **Why:** Credential persistence must be intentional and understandable. A
+  provider-level credential table would add schema and lifecycle complexity
+  when the existing encrypted per-model storage is sufficient.
+- **Alternatives:** Persist immediately on input, or add a provider credential
+  schema. Rejected because implicit secret writes are unsafe and the additive
+  schema is unnecessary for this launch blocker.
+- **Evidence:** Browser reproduction, unit no-credential coverage, explicit UI
+  E2E coverage, a bounded connection-probe minimum regression, and the release
+  verification gate.
+
+### WHY-0013: Wiring claims require boundary proof and explicit exclusions
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Green core tests and the presence of routes/adapters were
+  previously summarized as if every visible capability had been wired and
+  inspected. Contract tracing later found broken and orphaned boundaries.
+- **Decision:** A wiring claim must trace the user action through its real
+  client, API, service, persistence and external boundary. Evidence is labeled
+  live, local, unit-only, static-only, not verified or blocked. Every excluded
+  live check records why it was excluded.
+- **Why:** This makes a failure traceable and prevents unit mocks, static code
+  presence or unrelated sample workflows from becoming launch proof.
+- **Alternatives:** Report only passing test totals or maintain separate
+  component notes. Rejected because neither exposes missing seams or explains
+  why a feature that appears configured cannot operate.
+- **Evidence:** `reports/wiring-audit-2026-07-17.md`.
+- **Related:** PARK-0014 and the 2026-07-17 documentation changelog.
+
+### WHY-0014: BullMQ uses one observable, persistent Redis contract
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Cache code honored `REDIS_URL`, but BullMQ rebuilt unauthenticated
+  host/port connections, retained stale availability after outages, leaked
+  failed clients, and Compose explicitly disabled Redis persistence.
+- **Decision:** Resolve one validated `redis://` or `rediss://` target for all
+  BullMQ clients, track each live connection in readiness, close partial
+  initialization, and persist Redis with append-only storage.
+- **Why:** Queue readiness must describe the service actually handling work,
+  while authentication, TLS, database selection and restart durability must not
+  depend on which subsystem opens the connection.
+- **Alternatives:** Keep duplicate host/port variables or treat Redis as an
+  optional in-memory accelerator. Rejected because production requires the
+  queue and accepted work must survive ordinary container recreation.
+- **Evidence:** 230 unit tests, validated Compose config, real Docker BullMQ
+  dispatch, HTTP 200 live health, and real Chrome render without app errors.
+- **Related:** WHY-0013 and PARK-0012.
+
+### WHY-0015: Untrusted execution never crosses the host boundary
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** File transforms accepted host paths, the interpreter ran
+  submitted code and package managers on the host, Docker arguments were
+  reconstructed as shell strings, and browser typing values entered durable
+  logs while subresources bypassed the top-level URL check.
+- **Decision:** Use one canonical sandbox path, temporary transform snapshots,
+  Docker-only code execution, shell-free Docker argv, validated immutable
+  container limits, per-request browser egress governance and unconditional
+  typed-input redaction before any observable or durable record.
+- **Why:** Validation cannot make arbitrary host execution safe. Removing the
+  host shell and host interpreter, constraining filesystem publication, and
+  minimizing secret lifetime make the boundary enforceable and testable.
+- **Alternatives:** Expand blocklists, validate package names, or redact only
+  known token patterns. Rejected because ordinary private text and valid-looking
+  paths/arguments can still cross those boundaries.
+- **Evidence:** Focused unit tests, real Chromium private-subresource and secret
+  tests, and a real Docker isolation/host-injection test.
+- **Related:** WHY-0011, WHY-0013 and PARK-0016.
+
+### WHY-0016: Credentials are plaintext only inside the owning server process
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Model credentials were encrypted in SQLite but could escape in
+  create and quick-add responses, while connector keys, OAuth client secrets
+  and tokens were durable plaintext JSON. Default-model reads also returned
+  ciphertext to internal adapters instead of usable credentials.
+- **Decision:** Encrypt each connector configuration as one authenticated
+  AES-256-GCM envelope, migrate legacy plaintext on its first server-side read,
+  decrypt role lookups consistently, and sanitize model objects in the service
+  that owns every REST/gRPC response path.
+- **Why:** Secret handling is safest when persistence and response boundaries
+  are centralized. Encrypting the existing text value avoids a schema change
+  while protecting all present and future connector credential fields.
+- **Alternatives:** Redact individual routes or encrypt only known JSON keys.
+  Rejected because new call sites or provider-specific fields would recreate
+  the leak, and partial JSON encryption leaves secret classification brittle.
+- **Evidence:** Raw-SQL persistence tests prove ciphertext at rest, legacy
+  migration, server-only decryption and sanitized create/quick-add responses.
+- **Related:** WHY-0012, WHY-0013 and PARK-0016.
+
+### WHY-0017: Visible configuration is not model readiness
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Routers and the chat UI treated any enabled database record as a
+  usable model. Failed, disconnected, untested or credentialless records could
+  retain core roles and then produce “No model configured” or provider errors.
+  Role endpoints also cleared the working role before validating the target.
+- **Decision:** Define routability once as enabled plus connected plus currently
+  credential-ready; apply it to every text, worker, memory, speed and image
+  selection path. Change roles transactionally and reconcile them after test
+  failure, disable, disconnect or deletion.
+- **Why:** A model card proves configuration, not availability. Routing only to
+  a live-proven candidate makes readiness and the user-visible state agree,
+  while atomic mutation preserves the last working configuration on failure.
+- **Alternatives:** Retry failed records during chat or trust the enabled flag.
+  Rejected because chat would become an implicit paid probe and both options
+  preserve misleading readiness.
+- **Evidence:** 256 unit tests and eight real Playwright workflows, including a
+  visible but unverified model that is correctly treated as no ready model.
+- **Related:** WHY-0012, WHY-0013 and PARK-0016.
+
+### WHY-0018: Client and callback boundaries have one explicit contract
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Connector code treated already-parsed API results as Fetch
+  responses, multipart uploads bypassed owner authentication, Identity actions
+  disagreed with their registered route shapes, and external OAuth/Gmail
+  callbacks were blocked by owner auth. Generic webhooks had no scoped proof.
+- **Decision:** Centralize authenticated browser Fetch, consume typed parsed
+  JSON once, share Identity request-shape builders, expose only callbacks that
+  perform their own verification, and require timestamped raw-body HMAC for
+  generic inbound webhooks. Use one signed connector OAuth flow and require an
+  explicit HTTPS redirect base in production.
+- **Why:** Authentication and serialization are boundary properties. Encoding
+  them once prevents individual screens from silently omitting the owner key or
+  inventing incompatible response semantics, while route-local callback proof
+  allows external providers in without opening owner operations.
+- **Alternatives:** Exempt all callback-looking paths or let every page build
+  its own headers and response parsing. Rejected because both make future
+  bypass and contract drift likely.
+- **Evidence:** 268 unit tests plus nine real Playwright workflows, including
+  authenticated connector creation and a destination-aware multipart upload;
+  real Express Identity flows, callback owner-gate tests and webhook HMAC/replay
+  tests cover the remaining local contracts.
+- **Related:** WHY-0013, WHY-0016 and PARK-0016.
+
+### WHY-0019: A durable claim is the side-effect admission boundary
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Duplicate delivery returned an existing durable run record but
+  continued into model, tool and persistence side effects. Separately, a
+  standalone Temporal sample was documented as if normal application messages
+  used it, although no ingress started that workflow.
+- **Decision:** Return before all orchestrator side effects when the durable
+  run claim already exists. Keep the Temporal server, worker and database
+  behind an explicit `temporal-proof` profile until application work is
+  decomposed into idempotent, resumable activities and actually dispatched by
+  ingress.
+- **Why:** A ledger is useful only if its atomic claim controls execution.
+  Retrying the entire orchestrator as one activity after a partial failure can
+  duplicate external actions; isolating the sample is more truthful and safer
+  than advertising unearned crash-resume.
+- **Alternatives:** Treat the ledger as telemetry, or route messages through
+  the existing whole-orchestrator Temporal activity. Rejected because the
+  former repeats work and the latter creates false recovery semantics around
+  non-idempotent side effects.
+- **Evidence:** A duplicate-run unit test proves no status, message, provider
+  or tool path is entered; Compose config proves Temporal is absent by default
+  and present only with `--profile temporal-proof`.
+- **Related:** WHY-0007, PARK-0008 and PARK-0016.
+
+### WHY-0020: A connector is connected only after its real boundary responds
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Several connectors accepted credentials without contacting the
+  provider, and the generic tool path invented a `/tools/{name}` endpoint that
+  is not MCP. Messaging could also show success after an `ok: false` result and
+  lost all channel state on restart.
+- **Decision:** Fail closed where provider-native validation or operations are
+  not implemented; use MCP Streamable HTTP initialization and JSON-RPC
+  `tools/call` for MCP connectors; require explicit `ok: true` in the UI; and
+  persist encrypted messaging state plus deduplicated inbound dispatch.
+- **Why:** Configuration storage is not connectivity, and an HTTP 200 envelope
+  is not operational success. The product must distinguish implemented
+  provider behavior from saved metadata.
+- **Alternatives:** Keep optimistic status and add warnings, or preserve the
+  generic REST convention. Rejected because both still produce false success
+  at the exact boundary operators depend on.
+- **Evidence:** Focused connector/MCP/messaging tests, complete TypeScript and
+  unit gates, plus restart restoration and duplicate-inbound contract tests.
+- **Related:** WHY-0016, WHY-0018, PARK-0007 and PARK-0016.
+
+### WHY-0021: Provider SDKs do not own egress or hidden retry policy
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** SDK calls could resolve and connect to caller-configured base
+  URLs outside the governed DNS/TLS/policy boundary. Default SDK retries could
+  also issue more paid requests than the spend guard reserved.
+- **Decision:** Inject the governed, DNS-pinned fetch implementation into
+  OpenAI-compatible and Anthropic SDK clients, including image generation, and
+  set SDK retries to zero. Reject custom Google base URLs until that client can
+  use the same transport.
+- **Why:** Network validation and cost admission must wrap the actual socket and
+  every attempt, not a URL string checked before an independent SDK request.
+- **Alternatives:** Pre-validate the hostname or trust HTTPS. Rejected because
+  both retain DNS-rebinding, redirect and hidden-retry gaps.
+- **Evidence:** Provider contract tests traverse a real local HTTP boundary
+  only when explicitly allowlisted; blocked-local, body preservation, image
+  materialization, TypeScript and complete unit gates pass.
+- **Related:** WHY-0009, WHY-0015 and PARK-0013.
+
+### WHY-0022: Experimental means guarded and truthful, never simulated
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Experimental Swarm, cron, NIP, Skills and Marketplace operations
+  could report completion after errors, canned exchanges, metadata writes or a
+  copy-only action.
+- **Decision:** Propagate execution failures; return 501 for missing adapters;
+  reject fabricated negotiation/wildcard trust; label copy-only and local-only
+  operations; and keep unsigned installed instructions disabled for review.
+- **Why:** An experimental gate limits exposure but does not make false success
+  acceptable. The status must still describe the work actually performed.
+- **Alternatives:** Preserve optimistic flows with warning text. Rejected
+  because automation and operators act on status fields, not disclaimers.
+- **Evidence:** Focused truth tests exercise six real failure/label boundaries;
+  the full unit suite and experimental-route browser gate pass.
+- **Related:** WHY-0013 and PARK-0016.
+
+### WHY-0023: Unsupported current protocols fail closed
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** The retained A2A code models the legacy 0.3 JSON-RPC contract,
+  while the current released specification is 1.0. Local conformance tests
+  against 0.3 would still produce a false interoperability claim.
+- **Decision:** Return HTTP 501 from all external A2A routes and advertise the
+  exact version gap. Keep MCP on the current stable 2025-11-25 contract.
+- **Why:** Explicit unavailability is safer than protocol drift that appears to
+  connect and then corrupts tasks, authentication or message semantics.
+- **Alternatives:** Ship the legacy contract or depend on the stable JavaScript
+  SDK, which currently targets 0.3. Rejected because neither implements current
+  A2A 1.0.
+- **Evidence:** Official protocol sources are linked in
+  `docs/PROTOCOL_STATUS.md`; route tests prove every external A2A path fails
+  before discovery or dispatch, and the UI displays the reason.
+- **Related:** PARK-0018 and PARK-0016.
+
+### WHY-0024: Cross-platform and security gates are release behavior
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Windows CI denied an approved Python transform because runner
+  temporary paths can use the `RUNNER~1` short-name form. CodeQL separately
+  identified polynomial trailing-slash regexes and tainted log format strings.
+- **Decision:** Permit the tilde only inside the already constrained local
+  interpreter path grammar, test that exact Windows form, replace the regexes
+  with bounded linear string operations, and use constant log messages with
+  untrusted values passed as structured fields.
+- **Why:** Linux success does not prove Windows policy portability, and
+  syntactically small string operations still belong inside security gates.
+  The fixes preserve fail-closed execution while removing platform ambiguity.
+- **Alternatives:** Loosen the entire command policy or waive remote checks.
+  Rejected because either would weaken the production boundary to hide a CI
+  defect.
+- **Evidence:** Focused CLI/policy/catalog/MCP tests and TypeScript pass. Final
+  evidence is the rerun GitHub Windows matrix and CodeQL PR gate.
+- **Related:** WHY-0005, WHY-0016 and WHY-0020.
