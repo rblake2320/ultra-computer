@@ -1009,7 +1009,7 @@ export class NIPEngine extends EventEmitter {
       const report = this.generateReport(sessionId);
       this.emit("report:generated", report);
     } catch (reportErr) {
-      console.error(`[NIP] Failed to auto-generate report for ${sessionId}:`, reportErr);
+      console.error("[NIP] Failed to auto-generate report for session:", sessionId, reportErr);
     }
 
     return session;

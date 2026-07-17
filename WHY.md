@@ -537,3 +537,29 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** Focused CLI/policy/catalog/MCP tests and TypeScript pass. Final
   evidence is the rerun GitHub Windows matrix and CodeQL PR gate.
 - **Related:** WHY-0005, WHY-0016 and WHY-0020.
+
+### WHY-0025: Security boundaries use structured operations, not sanitization shortcuts
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Repository-wide CodeQL found inherited paths where request data
+  reached filesystem, command, dynamic-code, regex, timer, traversal and log
+  operations. Several paths had containment checks, but shortcuts such as
+  shell-built grep, `new Function`, regex tag stripping and substring URL
+  validation made the boundary unnecessarily fragile.
+- **Decision:** Remove host-shell and dynamic-code execution; use structured
+  in-process operations, parsed URLs, bounded scanners/parsers, canonical
+  no-follow filesystem handles, validated identifiers and fixed log formats.
+  Pin the runtime image and require the full check set on protected `master`.
+- **Why:** Escaping attacker-controlled strings is weaker than eliminating the
+  interpreter or ambiguous parser. Defense-in-depth also makes the safety
+  contract testable on Windows and Linux instead of depending on CodeQL to
+  understand a custom sanitizer.
+- **Alternatives:** Dismiss all path/sanitization alerts as static-analysis
+  limitations. Rejected because manual tracing confirmed genuine checkpoint,
+  command, code-execution, regex and resource-bound defects among the false
+  positives.
+- **Evidence:** 325 unit tests, 9 real browser E2E workflows, 12 integration
+  checks, clean production Docker boundary proof, zero npm vulnerabilities and
+  the follow-up GitHub CodeQL gate.
+- **Related:** WHY-0015, WHY-0024 and PARK-0020.

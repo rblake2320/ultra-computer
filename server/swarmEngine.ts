@@ -30,6 +30,18 @@ import { withRetryAndFallback } from "./errorRecovery.js";
 import { knowledgeEngine } from "./knowledgeEngine.js";
 import { storage } from "./storage.js";
 
+const MAX_BLACKBOARD_TOPIC_LENGTH = 512;
+const MAX_BLACKBOARD_TOPIC_SEGMENTS = 64;
+
+function validateBlackboardTopic(topic: string): void {
+  if (typeof topic !== "string" || topic.length === 0 || topic.length > MAX_BLACKBOARD_TOPIC_LENGTH) {
+    throw new Error(`Blackboard topic must be 1-${MAX_BLACKBOARD_TOPIC_LENGTH} characters`);
+  }
+  if (topic.split(".", MAX_BLACKBOARD_TOPIC_SEGMENTS + 1).length > MAX_BLACKBOARD_TOPIC_SEGMENTS) {
+    throw new Error(`Blackboard topic may contain at most ${MAX_BLACKBOARD_TOPIC_SEGMENTS} segments`);
+  }
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export type SwarmStatus = "idle" | "running" | "paused" | "completed" | "failed" | "terminated";
@@ -830,6 +842,7 @@ class SwarmEngine {
   }): BlackboardEntryMem {
     const session = this.swarms.get(swarmId);
     if (!session) throw new Error(`Swarm ${swarmId} not found`);
+    validateBlackboardTopic(entry.topic);
 
     const compositeKey = `${entry.topic}:${entry.key}`;
     const existing = session.blackboard.get(compositeKey);
@@ -955,6 +968,7 @@ class SwarmEngine {
 
   // Blackboard subscriptions
   subscribeToBB(swarmId: string, topicPattern: string, callback: BlackboardSubscriber): void {
+    if (topicPattern !== "*") validateBlackboardTopic(topicPattern);
     const key = `${swarmId}:${topicPattern}`;
     const list = this.bbSubscribers.get(key) || [];
     list.push(callback);

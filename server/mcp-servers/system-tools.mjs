@@ -245,8 +245,23 @@ async function executeTool(name, args) {
 }
 
 function matchGlob(filename, pattern) {
-  const regex = new RegExp("^" + pattern.replace(/\./g, "\\.").replace(/\*/g, ".*").replace(/\?/g, ".") + "$", "i");
-  return regex.test(filename);
+  if (typeof pattern !== "string" || pattern.length > 200) {
+    throw new Error("Glob pattern must contain at most 200 characters");
+  }
+  let previous = new Array(filename.length + 1).fill(false);
+  previous[0] = true;
+  for (const token of pattern) {
+    const current = new Array(filename.length + 1).fill(false);
+    if (token === "*") current[0] = previous[0];
+    for (let index = 1; index <= filename.length; index += 1) {
+      current[index] = token === "*"
+        ? current[index - 1] || previous[index]
+        : previous[index - 1]
+          && (token === "?" || token.toLowerCase() === filename[index - 1].toLowerCase());
+    }
+    previous = current;
+  }
+  return previous[filename.length];
 }
 
 // ─── MCP HTTP Server ─────────────────────────────────────────────────────────

@@ -30,6 +30,11 @@ const DEFAULT_WORK_DIR = "/tmp/ultra-sandbox";
 const TOOL_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_WEBHOOK_HISTORY = 100;
 
+export function normalizeCommandTimeout(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_TIMEOUT_MS;
+  return Math.max(1, Math.min(Math.trunc(value), MAX_TIMEOUT_MS));
+}
+
 // ---------------------------------------------------------------------------
 // Types & Interfaces
 // ---------------------------------------------------------------------------
@@ -363,7 +368,7 @@ export async function executeCommand(
   opts: CommandOptions = {}
 ): Promise<CommandResult> {
   const workDir = path.resolve(DEFAULT_WORK_DIR);
-  const timeout = Math.min(opts.timeout ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
+  const timeout = normalizeCommandTimeout(opts.timeout);
   // Use safe env: only curated keys + caller-provided extras (not full process.env)
   const env = buildSafeEnv(opts.env);
 
@@ -1163,7 +1168,7 @@ export async function executeCodeInterpreter(
       `interpreter-${runId}`,
       command,
       runDir,
-      Math.min(opts.timeout ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS),
+      normalizeCommandTimeout(opts.timeout),
     );
     const entries = await fs.readdir(artifactDir).catch(() => []);
     const artifacts = entries.map((entry) => path.join(artifactDir, entry));

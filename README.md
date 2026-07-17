@@ -217,7 +217,6 @@ set the production variables below, then run `npm run build && npm start`.
 | `ENCRYPTION_KEY` | Production encryption/HMAC key; required, exactly 64 hexadecimal characters, and not a placeholder or single repeated character. |
 | `ALLOWED_ORIGIN` | Allowed browser origin; set to the public HTTPS origin in production. |
 | `TRUST_PROXY` | Express proxy trust setting; use only for a known reverse-proxy topology. |
-| `ALLOW_HOST_SHELL` | Development-only opt-in to host shell fallback. Production rejects `true`. |
 | `OUTBOUND_HTTP_TIMEOUT_MS` | Governed request timeout; default `15000`. |
 | `OUTBOUND_HTTP_MAX_REDIRECTS` | Governed redirect limit; default `3`. |
 | `OUTBOUND_HTTP_MAX_RESPONSE_BYTES` | Governed response limit; default `10485760`. |
@@ -280,7 +279,8 @@ replacement of pinned models remain intentionally parked in `PARKED.md`.
 
 ## Security Boundaries
 
-- Production refuses weak/missing application secrets and host-shell fallback.
+- Production refuses weak/missing application secrets. Tool execution never
+  falls back to the host shell; isolated Docker execution is required.
 - REST/gRPC APIs use the deployment bearer key. Browser SSE connections use
   short-lived, path-bound HMAC tokens instead of placing the long-lived API key
   in URLs.

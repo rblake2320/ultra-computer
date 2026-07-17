@@ -22,10 +22,32 @@ const MAX_DIRECTORY_ENTRIES = 10_000;
  * In Express 5, wildcard params are returned as arrays.
  * Join them to get the full relative path.
  */
-function paramToPath(param: unknown): string {
-  if (Array.isArray(param)) return param.join("/");
-  if (typeof param === "string") return param;
-  return "";
+function paramToPath(param: unknown): string | null {
+  const rawSegments = Array.isArray(param)
+    ? param
+    : typeof param === "string"
+      ? param.split("/")
+      : [];
+  if (rawSegments.length === 0) return null;
+
+  const safeSegments: string[] = [];
+  for (const value of rawSegments) {
+    if (typeof value !== "string" || value.length === 0 || value.length > 255) return null;
+    // path.basename is deliberately applied at the HTTP trust boundary. The
+    // equality checks preserve nested paths while rejecting either platform's
+    // separators, dot segments, NULs, and any attempted absolute path.
+    const safeSegment = path.basename(value);
+    if (
+      safeSegment !== value
+      || path.posix.basename(value) !== value
+      || path.win32.basename(value) !== value
+      || value === "."
+      || value === ".."
+      || value.includes("\0")
+    ) return null;
+    safeSegments.push(safeSegment);
+  }
+  return safeSegments.join(path.sep);
 }
 
 function toPublicPath(filePath: string): string {
@@ -166,6 +188,9 @@ export function registerFileRoutes(app: Express, options: FileRouteOptions = {})
       if (!allowed.ok) return cb(new Error(`Policy denied: ${allowed.reason}`));
       fs.mkdirSync(targetDir, { recursive: true });
       const safe = path.basename(file.originalname).replace(/[^a-zA-Z0-9._\-]/g, '_');
+      if (safe.length === 0 || safe === "." || safe === "..") {
+        return cb(new Error("Invalid upload filename"));
+      }
       const finalPath = path.join(targetDir, safe);
       const stagedPath = path.join(targetDir, `.ultra-upload-${randomUUID()}.part`);
       const output = fs.createWriteStream(stagedPath, { flags: "wx" });
@@ -307,6 +332,7 @@ export function registerFileRoutes(app: Express, options: FileRouteOptions = {})
   app.get("/api/sandbox/files/*filePath/download", (req, res) => {
     const rawParam = (req.params as any).filePath;
     const relativePath = paramToPath(rawParam);
+    if (relativePath === null) return res.status(400).json({ error: "Invalid path" });
     const resolved = resolveSafe(relativePath);
     if (!resolved) return res.status(400).json({ error: "Invalid path" });
     const allowed = isFilesystemAllowed("filesystem:read", resolved, { relativePath, download: true });
@@ -334,6 +360,7 @@ export function registerFileRoutes(app: Express, options: FileRouteOptions = {})
   app.get("/api/sandbox/files/*filePath", (req, res) => {
     const rawParam = (req.params as any).filePath;
     const relativePath = paramToPath(rawParam);
+    if (relativePath === null) return res.status(400).json({ error: "Invalid path" });
     const resolved = resolveSafe(relativePath);
     if (!resolved) return res.status(400).json({ error: "Invalid path" });
     const allowed = isFilesystemAllowed("filesystem:read", resolved, { relativePath });
@@ -386,6 +413,7 @@ export function registerFileRoutes(app: Express, options: FileRouteOptions = {})
   app.delete("/api/sandbox/files/*filePath", (req, res) => {
     const rawParam = (req.params as any).filePath;
     const relativePath = paramToPath(rawParam);
+    if (relativePath === null) return res.status(400).json({ error: "Invalid path" });
     const resolved = resolveSafe(relativePath);
     if (!resolved) return res.status(400).json({ error: "Invalid path" });
     const allowed = isFilesystemAllowed("filesystem:write", resolved, { relativePath, delete: true });
