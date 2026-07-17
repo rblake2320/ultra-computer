@@ -35,6 +35,7 @@ import {
 } from "./durableExecution.js";
 import type { Task } from "@shared/schema";
 import { filterOutput } from "./outputFilter.js";
+import { sanitizeToolArgsForExposure } from "./redaction.js";
 
 // IPC directory for filesystem-based inter-agent communication
 const IPC_DIR = path.join(process.cwd(), "ipc");
@@ -829,6 +830,7 @@ async function runWorkerAgent(
 
     for (const call of parsedCalls) {
       const callId = uuidv4().slice(0, 8);
+      const exposedArgs = sanitizeToolArgsForExposure(call.name, call.args);
 
       // Emit tool call event to UI
       emit(conversationId, {
@@ -836,7 +838,7 @@ async function runWorkerAgent(
         taskId: task.id,
         agentRunId,
         toolName: call.name,
-        args: call.args,
+        args: exposedArgs,
         callId,
       });
 
@@ -875,7 +877,7 @@ async function runWorkerAgent(
         callId,
       });
 
-      toolCallLog.push({ callId, tool: call.name, args: call.args, result });
+      toolCallLog.push({ callId, tool: call.name, args: exposedArgs, result });
 
       // Format result for the LLM
       const statusIcon = result.success ? "✓" : "✗";

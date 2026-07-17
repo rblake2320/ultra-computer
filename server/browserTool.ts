@@ -11,11 +11,12 @@
 import fs from "fs";
 import path from "path";
 import type { ToolSchema, ToolResult } from "./tools.js";
-import { isPrivateHost } from "./networkSecurity.js";
+import { redactString } from "./redaction.js";
+import { SANDBOX_DIR } from "./sandboxPaths.js";
+import { assertGovernedUrl } from "./governedFetch.js";
 
 // ─── Sandbox directories ──────────────────────────────────────────────────────
 
-const SANDBOX_DIR = path.join(process.cwd(), "sandbox");
 const SCREENSHOTS_DIR = path.join(SANDBOX_DIR, "screenshots");
 
 function ensureDirs() {
@@ -31,6 +32,8 @@ let _browser: any | null = null;
 const _pages: Map<string, any> = new Map(); // sessionKey → playwright Page
 const _contexts: Map<string, any> = new Map(); // sessionKey → playwright BrowserContext
 const _pendingPages: Map<string, Promise<any>> = new Map(); // serialize concurrent getPage for same key
+const _sessionSecrets: Map<string, Set<string>> = new Map();
+const _sensitiveSelectors: Map<string, Set<string>> = new Map();
 
 let _playwrightAvailable: boolean | null = null; // cached availability check
 
@@ -53,7 +56,11 @@ const UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Geck
 const VIEWPORT = { width: 1280, height: 800 };
 
 async function _createSlot(browser: any): Promise<PoolSlot> {
-  const context = await browser.newContext({ userAgent: UA, viewport: VIEWPORT });
+  const context = await browser.newContext({
+    userAgent: UA,
+    viewport: VIEWPORT,
+    serviceWorkers: "block",
+  });
   const page = await context.newPage();
   return { context, page };
 }
@@ -167,6 +174,7 @@ async function _getPageInternal(sessionKey: string): Promise<any> {
   // Try the pre-warmed pool first — eliminates context+page creation latency
   const slot = _acquireSlot();
   if (slot) {
+    await installEgressGuard(slot.context, sessionKey);
     _pages.set(sessionKey, slot.page);
     _contexts.set(sessionKey, slot.context);
     _poolSlots.set(sessionKey, slot);
@@ -177,14 +185,38 @@ async function _getPageInternal(sessionKey: string): Promise<any> {
 
   // Pool empty — create fresh (same as original behaviour)
   const browser = await getBrowser();
-  const context = await browser.newContext({ userAgent: UA, viewport: VIEWPORT });
+  const context = await browser.newContext({
+    userAgent: UA,
+    viewport: VIEWPORT,
+    serviceWorkers: "block",
+  });
+  await installEgressGuard(context, sessionKey);
   const page = await context.newPage();
   _pages.set(sessionKey, page);
   _contexts.set(sessionKey, context);
   return page;
 }
 
+async function installEgressGuard(context: any, sessionKey: string): Promise<void> {
+  if (typeof context.route !== "function") {
+    throw new Error("Browser egress guard is unavailable");
+  }
+  await context.route("**/*", async (route: any) => {
+    try {
+      await assertGovernedUrl(route.request().url(), sessionKey, "network", "network:browse");
+      await route.continue();
+    } catch {
+      await route.abort("blockedbyclient");
+    }
+  });
+  if (typeof context.routeWebSocket === "function") {
+    await context.routeWebSocket("**/*", (socket: any) => socket.close());
+  }
+}
+
 async function closePage(sessionKey: string): Promise<void> {
+  _sessionSecrets.delete(sessionKey);
+  _sensitiveSelectors.delete(sessionKey);
   const poolSlot = _poolSlots.get(sessionKey);
   if (poolSlot) {
     _poolSlots.delete(sessionKey);
@@ -398,29 +430,51 @@ export async function executeBrowserTool(
 ): Promise<ToolResult> {
   const start = Date.now();
 
+  let result: ToolResult;
   switch (name) {
     case "browse_url":
-      return executeBrowseUrl(args, start);
+      result = await executeBrowseUrl(args, start);
+      break;
     case "browser_action":
-      return executeBrowserAction(args, start);
+      result = await executeBrowserAction(args, start);
+      break;
     case "browser_evaluate":
-      return executeBrowserEvaluate(args, start);
+      result = await executeBrowserEvaluate(args, start);
+      break;
     case "browser_pdf":
-      return executeBrowserPdf(args, start);
+      result = await executeBrowserPdf(args, start);
+      break;
     case "browser_wait":
-      return executeBrowserWait(args, start);
+      result = await executeBrowserWait(args, start);
+      break;
     case "browser_resize":
-      return executeBrowserResize(args, start);
+      result = await executeBrowserResize(args, start);
+      break;
     case "browser_close":
-      return executeBrowserClose(args, start);
+      result = await executeBrowserClose(args, start);
+      break;
     default:
-      return {
+      result = {
         success: false,
         output: "",
         error: `Unknown browser tool: ${name}`,
         durationMs: Date.now() - start,
       };
   }
+  const session = args.session ?? "default";
+  return scrubBrowserResult(session, result);
+}
+
+function scrubBrowserResult(session: string, result: ToolResult): ToolResult {
+  const secrets = _sessionSecrets.get(session);
+  if (!secrets?.size) return result;
+  const scrub = (text?: string) => {
+    if (!text) return text;
+    let safe = redactString(text);
+    for (const secret of secrets) safe = safe.split(secret).join("[REDACTED BROWSER INPUT]");
+    return safe;
+  };
+  return { ...result, output: scrub(result.output) ?? "", error: scrub(result.error) };
 }
 
 // ─── browse_url ───────────────────────────────────────────────────────────────
@@ -446,9 +500,15 @@ async function executeBrowseUrl(
     return { success: false, output: "", error: `URL scheme '${parsedUrl.protocol}' is not allowed. Only http: and https: are permitted.`, durationMs: Date.now() - start };
   }
 
-  // SSRF protection: block private/loopback/link-local addresses.
-  if (isPrivateHost(parsedUrl.hostname)) {
-    return { success: false, output: "", error: "Browsing private/internal network addresses is not allowed", durationMs: Date.now() - start };
+  try {
+    await assertGovernedUrl(parsedUrl.toString(), session, "network", "network:browse");
+  } catch (error) {
+    return {
+      success: false,
+      output: "",
+      error: error instanceof Error ? error.message : "Browser navigation denied",
+      durationMs: Date.now() - start,
+    };
   }
 
   let page: any;
@@ -476,11 +536,16 @@ async function executeBrowseUrl(
     if (finalUrl && finalUrl !== url && finalUrl !== "about:blank") {
       try {
         const finalParsed = new URL(finalUrl);
-        if (isPrivateHost(finalParsed.hostname)) {
-          await page.close();
-          return { success: false, output: "", error: "URL redirected to a private/internal network address", durationMs: Date.now() - start };
-        }
-      } catch { /* ignore unparseable URLs */ }
+        await assertGovernedUrl(finalParsed.toString(), session, "network", "network:browse");
+      } catch (error) {
+        await closePage(session);
+        return {
+          success: false,
+          output: "",
+          error: error instanceof Error ? error.message : "Browser redirect denied",
+          durationMs: Date.now() - start,
+        };
+      }
     }
 
     // Optionally wait for a selector
@@ -503,7 +568,8 @@ async function executeBrowseUrl(
       ensureDirs();
       const filename = `screenshot_${Date.now()}.png`;
       const screenshotPath = path.join(SCREENSHOTS_DIR, filename);
-      await page.screenshot({ path: screenshotPath, fullPage: true });
+      const mask = Array.from(_sensitiveSelectors.get(session) ?? []).map((selector) => page.locator(selector));
+      await page.screenshot({ path: screenshotPath, fullPage: true, mask });
       const relPath = path.relative(SANDBOX_DIR, screenshotPath);
       outputParts.push(`Screenshot saved to: screenshots/${filename}`);
       artifacts.push({ path: screenshotPath, type: "image/png" });
@@ -603,9 +669,17 @@ async function executeBrowserAction(
         await page.waitForSelector(selector, { timeout: 10_000 });
         await page.click(selector);
         await page.fill(selector, value);
+        if (value.length > 0) {
+          const secrets = _sessionSecrets.get(session) ?? new Set<string>();
+          secrets.add(value);
+          _sessionSecrets.set(session, secrets);
+          const selectors = _sensitiveSelectors.get(session) ?? new Set<string>();
+          selectors.add(selector);
+          _sensitiveSelectors.set(session, selectors);
+        }
         return {
           success: true,
-          output: `Typed into ${selector}: "${value}"`,
+          output: "Typed into requested element",
           durationMs: Date.now() - start,
         };
       }
@@ -649,7 +723,8 @@ async function executeBrowserAction(
         ensureDirs();
         const filename = `screenshot_${Date.now()}.png`;
         const screenshotPath = path.join(SCREENSHOTS_DIR, filename);
-        await page.screenshot({ path: screenshotPath, fullPage: false });
+        const mask = Array.from(_sensitiveSelectors.get(session) ?? []).map((sensitiveSelector) => page.locator(sensitiveSelector));
+        await page.screenshot({ path: screenshotPath, fullPage: false, mask });
         return {
           success: true,
           output: `Screenshot saved to: screenshots/${filename}\nCurrent URL: ${page.url()}`,
@@ -671,10 +746,14 @@ async function executeBrowserAction(
     if (err.message?.includes("Target closed") || err.message?.includes("Session closed")) {
       await closePage(session);
     }
+    const rawError = redactString(err instanceof Error ? err.message : String(err));
+    const safeError = action === "type" && value
+      ? rawError.split(value).join("[REDACTED BROWSER INPUT]")
+      : rawError;
     return {
       success: false,
       output: "",
-      error: `browser_action '${action}' failed: ${err.message}`,
+      error: `browser_action '${action}' failed: ${safeError}`,
       durationMs: Date.now() - start,
     };
   }
@@ -687,6 +766,15 @@ async function executeBrowserEvaluate(
   start: number
 ): Promise<ToolResult> {
   const { script, session = "default" } = args;
+
+  if ((_sessionSecrets.get(session)?.size ?? 0) > 0) {
+    return {
+      success: false,
+      output: "",
+      error: "Browser evaluation is disabled after private input has been entered in this session.",
+      durationMs: Date.now() - start,
+    };
+  }
 
   if (!script) {
     return { success: false, output: "", error: "No script provided", durationMs: Date.now() - start };
@@ -731,6 +819,14 @@ async function executeBrowserPdf(
   start: number
 ): Promise<ToolResult> {
   const { session = "default" } = args;
+  if ((_sessionSecrets.get(session)?.size ?? 0) > 0) {
+    return {
+      success: false,
+      output: "",
+      error: "PDF export is disabled after private input has been entered in this session.",
+      durationMs: Date.now() - start,
+    };
+  }
   const filename = path.basename(args.filename || `page_${Date.now()}.pdf`);
 
   const page = _pages.get(session);
@@ -935,7 +1031,8 @@ export async function takeSessionScreenshot(sessionKey: string): Promise<Buffer 
   const page = _pages.get(sessionKey);
   if (!page) return null;
   try {
-    return await page.screenshot({ type: "png" });
+    const mask = Array.from(_sensitiveSelectors.get(sessionKey) ?? []).map((selector) => page.locator(selector));
+    return await page.screenshot({ type: "png", mask });
   } catch {
     return null;
   }

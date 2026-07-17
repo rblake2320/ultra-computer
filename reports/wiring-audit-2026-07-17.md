@@ -29,6 +29,13 @@ Passing unit tests are not treated as proof that an external integration works.
   real Chrome render without application-origin errors. Temporal remains
   truthfully disabled and the overall launch verdict remains NO-GO until the
   remaining blockers are repaired.
+- **2026-07-17 — Execution containment closed locally:** File transforms are
+  sandbox-contained and atomically published; submitted code requires Docker;
+  Docker host calls are shell-free and resource validated; browser typing is
+  removed from audits/events/persistence and all browser requests are governed.
+  Evidence: focused unit tests, real Chromium secret/subresource proof and a
+  real Docker isolation/host-injection proof. Overall launch verdict remains
+  NO-GO pending the remaining model, credential, connector and durability work.
 
 ## Evidence Collected
 

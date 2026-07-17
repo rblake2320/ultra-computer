@@ -4,7 +4,7 @@
  * Comprehensive CLI tool execution engine AND HTTP/webhook skill executor
  * for Ultra Computer. Provides sandboxed command execution, script running,
  * pipeline orchestration, HTTP requests, webhook registration, a code
- * interpreter with auto-package installation, and file transformation utilities.
+ * Docker-isolated interpreter and sandbox-contained file transformation utilities.
  *
  * @module cliToolEngine
  */
@@ -18,6 +18,7 @@ import { v4 as uuidv4 } from "uuid";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 import { isSensitiveKey, redactEnv, redactString } from "./redaction.js";
 import { governedFetch } from "./governedFetch.js";
+import { resolveSandboxPath, SANDBOX_DIR } from "./sandboxPaths.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -71,6 +72,17 @@ export interface ScriptResult extends CommandResult {
 
 /** Supported scripting languages for executeScript. */
 export type SupportedLanguage = "bash" | "python3" | "node" | "typescript";
+export const SUPPORTED_LANGUAGES: readonly SupportedLanguage[] = Object.freeze([
+  "bash",
+  "python3",
+  "node",
+  "typescript",
+]);
+
+export function isSupportedLanguage(value: unknown): value is SupportedLanguage {
+  return typeof value === "string" &&
+    (SUPPORTED_LANGUAGES as readonly string[]).includes(value);
+}
 
 /** A single step in a pipeline. */
 export interface PipelineStep {
@@ -206,6 +218,21 @@ export type TransformType =
   | "json-to-yaml"
   | "image-resize"
   | "pdf-extract-text";
+
+export const SUPPORTED_TRANSFORM_TYPES: readonly TransformType[] = Object.freeze([
+  "csv-to-json",
+  "json-to-csv",
+  "markdown-to-html",
+  "yaml-to-json",
+  "json-to-yaml",
+  "image-resize",
+  "pdf-extract-text",
+]);
+
+export function isTransformType(value: unknown): value is TransformType {
+  return typeof value === "string" &&
+    (SUPPORTED_TRANSFORM_TYPES as readonly string[]).includes(value);
+}
 
 // ---------------------------------------------------------------------------
 // Helper: ensure sandbox directory exists
@@ -530,7 +557,7 @@ export function killProcess(pid: number): boolean {
 /** Maps supported languages to their interpreter commands. */
 const LANGUAGE_COMMANDS: Record<SupportedLanguage, string> = {
   bash: "bash",
-  python3: "python3",
+  python3: process.platform === "win32" ? "python" : "python3",
   node: "node",
   typescript: "tsx",
 };
@@ -1076,8 +1103,9 @@ const PIP_HEADER_RE = /^#\s*pip:\s*(.+)$/m;
 const NPM_HEADER_RE = /^\/\/\s*npm:\s*(.+)$/m;
 
 /**
- * Execute code in a lightly sandboxed interpreter with optional auto-install
- * of declared pip / npm packages. Captures artifacts written to the OS temp dir.
+ * Execute code in a network-isolated Docker sandbox with reviewed dependencies.
+ * Caller-directed package installation is rejected. Generated artifacts remain
+ * in the per-run sandbox artifact directory.
  *
  * @param code      Source code to execute.
  * @param language  Target language (default: python3).
@@ -1091,79 +1119,65 @@ export async function executeCodeInterpreter(
 ): Promise<CodeInterpreterResult> {
   const start = Date.now();
 
-  /** Validates a package name is safe to pass to pip/npm. */
-  const SAFE_PACKAGE_RE = /^[a-zA-Z0-9\-_.>=<!]+$/;
-
-  // Auto-install pip packages
-  if (language === "python3") {
-    const pipMatch = PIP_HEADER_RE.exec(code);
-    if (pipMatch) {
-      const packages = pipMatch[1]
-        .split(",")
-        .map((p) => p.trim())
-        .filter(Boolean)
-        .filter((p) => SAFE_PACKAGE_RE.test(p)); // validate before passing to pip
-      if (packages.length > 0) {
-        // Use spawnSync directly (not executeCommand) to bypass the validateCommand
-        // blocklist — these are hardcoded, validated package names, not user input.
-        spawnSync("pip3", ["install", "--quiet", ...packages], {
-          timeout: 120_000,
-          stdio: "ignore",
-        });
-      }
-    }
+  const declaresPackages = language === "python3"
+    ? PIP_HEADER_RE.test(code)
+    : language === "node" || language === "typescript"
+      ? NPM_HEADER_RE.test(code)
+      : false;
+  if (declaresPackages) {
+    throw new Error(
+      "Automatic package installation is disabled. Use dependencies baked into the sandbox image.",
+    );
   }
 
-  // Auto-install npm packages
-  if (language === "node" || language === "typescript") {
-    const npmMatch = NPM_HEADER_RE.exec(code);
-    if (npmMatch) {
-      const packages = npmMatch[1]
-        .split(",")
-        .map((p) => p.trim())
-        .filter(Boolean)
-        .filter((p) => SAFE_PACKAGE_RE.test(p)); // validate before passing to npm
-      if (packages.length > 0) {
-        // Use spawnSync directly (not executeCommand) to bypass the validateCommand
-        // blocklist — these are hardcoded, validated package names, not user input.
-        spawnSync("npm", ["install", "--save", ...packages], {
-          timeout: 120_000,
-          cwd: opts.workDir ?? DEFAULT_WORK_DIR,
-          stdio: "ignore",
-        });
-      }
-    }
+  const { dockerSandbox } = await import("./dockerSandbox.js");
+  if (!(await dockerSandbox.isActive())) {
+    throw new Error(
+      "Code interpreter requires the isolated Docker sandbox; host execution is disabled.",
+    );
   }
 
-  // Capture artifacts written to a dedicated artifact directory
-  const artifactDir = path.join(os.tmpdir(), `ultra-artifacts-${uuidv4()}`);
+  const runId = uuidv4();
+  const runDir = path.join(SANDBOX_DIR, `.interpreter-${runId}`);
+  const artifactDir = path.join(runDir, "artifacts");
   await fs.mkdir(artifactDir, { recursive: true });
-
-  // Inject artifact dir as environment variable so scripts can target it
-  const env: Record<string, string> = {
-    ...(opts.env ?? {}),
-    ULTRA_ARTIFACT_DIR: artifactDir,
-    MPLBACKEND: "Agg", // non-interactive matplotlib backend
+  const extension: Record<SupportedLanguage, string> = {
+    bash: "sh",
+    python3: "py",
+    node: "js",
+    typescript: "ts",
   };
+  const executable: Record<SupportedLanguage, string> = {
+    bash: "/bin/sh",
+    python3: "python3",
+    node: "node",
+    typescript: "tsx",
+  };
+  const scriptName = `script.${extension[language]}`;
+  const scriptPath = path.join(runDir, scriptName);
+  await fs.writeFile(scriptPath, code, { encoding: "utf8", flag: "wx", mode: 0o600 });
+  const command = `ULTRA_ARTIFACT_DIR=/workspace/artifacts MPLBACKEND=Agg ${executable[language]} /workspace/${scriptName}`;
 
-  const result = await executeScript(code, language, [], { ...opts, env });
-
-  // Collect any files written to the artifact directory
-  let artifacts: string[] = [];
   try {
-    const entries = await fs.readdir(artifactDir);
-    artifacts = entries.map((e) => path.join(artifactDir, e));
-  } catch {
-    // Directory may be empty or removed
+    const result = await dockerSandbox.exec(
+      `interpreter-${runId}`,
+      command,
+      runDir,
+      Math.min(opts.timeout ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS),
+    );
+    const entries = await fs.readdir(artifactDir).catch(() => []);
+    const artifacts = entries.map((entry) => path.join(artifactDir, entry));
+    return {
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+      artifacts,
+      duration: Date.now() - start,
+    };
+  } finally {
+    await dockerSandbox.removeContainer(`interpreter-${runId}`);
+    await fs.rm(scriptPath, { force: true });
   }
-
-  return {
-    stdout: result.stdout,
-    stderr: result.stderr,
-    exitCode: result.exitCode,
-    artifacts,
-    duration: Date.now() - start,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1186,18 +1200,55 @@ export async function executeFileTransform(
   options: Record<string, unknown> = {}
 ): Promise<FileTransformResult> {
   const start = Date.now();
-  const inQ = JSON.stringify(inputPath);
-  const outQ = JSON.stringify(outputPath);
+  const transformRoot = SANDBOX_DIR;
+  await fs.mkdir(transformRoot, { recursive: true });
+  const safeInputPath = resolveSandboxPath(inputPath);
+  const safeOutputPath = resolveSandboxPath(outputPath);
+  if (!safeInputPath || !safeOutputPath) {
+    throw new Error("File transform paths must remain inside the sandbox directory");
+  }
+  for (const context of [
+    { domain: "filesystem" as const, action: "filesystem:read", tool: "file.transform", path: safeInputPath },
+    { domain: "filesystem" as const, action: "filesystem:write", tool: "file.transform", path: safeOutputPath },
+  ]) {
+    const decision = evaluatePolicy(context);
+    writePolicyAudit(context, decision);
+    if (!decision.allowed) throw new Error(`Policy denied file transform: ${decision.reason}`);
+  }
+  const inputStat = await fs.lstat(safeInputPath).catch(() => null);
+  if (!inputStat?.isFile() || inputStat.isSymbolicLink()) {
+    throw new Error("File transform input must be an existing sandbox file");
+  }
+  if (inputStat.size > 100 * 1024 * 1024) {
+    throw new Error("File transform input exceeds the 100 MiB limit");
+  }
+  if (path.resolve(safeInputPath) === path.resolve(safeOutputPath)) {
+    throw new Error("File transform input and output must be different files");
+  }
+  if (await fs.lstat(safeOutputPath).catch(() => null)) {
+    throw new Error("File transform output already exists");
+  }
+  await fs.mkdir(path.dirname(safeOutputPath), { recursive: true });
+  if (!resolveSandboxPath(safeOutputPath)) {
+    throw new Error("File transform output parent escaped the sandbox directory");
+  }
+  const transformId = uuidv4();
+  const workingInputPath = path.join(transformRoot, `.transform-input-${transformId}`);
+  const workingOutputPath = path.join(path.dirname(safeOutputPath), `.transform-output-${transformId}`);
+  await fs.copyFile(safeInputPath, workingInputPath, fs.constants.COPYFILE_EXCL);
+  const inQ = JSON.stringify(workingInputPath);
+  const outQ = JSON.stringify(workingOutputPath);
 
-  switch (transformType) {
+  try {
+    switch (transformType) {
     case "csv-to-json": {
       // Use Python to convert CSV → JSON array
       const script = `
 import csv, json, sys
-with open(${JSON.stringify(inputPath)}, newline='', encoding='utf-8') as f:
+with open(${JSON.stringify(workingInputPath)}, newline='', encoding='utf-8') as f:
     reader = csv.DictReader(f)
     rows = list(reader)
-with open(${JSON.stringify(outputPath)}, 'w', encoding='utf-8') as f:
+with open(${JSON.stringify(workingOutputPath)}, 'w', encoding='utf-8') as f:
     json.dump(rows, f, indent=2)
 print(f"Converted {len(rows)} rows")
 `;
@@ -1209,12 +1260,12 @@ print(f"Converted {len(rows)} rows")
     case "json-to-csv": {
       const script = `
 import csv, json, sys
-with open(${JSON.stringify(inputPath)}, encoding='utf-8') as f:
+with open(${JSON.stringify(workingInputPath)}, encoding='utf-8') as f:
     data = json.load(f)
 if not isinstance(data, list):
     data = [data]
 fieldnames = list(data[0].keys()) if data else []
-with open(${JSON.stringify(outputPath)}, 'w', newline='', encoding='utf-8') as f:
+with open(${JSON.stringify(workingOutputPath)}, 'w', newline='', encoding='utf-8') as f:
     writer = csv.DictWriter(f, fieldnames=fieldnames)
     writer.writeheader()
     writer.writerows(data)
@@ -1236,13 +1287,12 @@ print(f"Converted {len(data)} rows")
 import sys
 try:
     import markdown
-except ImportError:
-    import subprocess; subprocess.run([sys.executable, '-m', 'pip', 'install', 'markdown', '-q'])
-    import markdown
-with open(${JSON.stringify(inputPath)}, encoding='utf-8') as f:
+except ImportError as exc:
+    raise RuntimeError('markdown dependency is not installed in the sandbox image') from exc
+with open(${JSON.stringify(workingInputPath)}, encoding='utf-8') as f:
     src = f.read()
 html = markdown.markdown(src, extensions=['tables','fenced_code'])
-with open(${JSON.stringify(outputPath)}, 'w', encoding='utf-8') as f:
+with open(${JSON.stringify(workingOutputPath)}, 'w', encoding='utf-8') as f:
     f.write(html)
 print("Done")
 `;
@@ -1254,15 +1304,14 @@ print("Done")
 
     case "yaml-to-json": {
       const script = `
-import yaml, json, sys
+import json, sys
 try:
     import yaml
-except ImportError:
-    import subprocess; subprocess.run([sys.executable, '-m', 'pip', 'install', 'pyyaml', '-q'])
-    import yaml
-with open(${JSON.stringify(inputPath)}, encoding='utf-8') as f:
+except ImportError as exc:
+    raise RuntimeError('pyyaml dependency is not installed in the sandbox image') from exc
+with open(${JSON.stringify(workingInputPath)}, encoding='utf-8') as f:
     data = yaml.safe_load(f)
-with open(${JSON.stringify(outputPath)}, 'w', encoding='utf-8') as f:
+with open(${JSON.stringify(workingOutputPath)}, 'w', encoding='utf-8') as f:
     json.dump(data, f, indent=2)
 print("Done")
 `;
@@ -1276,12 +1325,11 @@ print("Done")
 import yaml, json, sys
 try:
     import yaml
-except ImportError:
-    import subprocess; subprocess.run([sys.executable, '-m', 'pip', 'install', 'pyyaml', '-q'])
-    import yaml
-with open(${JSON.stringify(inputPath)}, encoding='utf-8') as f:
+except ImportError as exc:
+    raise RuntimeError('pyyaml dependency is not installed in the sandbox image') from exc
+with open(${JSON.stringify(workingInputPath)}, encoding='utf-8') as f:
     data = json.load(f)
-with open(${JSON.stringify(outputPath)}, 'w', encoding='utf-8') as f:
+with open(${JSON.stringify(workingOutputPath)}, 'w', encoding='utf-8') as f:
     yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
 print("Done")
 `;
@@ -1291,15 +1339,16 @@ print("Done")
     }
 
     case "image-resize": {
-      // Validate width/height are positive integers before constructing geometry string
       const rawWidth = options.width;
       const rawHeight = options.height;
-      const width = (Number.isInteger(rawWidth) && (rawWidth as number) > 0)
-        ? (rawWidth as number)
-        : 800;
-      const height = (Number.isInteger(rawHeight) && (rawHeight as number) > 0)
-        ? (rawHeight as number)
-        : 0;
+      if (rawWidth !== undefined && (!Number.isInteger(rawWidth) || (rawWidth as number) < 1 || (rawWidth as number) > 16_384)) {
+        throw new Error("image width must be an integer between 1 and 16384");
+      }
+      if (rawHeight !== undefined && (!Number.isInteger(rawHeight) || (rawHeight as number) < 0 || (rawHeight as number) > 16_384)) {
+        throw new Error("image height must be an integer between 0 and 16384");
+      }
+      const width = (rawWidth as number | undefined) ?? 800;
+      const height = (rawHeight as number | undefined) ?? 0;
       const geometry = height > 0 ? `${width}x${height}` : `${width}`;
       // Try ImageMagick convert, then ffmpeg as fallback
       const convertCheck = await executeCommand("which convert");
@@ -1329,11 +1378,10 @@ print("Done")
 import sys
 try:
     from pdfminer.high_level import extract_text
-except ImportError:
-    import subprocess; subprocess.run([sys.executable, '-m', 'pip', 'install', 'pdfminer.six', '-q'])
-    from pdfminer.high_level import extract_text
-text = extract_text(${JSON.stringify(inputPath)})
-with open(${JSON.stringify(outputPath)}, 'w', encoding='utf-8') as f:
+except ImportError as exc:
+    raise RuntimeError('pdfminer dependency is not installed in the sandbox image') from exc
+text = extract_text(${JSON.stringify(workingInputPath)})
+with open(${JSON.stringify(workingOutputPath)}, 'w', encoding='utf-8') as f:
     f.write(text)
 print(f"Extracted {len(text)} characters")
 `;
@@ -1347,12 +1395,28 @@ print(f"Extracted {len(text)} characters")
       throw new Error(`Unknown transform type: ${transformType}`);
   }
 
-  const stat = await fs.stat(outputPath);
-  return {
-    outputPath,
-    size: stat.size,
-    duration: Date.now() - start,
-  };
+    const outputStat = await fs.lstat(workingOutputPath);
+    if (!outputStat.isFile() || outputStat.isSymbolicLink()) {
+      throw new Error("File transform did not produce a regular file");
+    }
+    if (outputStat.size > 200 * 1024 * 1024) {
+      throw new Error("File transform output exceeds the 200 MiB limit");
+    }
+    if (!resolveSandboxPath(workingOutputPath) || await fs.lstat(safeOutputPath).catch(() => null)) {
+      throw new Error("File transform output target changed during execution");
+    }
+    await fs.rename(workingOutputPath, safeOutputPath);
+    return {
+      outputPath: safeOutputPath,
+      size: outputStat.size,
+      duration: Date.now() - start,
+    };
+  } finally {
+    await Promise.all([
+      fs.rm(workingInputPath, { force: true }),
+      fs.rm(workingOutputPath, { force: true }),
+    ]);
+  }
 }
 
 // All types are exported inline above via `export interface` / `export type`.

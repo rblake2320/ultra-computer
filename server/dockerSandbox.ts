@@ -18,12 +18,15 @@
  * 5. All containers are force-killed on server shutdown
  */
 
-import { exec, execSync, spawn } from "child_process";
+import { execFile, spawn, spawnSync } from "child_process";
+import { createHash } from "crypto";
 import { promisify } from "util";
 import path from "path";
 import fs from "fs";
+import { isPathInside } from "./pathSafety.js";
+import { resolveSandboxPath, SANDBOX_DIR } from "./sandboxPaths.js";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -57,6 +60,57 @@ const DEFAULT_CONFIG: DockerSandboxConfig = {
   enabled: true,
 };
 
+const IMAGE_REFERENCE_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.\-/:@]*$/;
+const MEMORY_LIMIT_RE = /^([1-9]\d*)([kmgt])(?:i?b)?$/i;
+
+export function validateDockerSandboxConfig(
+  partial: Partial<DockerSandboxConfig>,
+  current: DockerSandboxConfig = DEFAULT_CONFIG,
+): DockerSandboxConfig {
+  const candidate = { ...current, ...partial };
+  if (!IMAGE_REFERENCE_RE.test(candidate.image)) {
+    throw new Error("Invalid Docker image name");
+  }
+  if (!/^\d+(?:\.\d{1,3})?$/.test(candidate.cpuLimit)) {
+    throw new Error("cpuLimit must be a decimal between 0.01 and 64");
+  }
+  const cpu = Number(candidate.cpuLimit);
+  if (!Number.isFinite(cpu) || cpu < 0.01 || cpu > 64) {
+    throw new Error("cpuLimit must be a decimal between 0.01 and 64");
+  }
+  const memory = MEMORY_LIMIT_RE.exec(candidate.memoryLimit);
+  if (!memory) {
+    throw new Error("memoryLimit must use a positive k, m, g, or t unit");
+  }
+  const factors: Record<string, number> = {
+    k: 1024,
+    m: 1024 ** 2,
+    g: 1024 ** 3,
+    t: 1024 ** 4,
+  };
+  const bytes = Number(memory[1]) * factors[memory[2].toLowerCase()];
+  if (!Number.isSafeInteger(bytes) || bytes < 16 * 1024 ** 2 || bytes > 64 * 1024 ** 3) {
+    throw new Error("memoryLimit must be between 16m and 64g");
+  }
+  if (!Number.isInteger(candidate.execTimeoutMs) || candidate.execTimeoutMs < 1000 || candidate.execTimeoutMs > 600_000) {
+    throw new Error("execTimeoutMs must be between 1000 and 600000");
+  }
+  if (!Number.isInteger(candidate.maxContainers) || candidate.maxContainers < 1 || candidate.maxContainers > 50) {
+    throw new Error("maxContainers must be between 1 and 50");
+  }
+  if (!Number.isInteger(candidate.idleTimeoutMs) || candidate.idleTimeoutMs < 30_000 || candidate.idleTimeoutMs > 3_600_000) {
+    throw new Error("idleTimeoutMs must be between 30000 and 3600000");
+  }
+  if (typeof candidate.networkEnabled !== "boolean" || typeof candidate.enabled !== "boolean") {
+    throw new Error("networkEnabled and enabled must be booleans");
+  }
+  return {
+    ...candidate,
+    cpuLimit: String(cpu),
+    memoryLimit: candidate.memoryLimit.toLowerCase(),
+  };
+}
+
 // ─── Container State ─────────────────────────────────────────────────────────
 
 interface ContainerState {
@@ -84,7 +138,7 @@ export class DockerSandbox {
   private reaperInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(config: Partial<DockerSandboxConfig> = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+    this.config = validateDockerSandboxConfig(config);
   }
 
   // ─── Docker availability detection ───────────────────────────────────────
@@ -93,7 +147,7 @@ export class DockerSandbox {
     if (this.dockerAvailable !== null) return this.dockerAvailable;
 
     try {
-      const { stdout } = await execAsync("docker info --format '{{.ServerVersion}}'", {
+      const { stdout } = await execFileAsync("docker", ["info", "--format", "{{.ServerVersion}}"], {
         timeout: 5000,
       });
       this.dockerAvailable = !!stdout.trim();
@@ -122,9 +176,10 @@ export class DockerSandbox {
   // ─── Configuration ──────────────────────────────────────────────────────
 
   updateConfig(partial: Partial<DockerSandboxConfig>) {
-    this.config = { ...this.config, ...partial };
+    const next = validateDockerSandboxConfig(partial, this.config);
     // Reset detection if image changed
-    if (partial.image) this.dockerAvailable = null;
+    if (next.image !== this.config.image) this.dockerAvailable = null;
+    this.config = next;
   }
 
   getConfig(): DockerSandboxConfig {
@@ -201,15 +256,22 @@ export class DockerSandbox {
   }
 
   private async createContainer(sessionId: string, sandboxDir: string): Promise<ContainerState> {
-    const label = `ultra-sandbox-${sessionId.substring(0, 8)}`;
+    const sessionSlug = sessionId.replace(/[^a-zA-Z0-9_.-]/g, "-").slice(0, 24);
+    const sessionHash = createHash("sha256").update(sessionId).digest("hex").slice(0, 8);
+    const label = `ultra-sandbox-${sessionSlug || "session"}-${sessionHash}`;
 
-    // Ensure sandbox dir exists
-    if (!fs.existsSync(sandboxDir)) fs.mkdirSync(sandboxDir, { recursive: true });
+    const containedDir = resolveSandboxPath(sandboxDir);
+    if (!containedDir) throw new Error("Sandbox mount must remain inside the application sandbox");
+    if (!fs.existsSync(containedDir)) fs.mkdirSync(containedDir, { recursive: true });
+    const realSandboxDir = fs.realpathSync(containedDir);
+    if (!isPathInside(SANDBOX_DIR, realSandboxDir)) {
+      throw new Error("Sandbox mount resolved outside the application sandbox");
+    }
 
     const state: ContainerState = {
       containerId: "",
       sessionId,
-      sandboxDir,
+      sandboxDir: realSandboxDir,
       createdAt: Date.now(),
       lastUsedAt: Date.now(),
       status: "starting",
@@ -226,19 +288,16 @@ export class DockerSandbox {
         "--cpus", this.config.cpuLimit,
         "--memory", this.config.memoryLimit,
         "--memory-swap", this.config.memoryLimit, // disable swap
-        // Security: drop all capabilities, add back only what's needed
+        // Security: immutable root and no Linux capabilities.
+        "--read-only",
+        "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
         "--cap-drop=ALL",
-        "--cap-add=CHOWN",
-        "--cap-add=DAC_OVERRIDE",
-        "--cap-add=FOWNER",
-        "--cap-add=SETGID",
-        "--cap-add=SETUID",
         // No new privileges
         "--security-opt=no-new-privileges:true",
         // PID limit to prevent fork bombs
         "--pids-limit=256",
         // Bind-mount sandbox directory
-        "-v", `${path.resolve(sandboxDir)}:/workspace:rw`,
+        "-v", `${realSandboxDir}:/workspace:rw`,
         "-w", "/workspace",
         // Environment
         "-e", "HOME=/workspace",
@@ -254,8 +313,9 @@ export class DockerSandbox {
       // Use a long-running sleep so container stays alive for exec calls
       args.push(this.config.image, "sleep", "infinity");
 
-      const { stdout } = await execAsync(`docker ${args.join(" ")}`, {
+      const { stdout } = await execFileAsync("docker", args, {
         timeout: 30_000,
+        maxBuffer: 1024 * 1024,
       });
 
       const rawId = stdout.trim();
@@ -264,12 +324,6 @@ export class DockerSandbox {
       }
       state.containerId = rawId;
       state.status = "ready";
-
-      // Install basic tools if using bare ubuntu image
-      if (this.config.image.startsWith("ubuntu")) {
-        await this.execInContainer(state, "apt-get update -qq && apt-get install -y -qq python3 curl jq bc 2>/dev/null || true", 60_000)
-          .catch(() => {}); // best effort
-      }
 
       console.log(`[DockerSandbox] Container created: ${state.containerId.substring(0, 12)} for session ${sessionId.substring(0, 8)}`);
       return state;
@@ -315,29 +369,47 @@ export class DockerSandbox {
     timeoutMs: number
   ): Promise<{ stdout: string; stderr: string; exitCode: number; timedOut: boolean }> {
     return new Promise((resolve, reject) => {
-      const escapedCmd = command.replace(/'/g, "'\\''");
-      const fullCmd = `docker exec ${container.containerId} /bin/sh -c '${escapedCmd}'`;
-
-      const child = exec(fullCmd, {
-        maxBuffer: 1024 * 1024, // 1MB
-        timeout: timeoutMs,
+      if (!isValidContainerId(container.containerId)) {
+        reject(new Error("Invalid Docker container ID"));
+        return;
+      }
+      const child = spawn("docker", ["exec", container.containerId, "/bin/sh", "-c", command], {
+        shell: false,
         env: process.env,
-      }, (error, stdout, stderr) => {
-        if (error && (error as any).killed) {
-          resolve({
-            stdout: stdout || "",
-            stderr: stderr || "",
-            exitCode: -1,
-            timedOut: true,
-          });
-        } else {
-          resolve({
-            stdout: stdout || "",
-            stderr: stderr || "",
-            exitCode: error ? (error as any).code || 1 : 0,
-            timedOut: false,
-          });
+      });
+      let stdout = "";
+      let stderr = "";
+      let timedOut = false;
+      let outputExceeded = false;
+      const append = (target: "stdout" | "stderr", chunk: Buffer) => {
+        const text = chunk.toString("utf8");
+        if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) + chunk.length > 1024 * 1024) {
+          outputExceeded = true;
+          child.kill("SIGKILL");
+          return;
         }
+        if (target === "stdout") stdout += text;
+        else stderr += text;
+      };
+      child.stdout.on("data", (chunk: Buffer) => append("stdout", chunk));
+      child.stderr.on("data", (chunk: Buffer) => append("stderr", chunk));
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGKILL");
+      }, timeoutMs);
+      child.on("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        if (outputExceeded) stderr += "\nOutput exceeded the 1 MiB limit.";
+        resolve({
+          stdout,
+          stderr,
+          exitCode: timedOut ? -1 : outputExceeded ? 1 : (code ?? 1),
+          timedOut,
+        });
       });
     });
   }
@@ -355,7 +427,7 @@ export class DockerSandbox {
       if (!isValidContainerId(state.containerId)) {
         throw new Error(`Invalid containerId format: ${state.containerId.substring(0, 20)}`);
       }
-      await execAsync(`docker rm -f ${state.containerId}`, { timeout: 10_000 });
+      await execFileAsync("docker", ["rm", "-f", state.containerId], { timeout: 10_000 });
     } catch { /* already gone */ }
     state.status = "stopped";
     this.containers.delete(sessionId);
@@ -408,20 +480,27 @@ export class DockerSandbox {
 
     // Also clean up any orphaned ultra-sandbox containers from previous runs
     try {
-      await execAsync('docker rm -f $(docker ps -aq --filter "label=ultra-computer=sandbox") 2>/dev/null || true', {
-        timeout: 10_000,
-      });
+      const { stdout } = await execFileAsync(
+        "docker",
+        ["ps", "-aq", "--filter", "label=ultra-computer=sandbox"],
+        { timeout: 10_000 },
+      );
+      const ids = stdout.split(/\s+/).filter(Boolean);
+      if (!ids.every(isValidContainerId)) throw new Error("Docker returned an invalid container ID");
+      if (ids.length > 0) {
+        await execFileAsync("docker", ["rm", "-f", ...ids], { timeout: 10_000 });
+      }
     } catch { /* ok */ }
   }
 
   /** Pull the configured Docker image if not already present */
   async pullImage(): Promise<{ pulled: boolean; error?: string }> {
     // Validate image name to prevent command injection: allow only safe Docker image name chars
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.\-/:@]*$/.test(this.config.image)) {
+    if (!IMAGE_REFERENCE_RE.test(this.config.image)) {
       return { pulled: false, error: "Invalid Docker image name" };
     }
     try {
-      await execAsync(`docker pull ${this.config.image}`, { timeout: 120_000 });
+      await execFileAsync("docker", ["pull", this.config.image], { timeout: 120_000 });
       return { pulled: true };
     } catch (err: any) {
       return { pulled: false, error: err.message };
@@ -450,9 +529,18 @@ export const dockerSandbox = new DockerSandbox();
 process.on("exit", () => {
   // Synchronous cleanup — best effort (async shutdown already runs on SIGTERM/SIGINT)
   try {
-    execSync('docker rm -f $(docker ps -aq --filter "label=ultra-computer=sandbox") 2>/dev/null || true', {
+    const listed = spawnSync("docker", ["ps", "-aq", "--filter", "label=ultra-computer=sandbox"], {
       timeout: 5000,
-      stdio: "ignore",
+      encoding: "utf8",
+      shell: false,
     });
+    const ids = (listed.stdout || "").split(/\s+/).filter(Boolean);
+    if (listed.status === 0 && ids.length > 0 && ids.every(isValidContainerId)) {
+      spawnSync("docker", ["rm", "-f", ...ids], {
+        timeout: 5000,
+        stdio: "ignore",
+        shell: false,
+      });
+    }
   } catch { /* ok */ }
 });

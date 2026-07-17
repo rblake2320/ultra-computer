@@ -20,12 +20,20 @@ export function resolveInside(baseDir: string, relativePath: string): string | n
     const real = fs.realpathSync(resolved);
     if (!isPathInside(base, real)) return null;
   } catch {
-    const parent = path.dirname(resolved);
-    try {
-      const realParent = fs.realpathSync(parent);
-      if (!isPathInside(base, realParent)) return null;
-    } catch {
-      // Missing parent directories are created later under the resolved sandbox path.
+    // Walk to the nearest existing ancestor. Checking only the immediate parent
+    // misses a symlink escape when one or more requested child directories do
+    // not exist yet.
+    let ancestor = path.dirname(resolved);
+    while (isPathInside(base, ancestor)) {
+      try {
+        const realAncestor = fs.realpathSync(ancestor);
+        if (!isPathInside(base, realAncestor)) return null;
+        break;
+      } catch {
+        const parent = path.dirname(ancestor);
+        if (parent === ancestor) return null;
+        ancestor = parent;
+      }
     }
   }
 

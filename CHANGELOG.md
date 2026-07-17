@@ -24,6 +24,16 @@ All notable changes to this project will be documented in this file.
   check into a material paid request.
 
 ### Security
+- Contained file transforms to one canonical sandbox with symlink-aware path
+  checks, input/output limits, temporary snapshots and atomic publication.
+- Removed host package installation and host interpreter execution; submitted
+  code now requires the network-isolated, resource-bounded Docker sandbox.
+- Replaced every Docker host-shell command with argument-array process calls,
+  validated sandbox configuration and mounts, and added a read-only root,
+  output bounds and persistent cleanup without shell substitution.
+- Redacted browser typing values before policy audits, SSE, IPC and SQLite;
+  scrubbed later results, masked screenshots, disabled extraction after private
+  input, and governed every browser request and subresource.
 - Replaced user-controlled shell-string execution with a shell-free,
   executable-allowlisted command parser and a fixed process working directory;
   added regression coverage for operators, quoting, executable selection, and

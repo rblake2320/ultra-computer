@@ -62,6 +62,19 @@ export class PolicyDeniedError extends Error {
   }
 }
 
+/** Validate and audit a browser or other non-fetch egress target. */
+export async function assertGovernedUrl(
+  rawUrl: string,
+  sessionId: string,
+  domain: PolicyDomain = "network",
+  action = "browser_request",
+): Promise<URL> {
+  const url = parseUrl(rawUrl, domain, action);
+  await validateTarget(url);
+  enforcePolicy(url, { method: "GET" }, sessionId, domain, action, 0);
+  return url;
+}
+
 /**
  * Performs a fetch() that is governed by the policy engine.
  *

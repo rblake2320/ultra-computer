@@ -1078,7 +1078,10 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       if (isNaN(val) || val < 1000 || val > 600_000) return res.status(400).json({ error: "execTimeoutMs must be between 1000 and 600000" });
       update.execTimeoutMs = val;
     }
-    if (networkEnabled !== undefined) update.networkEnabled = Boolean(networkEnabled);
+    if (networkEnabled !== undefined) {
+      if (typeof networkEnabled !== "boolean") return res.status(400).json({ error: "networkEnabled must be a boolean" });
+      update.networkEnabled = networkEnabled;
+    }
     if (maxContainers !== undefined) {
       const val = Number(maxContainers);
       if (isNaN(val) || val < 1 || val > 50) return res.status(400).json({ error: "maxContainers must be between 1 and 50" });
@@ -1089,9 +1092,18 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       if (isNaN(val) || val < 30_000 || val > 3_600_000) return res.status(400).json({ error: "idleTimeoutMs must be between 30000 and 3600000" });
       update.idleTimeoutMs = val;
     }
-    if (enabled !== undefined) update.enabled = Boolean(enabled);
+    if (enabled !== undefined) {
+      if (typeof enabled !== "boolean") return res.status(400).json({ error: "enabled must be a boolean" });
+      update.enabled = enabled;
+    }
 
-    dockerSandbox.updateConfig(update);
+    try {
+      dockerSandbox.updateConfig(update);
+    } catch (error) {
+      return res.status(400).json({
+        error: error instanceof Error ? error.message : "Invalid sandbox configuration",
+      });
+    }
 
     // Persist config to settings
     storage.setSetting("sandbox_config", JSON.stringify(dockerSandbox.getConfig()));

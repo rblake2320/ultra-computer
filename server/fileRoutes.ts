@@ -4,22 +4,19 @@ import fs from "fs";
 import multer from "multer";
 import { pipeline, Transform } from "stream";
 import { randomUUID } from "crypto";
-import { resolveInside } from "./pathSafety.js";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
+import {
+  ensureSandboxDir,
+  resolveSandboxPath,
+  SANDBOX_DIR,
+} from "./sandboxPaths.js";
 
-const SANDBOX_DIR = path.join(process.cwd(), "sandbox");
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const MAX_UPLOAD_FILES = 8;
 const MAX_UPLOAD_FIELDS = 4;
 const MAX_UPLOAD_PARTS = MAX_UPLOAD_FILES + MAX_UPLOAD_FIELDS;
 const MAX_DIRECTORY_ENTRIES = 10_000;
-
-function ensureSandboxDir() {
-  if (!fs.existsSync(SANDBOX_DIR)) {
-    fs.mkdirSync(SANDBOX_DIR, { recursive: true });
-  }
-}
 
 /**
  * In Express 5, wildcard params are returned as arrays.
@@ -43,7 +40,7 @@ function paramToPath(param: unknown): string {
  */
 function resolveSafe(relativePath: string): string | null {
   ensureSandboxDir();
-  return resolveInside(SANDBOX_DIR, relativePath);
+  return resolveSandboxPath(relativePath);
 }
 
 function isFilesystemAllowed(action: "filesystem:read" | "filesystem:write" | "filesystem:list", filePath: string, metadata?: Record<string, unknown>): { ok: boolean; reason?: string } {

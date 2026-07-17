@@ -288,6 +288,14 @@ replacement of pinned models remain intentionally parked in `PARKED.md`.
   requires HTTPS in production unless explicitly excepted.
 - The Compose app is non-root and read-only with writable state mounted only at
   designated volumes. It intentionally does not mount the Docker socket.
+- File transforms accept only files under the canonical `sandbox/` root and
+  publish through bounded temporary files. The code interpreter never runs on
+  the application host: it requires the Docker sandbox and fails closed when
+  Docker is unavailable. Runtime package installation is not supported; use a
+  reviewed sandbox image containing the required dependencies.
+- Browser automation governs every navigation and subresource. Typed values
+  are kept only for the immediate page action, are excluded from audits and
+  persistence, and disable unrestricted evaluation/PDF export for that session.
 - This is a single-owner API-key boundary. Multi-user RBAC and tenant isolation
   are not implemented; see `PARKED.md`.
 

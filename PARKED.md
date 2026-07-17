@@ -282,9 +282,10 @@ link so future contributors can tell whether the constraint still applies.
   misleading, unsafe, orphaned or not live-proven. They cannot be repaired
   honestly as part of a read-only inspection.
 - **Current risk:** The audit-time container health failure is closed by
-  WHY-0014. Visible model, connector, messaging, protocol, sandbox, durability
-  and experimental surfaces can still fail, report false success, expose
-  secrets or cross containment boundaries.
+  WHY-0014. The file-transform, Docker host-shell, host-interpreter and browser
+  typed-input/egress boundaries are closed by WHY-0015. Visible model,
+  connector, messaging, protocol, durability and experimental surfaces can
+  still fail, report false success or expose secrets.
 - **Reactivate when:** Immediately, before public launch.
 - **Next decision:** Execute the ordered twelve-step repair plan in
   `reports/wiring-audit-2026-07-17.md`, with a passing real-boundary test for

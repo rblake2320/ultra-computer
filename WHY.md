@@ -319,3 +319,25 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** 230 unit tests, validated Compose config, real Docker BullMQ
   dispatch, HTTP 200 live health, and real Chrome render without app errors.
 - **Related:** WHY-0013 and PARK-0012.
+
+### WHY-0015: Untrusted execution never crosses the host boundary
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** File transforms accepted host paths, the interpreter ran
+  submitted code and package managers on the host, Docker arguments were
+  reconstructed as shell strings, and browser typing values entered durable
+  logs while subresources bypassed the top-level URL check.
+- **Decision:** Use one canonical sandbox path, temporary transform snapshots,
+  Docker-only code execution, shell-free Docker argv, validated immutable
+  container limits, per-request browser egress governance and unconditional
+  typed-input redaction before any observable or durable record.
+- **Why:** Validation cannot make arbitrary host execution safe. Removing the
+  host shell and host interpreter, constraining filesystem publication, and
+  minimizing secret lifetime make the boundary enforceable and testable.
+- **Alternatives:** Expand blocklists, validate package names, or redact only
+  known token patterns. Rejected because ordinary private text and valid-looking
+  paths/arguments can still cross those boundaries.
+- **Evidence:** Focused unit tests, real Chromium private-subresource and secret
+  tests, and a real Docker isolation/host-injection test.
+- **Related:** WHY-0011, WHY-0013 and PARK-0016.
