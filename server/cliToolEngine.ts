@@ -303,11 +303,9 @@ export async function executeCommand(
   const controller = new AbortController();
 
   return new Promise((resolve) => {
-    const proc = spawn("/bin/sh", ["-c", cmd], {
-      cwd: workDir,
-      env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const proc = process.platform === "win32"
+      ? spawn(cmd, [], { cwd: workDir, env, stdio: ["pipe", "pipe", "pipe"], shell: true })
+      : spawn("/bin/sh", ["-c", cmd], { cwd: workDir, env, stdio: ["pipe", "pipe", "pipe"] });
 
     if (proc.pid !== undefined) {
       runningProcesses.set(proc.pid, controller);

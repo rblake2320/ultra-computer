@@ -183,3 +183,60 @@ hold detailed decisions that affect architecture or long-lived behavior.
   completed result. The gate first exposed connection refusal on the backend
   interface and passed only after the bind behavior was corrected.
 - **Related:** WHY-0001 and the 2026-07-16 verification changelog.
+
+### WHY-0008: Core workflows require authenticated end-to-end evidence
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Unit and transport tests did not prove that a private browser
+  session could configure a model, receive real local inference, handle an
+  absent model, execute a contained command, retain state across restart, or
+  enforce both experimental-feature states.
+- **Decision:** Maintain a seven-test Playwright gate against a real server,
+  Chromium, SQLite, bearer authentication, and local Ollama. Keep optional
+  surfaces disabled unless `ULTRA_EXPERIMENTAL=1`.
+- **Why:** The gate tests the user-visible core without converting optional or
+  externally credentialed capabilities into unsupported readiness claims.
+- **Alternatives:** Mock model responses or enable every surface by default.
+  Rejected because neither proves the actual supported operating path.
+- **Evidence:** `npm run test:e2e`; the restart assertion is process-level and
+  does not prove Docker volume restoration.
+- **Related:** PARK-0011, PARK-0012, and PARK-0014.
+
+### WHY-0009: Spending protection fails closed at application admission
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Recording usage after dispatch cannot prevent concurrent calls
+  from crossing an operator budget, while guessing a new model's price creates
+  a false ceiling.
+- **Decision:** Reserve conservatively before dispatch, settle durably in
+  SQLite, cap the configurable application limit at $20 per UTC month, and
+  reject paid models/images without verified pricing rules.
+- **Why:** Transactional reservations bound traffic admitted by this
+  application and make restarts auditable without claiming control over the
+  provider's billing system.
+- **Alternatives:** Post-call accounting only, unlimited user-configured caps,
+  or family-name price guesses. Rejected because each can understate exposure.
+- **Evidence:** Spend-guard concurrency, restart, settlement, local-exemption,
+  image, invalid-input, and unknown-price tests.
+- **Related:** PARK-0013, PARK-0015, and PARK-0005.
+
+### WHY-0010: Private browser access uses a session-only owner key
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Production requires `ULTRA_API_KEY`, but the browser previously
+  depended on an out-of-band `window.__ULTRA_API_KEY__` injection. A normal
+  owner opening the private UI could see failed requests with no sign-in path.
+- **Decision:** Probe a protected local route, prompt only when authentication
+  is required, validate the owner key server-side, and retain it in
+  `sessionStorage` for the current tab session only.
+- **Why:** The secured deployment becomes usable without putting a credential
+  in the bundle, URL, persistent browser storage, or application database.
+- **Alternatives:** Disable authentication on loopback or inject the server key
+  into HTML. Rejected because same-host processes can still make requests and
+  HTML injection discloses the deployment credential to every page visitor.
+- **Evidence:** The first authenticated E2E workflow proves rejection of an
+  invalid key followed by a successful owner unlock and rendered application.
+- **Related:** WHY-0003 and the 2026-07-16 security changelog.

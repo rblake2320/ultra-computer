@@ -5697,6 +5697,45 @@
     },
     {
       "type": "library",
+      "name": "test",
+      "group": "@playwright",
+      "version": "1.61.1",
+      "bom-ref": "rest-express@1.0.0|@playwright/test@1.61.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40playwright/test@1.61.1",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/@playwright/test/-/test-1.61.1.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "f272afebed112522fd144e2360e1065e73de33f1e0d76a99a66ab3663461dea33463b737cf59ab3937c52e276cef6443418561f56a4b11f47959da4d5f87e48a"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@playwright/test"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "name": "core",
       "group": "@pothos",
       "version": "4.13.1",
@@ -37434,6 +37473,7 @@
         "rest-express@1.0.0|@hookform/resolvers@5.4.0",
         "rest-express@1.0.0|@huggingface/transformers@4.2.0",
         "rest-express@1.0.0|@jridgewell/trace-mapping@0.3.31",
+        "rest-express@1.0.0|@playwright/test@1.61.1",
         "rest-express@1.0.0|@pothos/core@4.13.1",
         "rest-express@1.0.0|@radix-ui/react-accordion@1.2.16",
         "rest-express@1.0.0|@radix-ui/react-alert-dialog@1.1.19",
@@ -38418,6 +38458,12 @@
     },
     {
       "ref": "rest-express@1.0.0|@pkgjs/parseargs@0.11.0"
+    },
+    {
+      "ref": "rest-express@1.0.0|@playwright/test@1.61.1",
+      "dependsOn": [
+        "rest-express@1.0.0|playwright@1.61.1"
+      ]
     },
     {
       "ref": "rest-express@1.0.0|@pothos/core@4.13.1",

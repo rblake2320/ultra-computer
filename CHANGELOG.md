@@ -47,6 +47,18 @@ All notable changes to this project will be documented in this file.
 - Added a multi-stage Node.js 24 container build and a production-shaped Compose
   stack with non-root/read-only services, internal Redis, loopback host ports,
   persistent application/Temporal data, and required secrets.
+- Added `npm run doctor` for environment, database, dependency, and optional
+  live-model diagnostics.
+- Added an authenticated seven-test Playwright workflow gate using a real
+  browser, real server, temporary SQLite database, real local Ollama inference,
+  both `ULTRA_EXPERIMENTAL` states, and a real process restart.
+- Added a bounded CI job that installs checksum-verified Ollama 0.32.0,
+  `gemma3:270m`, and Chromium before running the same seven workflows.
+- Installed the Playwright Chromium runtime and operating-system libraries in
+  the production application image so browser tools are available there.
+- Added a durable SQLite reservation/settlement ledger for paid text and image
+  admission. The application limit defaults to and cannot exceed $20 per UTC
+  month; unknown paid pricing fails closed.
 
 ### Fixed
 - Fixed Windows production startup by disabling unsupported `reusePort` on Windows.
@@ -72,6 +84,15 @@ All notable changes to this project will be documented in this file.
 - Updated the OpenAI fallback choices to GPT-5.6 Sol, Terra, and Luna, and made
   GPT-5.6 requests explicitly use medium reasoning unless a caller overrides
   the effort.
+- Made the first successfully tested model Default and Orchestrator when those
+  roles are empty, and made no-model chat persist actionable guidance.
+- Added a session-only owner API-key gate so authenticated browser deployments
+  can validate access without embedding credentials in the client bundle.
+- Made A2A send/stream errors return failed tasks, protocol webhooks dispatch
+  through registered handlers, and unsuccessful integration delivery report
+  failure instead of simulated success.
+- Made CLI execution select the Windows command shell on Windows while keeping
+  work-directory containment enforcement.
 
 ### Changed
 - Declared Node.js `>=22 <25`, npm 11, and Node.js 24 as the container/CI
@@ -89,6 +110,8 @@ All notable changes to this project will be documented in this file.
   provider discovery response.
 - Production Compose no longer exposes infrastructure services publicly or
   mounts the Docker daemon socket.
+- Optional Swarm, NIP, Identity, Marketplace, and autonomy/self-improvement
+  routes and navigation now require `ULTRA_EXPERIMENTAL=1`.
 
 ### Verification
 - Local typecheck, unit suite, build, dependency audit, and Docker stack checks
@@ -107,12 +130,14 @@ All notable changes to this project will be documented in this file.
   discovery is therefore **not verified live** in this session.
 - Slack and Gmail code paths are implemented against their provider APIs, but
   no live Slack or Gmail account was exercised in this session.
-- Coverage changed from 37.72% statements / 42.55% branches / 29.85% functions
-  / 43.01% lines (83/40/20/77 covered items across four test files) to 31.16% /
-  26.03% / 32.05% / 32.54% (1391/820/293/1291 covered items across 21 test
-  files). The percentage change is not directly comparable because the current
-  suite imports and measures a much larger production source set; absolute
-  covered statements increased by 1,308.
+- Current statement coverage is 34.82%. This passes the configured repository
+  threshold but remains below the target for a broadly production-critical
+  platform; coverage expansion is tracked in `PARKED.md`.
+- The seven-test Playwright run is verified locally with real Ollama. It proves
+  application process restart, not Docker container recreation, paid-provider
+  behavior, or live third-party connector delivery.
+- The $20 ledger is an application admission boundary, not absolute provider
+  invoice control. Provider-side quota enforcement remains parked.
 - No paid-provider inference success is claimed by this changelog.
 
 ## 0.1.0 - 2026-04-11

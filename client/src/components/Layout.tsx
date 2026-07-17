@@ -28,15 +28,15 @@ const NAV = [
   { href: "/sandbox", icon: Container, label: "Sandbox" },
   { href: "/browser", icon: Globe, label: "Browser" },
   { href: "/files", icon: FolderOpen, label: "Files" },
-  { href: "/marketplace", icon: Store, label: "Marketplace" },
-  { href: "/autonomy", icon: Activity, label: "Autonomy" },
+  { href: "/marketplace", icon: Store, label: "Marketplace", experimental: true },
+  { href: "/autonomy", icon: Activity, label: "Autonomy", experimental: true },
   { href: "/protocols", icon: Plug, label: "Protocols" },
   { href: "/messaging", icon: MessageSquare, label: "Messaging" },
-  { href: "/nip", icon: Zap, label: "NIP" },
-  { href: "/identity", icon: Shield, label: "Identity" },
+  { href: "/nip", icon: Zap, label: "NIP", experimental: true },
+  { href: "/identity", icon: Shield, label: "Identity", experimental: true },
   { href: "/cache", icon: Database, label: "Cache" },
   { href: "/knowledge", icon: FileText, label: "Knowledge" },
-  { href: "/swarm", icon: Bug, label: "Swarm" },
+  { href: "/swarm", icon: Bug, label: "Swarm", experimental: true },
   { href: "/tokens", icon: BarChart3, label: "Tokens" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ];
@@ -54,6 +54,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const { data: conversations = [], isError: convsError } = useQuery<Conversation[]>({ queryKey: ["/api/conversations"] });
+  const { data: appConfig } = useQuery<{ experimental: boolean }>({
+    queryKey: ["/api/app-config"],
+    staleTime: Infinity,
+  });
+  const nav = NAV.filter((item) => !item.experimental || appConfig?.experimental);
 
   const { toast } = useToast();
 
@@ -246,7 +251,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Bottom nav */}
       <div className="border-t border-border p-2 space-y-0.5">
-        {NAV.map(({ href, icon: Icon, label }) => (
+        {nav.map(({ href, icon: Icon, label }) => (
           <div
             key={href}
             onClick={() => setLocation(href)}
@@ -408,7 +413,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Bottom nav */}
         <div className="border-t border-border p-2 space-y-0.5">
-          {NAV.map(({ href, icon: Icon, label }) => (
+          {nav.map(({ href, icon: Icon, label }) => (
             <div
               key={href}
               onClick={() => setLocation(href)}

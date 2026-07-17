@@ -704,10 +704,10 @@ export function applyImprovement(
       ? "Trigger keywords extracted and added to the skill."
       : "Could not update skill — it may have been deleted or storage is unavailable.";
   } else if (suggestion.type === "optimize_context") {
-    // Auto-mark as applied; actual content trimming is delegated to the next skill rewrite
-    applied = true;
-    reason =
-      "Flagged for context optimisation; the skill will be trimmed on next update.";
+    return {
+      applied: false,
+      reason: "Automatic context trimming is not implemented. Review and trim the skill manually; the suggestion remains open.",
+    };
   } else {
     return {
       applied: false,

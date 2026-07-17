@@ -35,7 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Cpu, Activity, BarChart2, Zap } from "lucide-react";
+import { Cpu, Activity, BarChart2, Zap, DollarSign } from "lucide-react";
 import type { Conversation, AgentRun } from "@shared/schema";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -51,6 +51,17 @@ interface EnrichedRun extends AgentRun {
   sessionTitle: string;
   taskTitle: string;
   durationMs: number | null;
+}
+
+interface SpendStatus {
+  month: string;
+  limitUsd: number;
+  recordedUsd: number;
+  reservedUsd: number;
+  committedUsd: number;
+  availableUsd: number;
+  blocked: boolean;
+  reservationCount: number;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -440,6 +451,12 @@ export function TokenDashboardPage() {
     staleTime: 30_000,
   });
 
+  const { data: spend, isLoading: loadingSpend, isError: spendError } = useQuery<SpendStatus>({
+    queryKey: ["/api/spend"],
+    queryFn: () => apiRequest("GET", "/api/spend"),
+    refetchInterval: 15_000,
+  });
+
   const loading = loadingConvs || loadingRuns;
 
   // Enrich runs with session title, task info, usage
@@ -482,7 +499,7 @@ export function TokenDashboardPage() {
     return dateFilteredRuns.filter(r => r.modelId === modelFilter);
   }, [dateFilteredRuns, modelFilter]);
 
-  if (convsError || runsError) {
+  if (convsError || runsError || spendError) {
     return (
       <div className="p-8 text-center text-muted-foreground">
         Failed to load token data. Please try again.
@@ -544,6 +561,37 @@ export function TokenDashboardPage() {
 
       {/* Summary cards */}
       <SummaryCards runs={filteredRuns} loading={loading} />
+
+      <Card data-testid="card-monthly-spend">
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+          <div>
+            <CardTitle className="text-sm font-medium">Paid API spending — {spend?.month ?? "current month"}</CardTitle>
+            <CardDescription>Recorded plus active or unresolved reservations; local loopback models are exempt.</CardDescription>
+          </div>
+          <DollarSign className="h-4 w-4 text-muted-foreground" />
+        </CardHeader>
+        <CardContent>
+          {loadingSpend || !spend ? <Skeleton className="h-12 w-full" /> : (
+            <div className="space-y-2">
+              <div className="flex items-end justify-between gap-4">
+                <div className="text-2xl font-bold">${spend.committedUsd.toFixed(2)} / ${spend.limitUsd.toFixed(2)}</div>
+                <Badge variant={spend.blocked ? "destructive" : "outline"}>
+                  ${spend.availableUsd.toFixed(2)} available
+                </Badge>
+              </div>
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className={`h-full ${spend.blocked ? "bg-destructive" : "bg-primary"}`}
+                  style={{ width: `${Math.min(100, spend.limitUsd > 0 ? (spend.committedUsd / spend.limitUsd) * 100 : 100)}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                ${spend.recordedUsd.toFixed(2)} recorded · ${spend.reservedUsd.toFixed(2)} reserved across {spend.reservationCount} active or unresolved call(s)
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Chart */}
       <TokensByModelChart runs={filteredRuns} loading={loading} />

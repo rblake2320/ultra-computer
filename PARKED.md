@@ -120,21 +120,22 @@ link so future contributors can tell whether the constraint still applies.
   ownership, dashboards, and incident response integration.
 - **Related:** WHY-0001 and `docs/PRODUCTION_RUNBOOK.md`.
 
-### PARK-0007: Live third-party messaging verification
+### PARK-0007: Live third-party connector and messaging verification
 
 - **Status:** Parked
 - **Owner:** Product operations and security
 - **Parked on:** 2026-07-16
-- **Reason:** This session had no approved Slack workspace, Gmail mailbox, or
-  disposable provider credentials. Exercising those accounts would create real
-  external messages and requires an explicit destination and reviewer.
-- **Current risk:** Slack and Gmail provider code is tested for local
-  fail-closed behavior but is not verified live against a real account.
-- **Reactivate when:** A disposable test workspace/mailbox, least-privilege
-  credentials, approved recipients, and cleanup procedure are provided.
-- **Next decision:** Run one delivery and one provider-rejection case per
-  integration, capture provider IDs without secrets, then record the evidence
-  in the changelog and pull request.
+- **Reason:** This session had no approved disposable Slack workspace, Gmail
+  mailbox, GitHub/MCP account, remote A2A peer, or equivalent connector
+  credentials. Exercising those systems can create real external state and
+  requires an explicit destination and reviewer.
+- **Current risk:** Connector and messaging code has local contract and
+  fail-closed evidence but is not verified live for each external account.
+- **Reactivate when:** Disposable accounts/peers, least-privilege credentials,
+  approved mutations/recipients, and cleanup procedures are provided.
+- **Next decision:** Run one success and one provider-rejection case per
+  supported connector, capture external IDs without secrets, and record the
+  exact evidence level in the changelog and pull request.
 - **Related:** WHY-0006 in `WHY.md`.
 
 ### PARK-0008: Temporal worker-termination recovery proof
@@ -190,3 +191,84 @@ link so future contributors can tell whether the constraint still applies.
 - **Next decision:** Prefer an upstream upgrade; replace the direct library only
   with equivalent runtime, native-build, schema-generation, and SBOM evidence.
 - **Related:** WHY-0001 and the 2026-07-16 dependency changelog.
+
+### PARK-0011: CI end-to-end service gate
+
+- **Status:** Closed
+- **Owner:** Release engineering
+- **Parked on:** 2026-07-17
+- **Reason:** Implemented in the 2026-07-17 reliability pass. CI now installs a
+  checksum-verified Ollama 0.32.0 release, pulls `gemma3:270m`, installs real
+  Chromium, and runs all seven authenticated workflows with a 20-minute bound.
+- **Current risk:** The first remote run remains to be observed after the
+  branch can be pushed; local execution of the same model and suite is green.
+- **Reactivate when:** The job becomes flaky, the pinned release/model is
+  retired, or runner resource use exceeds the bound.
+- **Next decision:** Require the green `core-e2e` job before merge and update
+  its pinned versions through reviewed pull requests.
+- **Related:** WHY-0008.
+
+### PARK-0012: Automated container-recreation persistence proof
+
+- **Status:** Parked
+- **Owner:** Runtime engineering
+- **Parked on:** 2026-07-17
+- **Reason:** Playwright proves state across a real application process restart;
+  configured Docker volumes have not been exercised through force recreation.
+- **Current risk:** Volume wiring or ownership can regress without the local
+  process-restart gate detecting it.
+- **Reactivate when:** A clean Docker runner can seed state, recreate the app
+  and worker containers, and inspect the same persisted records.
+- **Next decision:** Add Compose seed/recreate/assert coverage without reusing
+  host database files.
+- **Related:** WHY-0008 and PARK-0005.
+
+### PARK-0013: Provider-enforced hard spending quota
+
+- **Status:** Parked
+- **Owner:** Product operations and billing security
+- **Parked on:** 2026-07-17
+- **Reason:** The SQLite ledger controls requests admitted by this application
+  but cannot control provider-side pricing changes, taxes, delayed usage,
+  external API clients, or final invoices.
+- **Current risk:** The application ceiling is not an absolute account-level
+  or invoice-level limit.
+- **Reactivate when:** Each paid provider offers an enforceable project/account
+  quota API or an approved billing-control integration.
+- **Next decision:** Configure provider quotas at or below the application
+  ceiling, test rejection, and reconcile provider usage against the ledger.
+- **Related:** WHY-0009 and PARK-0002.
+
+### PARK-0014: Raise production-path coverage
+
+- **Status:** Parked
+- **Owner:** Engineering
+- **Parked on:** 2026-07-17
+- **Reason:** Statement coverage is 34.82%. It passes the configured threshold
+  but leaves important orchestration, connector, and failure paths thinly
+  exercised.
+- **Current risk:** Regressions outside the seven supported E2E workflows may
+  reach review without a targeted test failure.
+- **Reactivate when:** The reliability pass is merged or before expanding the
+  supported production surface.
+- **Next decision:** Add risk-ranked tests first, then raise thresholds only to
+  levels already sustained by the suite.
+- **Related:** WHY-0001 and WHY-0008.
+
+### PARK-0015: Provider-backed reconciliation of unresolved spend reservations
+
+- **Status:** Parked
+- **Owner:** Billing security and model platform
+- **Parked on:** 2026-07-17
+- **Reason:** A process can terminate after a paid provider accepts a request
+  but before Ultra Computer records terminal usage. Releasing that durable
+  reservation automatically could admit more than the configured ceiling, so
+  unresolved reservations remain committed for their admission month.
+- **Current risk:** A crash after a large reservation can reduce or exhaust the
+  remaining application allowance until the next UTC month, even when the
+  provider ultimately charged less.
+- **Reactivate when:** Provider usage APIs expose request-level, authoritative
+  charge state and an authenticated reconciliation operation can be audited.
+- **Next decision:** Reconcile each reservation to exact provider usage or a
+  proven zero charge; never release it based only on age or process state.
+- **Related:** WHY-0009 and PARK-0013.

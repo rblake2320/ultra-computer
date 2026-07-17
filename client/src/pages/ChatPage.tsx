@@ -157,6 +157,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [statusMsg, setStatusMsg] = useState("");
+  const [setupErrorCode, setSetupErrorCode] = useState<string | null>(null);
   const [sseError, setSseError] = useState(false);
   // Legacy single streaming content — kept for backward compatibility with "message" event clearing
   const [streamingContent, setStreamingContent] = useState("");
@@ -326,6 +327,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
       case "done":
         setIsStreaming(false);
         setStatusMsg("");
+        setSetupErrorCode(null);
         qc.invalidateQueries({ queryKey: ["/api/conversations"] });
         refetchMessages();
         break;
@@ -333,6 +335,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
       case "error":
         setIsStreaming(false);
         setStatusMsg(`Error: ${event.error}`);
+        if (event.code) setSetupErrorCode(event.code);
         break;
     }
   }, [conversationId, refetchMessages, qc]);
@@ -871,6 +874,18 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
 
         {/* Input */}
         <div className="shrink-0 border-t border-border bg-card/50 p-3">
+          {setupErrorCode === "no_model_configured" && (
+            <div className="max-w-4xl mx-auto mb-2 flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
+              <div className="flex items-center gap-2">
+                <XCircle className="w-4 h-4 text-destructive shrink-0" />
+                <span>No model is configured. Connect one and its roles are assigned automatically.</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button size="sm" onClick={() => setLocation("/models")}>Open Models</Button>
+                <Button size="sm" variant="ghost" onClick={() => setSetupErrorCode(null)}>Dismiss</Button>
+              </div>
+            </div>
+          )}
           {/* Hidden file input */}
           <input
             ref={fileInputRef}

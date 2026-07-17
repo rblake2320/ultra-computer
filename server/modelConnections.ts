@@ -748,6 +748,16 @@ export function disconnectModel(modelId: string): boolean {
   return true;
 }
 
+/** Assign the first model that proves connectivity to any unfilled core role. */
+function autoAssignRoles(modelId: string): void {
+  const model = storage.getModel(modelId);
+  if (!model || !model.enabled) return;
+  const updates: Record<string, boolean> = {};
+  if (!storage.getDefaultModel()) updates.isDefault = true;
+  if (!storage.getOrchestratorModel()) updates.isOrchestrator = true;
+  if (Object.keys(updates).length > 0) storage.updateModel(modelId, updates);
+}
+
 /**
  * Test a model's connection by sending a minimal completion request.
  */
@@ -773,6 +783,8 @@ export async function testConnection(modelId: string): Promise<{ ok: boolean; er
       lastTestedAt: Date.now() as any,
       lastTestLatency: (result.latencyMs || null) as any,
     });
+
+    if (result.ok) autoAssignRoles(modelId);
 
     return result;
   } catch (e: any) {

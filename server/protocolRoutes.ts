@@ -28,12 +28,6 @@ import {
 // ─── In-memory registries (used for webhooks, agents, servers until persistence) ─
 
 const webhookRegistry = new Map<string, { id: string; path: string; registeredAt: number; invocations: number }>();
-/**
- * webhookHandlers is a stub registry for in-process webhook callbacks.
- * Real handler logic lives in cliToolEngine.webhookRegistry.
- * TODO: wire this up to cliToolEngine.webhookRegistry.dispatch() when needed.
- */
-const webhookHandlers = new Map<string, (payload: any) => void>();
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // REGISTER ALL PROTOCOL ROUTES
@@ -472,6 +466,9 @@ export function registerProtocolRoutes(app: Express) {
     const webhookId = uuidv4();
     const entry = { id: webhookId, path, registeredAt: Date.now(), invocations: 0 };
     webhookRegistry.set(webhookId, entry);
+    // This endpoint is a real capture webhook: the engine records the full
+    // invocation history even when no downstream automation is configured.
+    cliToolEngine.webhookRegistry.registerWebhook(webhookId, path, async () => {});
     res.json(entry);
   });
 
@@ -485,7 +482,7 @@ export function registerProtocolRoutes(app: Express) {
       return res.status(404).json({ error: "Webhook not found" });
     }
     webhookRegistry.delete(id);
-    webhookHandlers.delete(id);
+    cliToolEngine.webhookRegistry.unregisterWebhook(id);
     res.json({ ok: true });
   });
 
@@ -493,7 +490,7 @@ export function registerProtocolRoutes(app: Express) {
    * POST /api/webhooks/:id
    * Incoming webhook handler — proxies payload to registered handler.
    */
-  app.post("/api/webhooks/:id", (req: Request, res: Response) => {
+  app.post("/api/webhooks/:id", async (req: Request, res: Response) => {
     const { id } = req.params as Record<string, string>;
     const entry = webhookRegistry.get(id);
     if (!entry) {
@@ -503,18 +500,18 @@ export function registerProtocolRoutes(app: Express) {
     entry.invocations += 1;
     webhookRegistry.set(id, entry);
 
-    // Call registered handler if present
-    const handler = webhookHandlers.get(id);
-    if (handler) {
-      try {
-        handler(req.body);
-      } catch (handlerErr: any) {
-        console.error(`[webhook:${id}] Handler error:`, handlerErr);
-      }
+    try {
+      const dispatched = await cliToolEngine.webhookRegistry.dispatch(
+        id,
+        req.method,
+        req.headers as Record<string, string>,
+        req.body,
+      );
+      if (!dispatched) return res.status(500).json({ error: "Webhook engine registration is missing" });
+      res.json({ ok: true, webhookId: id, invocations: entry.invocations });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : "Webhook dispatch failed" });
     }
-
-    console.log(`[webhook] Received payload for webhook ${id} (invocation #${entry.invocations})`);
-    res.json({ ok: true, webhookId: id, invocations: entry.invocations });
   });
 
   // ───────────────────────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import { createClient, fetchExchange, subscriptionExchange } from "urql";
 import { createClient as createWSClient } from "graphql-ws";
+import { browserApiKey } from "./queryClient";
 
 const wsClient = createWSClient({
   url: `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/api/graphql`,
@@ -23,7 +24,7 @@ export const graphqlClient = createClient({
   ],
   fetchOptions: () => {
     // Auth header if ULTRA_API_KEY is needed
-    const key = (window as any).__ULTRA_API_KEY__ ?? "";
+    const key = browserApiKey();
     return key ? { headers: { Authorization: `Bearer ${key}` } } : {};
   },
 });

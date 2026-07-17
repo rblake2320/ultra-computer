@@ -9,6 +9,11 @@
 - Production smoke: set `ULTRA_API_KEY`, `SLACK_SIGNING_SECRET`, `GITHUB_WEBHOOK_SECRET`, and `ENCRYPTION_KEY`, then run `npm start`
 
 ## Verification
+- Diagnostics: `npm run doctor`; add `-- --live` only for intentional real
+  probes against every enabled model.
+- Authenticated local E2E: `npm run test:e2e` (seven tests; requires real Ollama
+  for the two inference/model-connection paths; zero skips are required for a
+  full local claim).
 - Typecheck: `npm run check`
 - Unit tests: `npm run test:unit -- --run`
 - Policy tests: `npm run test:unit -- --run tests/unit/policyEngine.test.ts`
@@ -43,23 +48,34 @@
 - Agent/tool permissions live in `policies/*-access.json` and are deny-by-default. Do not broaden policy rules to make a feature or test pass; wire the feature through the policy evaluator and keep the policy as the hard constraint.
 - Do not round policy evaluator tests up to live tool proof. They are unit-level evidence unless the real governed route and real external capability were exercised.
 - Do not call agent execution production-durable unless a real durable runtime such as Temporal, Microsoft Durable Task, or an equivalent is started and crash/restart/resume behavior is exercised. BullMQ, local JSON ledgers, and unit tests are useful boundaries but not exact workflow replay proof.
+- Do not describe the application spend ledger as provider invoice control.
+  Unknown paid pricing fails closed, the configured limit cannot exceed $20,
+  and provider-side quotas remain a separate control.
 
 ## Non-Obvious Patterns
 - Raw request bodies are required for Slack/GitHub HMAC verification.
 - Sandbox file APIs must reject prefix siblings such as `sandbox2`, not just `../` traversal.
-- Browser clients can set `window.__ULTRA_API_KEY__`; EventSource auth uses an `api_key` query parameter because native EventSource cannot send custom headers.
+- Browser clients use the owner-access gate, which retains `ULTRA_API_KEY` only
+  in tab-scoped `sessionStorage`; EventSource clients exchange it for a
+  short-lived, path-bound stream token and never put the long-lived key in a
+  URL.
 - Policy decisions are audited to `data/policy/audit.jsonl` with command, URL, path, and metadata redacted before write.
 - Never replace a proven HTML sanitizer with regex-based sanitization. Rendering generated HTML requires a maintained sanitizer, explicit URL policy, attribute escaping, and regression tests.
 - Never add a model by hard-coded name alone. Add or update discovery, capability metadata, lifecycle handling, provider-native compatibility, and tests; discovery alone is not proof that a model works.
 
 ## Versions
-- Node.js 22 (LTS). Node 20 reached EOL 2026-04-30 — do not downgrade.
-- TypeScript `5.6.3`.
+- Node.js 24 is the container and CI baseline; Node 22 remains supported.
+- TypeScript `7.x`.
 - Express 5, React 18, Vite 8, Vitest 4.
-- Temporal SDK `1.18.1` — workflow isolation model: workflow code in its own bundleable file (`.ts`), never mixed with activity or runner code.
+- Temporal SDK `1.20.3` — workflow isolation model: workflow code in its own bundleable file (`.ts`), never mixed with activity or runner code.
 - BullMQ `^5.78.0` — task queue, requires Redis on `REDIS_URL`.
 
 ## Runtime Stack (Docker Compose)
+
+`DATABASE_PATH` is the only supported SQLite path override. Keep production
+state on `/app/data/ultra_computer.db`; do not reintroduce
+`ULTRA_DATABASE_PATH`. Optional surfaces register only when
+`ULTRA_EXPERIMENTAL=1`.
 
 ```
 docker compose up -d          # starts redis, temporal-postgres, temporal, temporal-ui, app

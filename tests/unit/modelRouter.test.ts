@@ -80,4 +80,9 @@ describe("model router selection", () => {
     expect(selectModelFromCandidates([reasoningModel], "analyze")?.id)
       .toBe(reasoningModel.id);
   });
+
+  it("uses a chat-only model for analysis when no reasoning model is available", () => {
+    const chatModel = model({ capabilities: '["chat"]' });
+    expect(selectModelFromCandidates([chatModel], "analyze")?.id).toBe(chatModel.id);
+  });
 });

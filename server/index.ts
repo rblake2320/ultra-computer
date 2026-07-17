@@ -191,6 +191,9 @@ const chatLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Chat rate limit exceeded. Please wait before sending more messages." },
+  // Only message creation triggers LLM work. History reads must not consume the
+  // paid-operation budget or break UI refresh/polling.
+  skip: (req) => req.method !== "POST",
   validate: { xForwardedForHeader: false, ip: false, trustProxy: false, default: false },
   keyGenerator: normalizeIp,
 });

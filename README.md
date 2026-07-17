@@ -118,6 +118,7 @@ authorization, or tenant isolation.
 ```bash
 npm ci
 npm run dev
+npm run doctor
 npm run check
 npm run test:unit
 npm run build
@@ -125,6 +126,43 @@ npm run build
 
 Development serves the UI and API at `http://localhost:5000`. Development may
 run without `ULTRA_API_KEY`; do not expose that mode to an untrusted network.
+
+## Reliability Pass
+
+The supported local workflow gate is an authenticated seven-test Playwright
+suite:
+
+```bash
+npm run test:e2e
+```
+
+It starts the real development server with a temporary SQLite database and a
+real Chromium browser. With Ollama available on `127.0.0.1:11434`, it also
+creates and tests a real local model and persists a real assistant response.
+The suite verifies private launch, first-model role assignment, real local
+inference, graceful no-model guidance, real Windows-compatible CLI execution
+with traversal rejection, database-backed process restart, and both disabled
+and explicitly enabled `ULTRA_EXPERIMENTAL` states. This is local process proof,
+not container-recreation proof or evidence for paid providers.
+
+Run `npm run doctor` for installation diagnostics. Add `-- --live` only when
+you intend to make real connection probes against every enabled model:
+
+```bash
+npm run doctor -- --live
+```
+
+Reliability behavior added in this pass:
+
+- The first model that passes its connection test becomes Default and
+  Orchestrator when those roles are otherwise empty.
+- A no-model conversation persists actionable guidance instead of crashing.
+- A2A send and stream failures report failed tasks instead of echoing input as
+  a successful-looking answer.
+- Protocol webhooks dispatch through the registered handler and return failure
+  when dispatch fails; messaging integrations never simulate delivery.
+- The CLI engine selects the Windows command shell on Windows while retaining
+  sandbox path-containment checks.
 
 ## Production-Shaped Docker Deployment
 
@@ -138,6 +176,10 @@ npm run gen:key
 docker compose up -d --build
 docker compose ps
 ```
+
+Open `http://127.0.0.1:5000/` and enter the configured `ULTRA_API_KEY` at
+the owner-access screen. The browser validates it against the local server and
+keeps it only in that tab's `sessionStorage`; closing the tab ends the session.
 
 The stack runs the HTTP/gRPC application, Redis, Temporal, PostgreSQL, and a
 separate Temporal worker. Host-published ports bind to loopback. SQLite state is
@@ -163,6 +205,7 @@ set the production variables below, then run `npm run build && npm start`.
 | `GRPC_PORT`, `DISABLE_GRPC` | gRPC port (server default `5001`, container `50051`) or explicit disable with `1`. |
 | `APP_PORT`, `GRPC_HOST_PORT` | Compose-only host ports; defaults `5000` and `50051`. |
 | `DATABASE_PATH` | SQLite file; defaults to `./data/ultra_computer.db` in production and `./ultra_computer.db` otherwise. |
+| `ULTRA_EXPERIMENTAL` | Set `1` in the application process to register and show Swarm, NIP, Identity, Marketplace, and autonomy/self-improvement surfaces. Disabled by default; standard Compose does not forward this opt-in. |
 | `ULTRA_API_KEY` | Production bearer key; required, at least 32 characters, and must not be a placeholder. |
 | `ENCRYPTION_KEY` | Production encryption/HMAC key; required, exactly 64 hexadecimal characters, and not a placeholder or single repeated character. |
 | `ALLOWED_ORIGIN` | Allowed browser origin; set to the public HTTPS origin in production. |
@@ -191,6 +234,23 @@ set the production variables below, then run `npm run build && npm start`.
 
 Do not put real secrets in `.env.example`, logs, screenshots, issues, or pull
 requests.
+
+## Application Spending Admission
+
+Paid text and image requests pass through a SQLite-backed reservation and
+settlement ledger before provider dispatch. The operator setting
+`spend_limit_usd` defaults to and cannot exceed `$20` per UTC month. Committed
+ledger cost plus active reservations may not exceed that application limit.
+Unknown paid model/image pricing fails closed; discovering a new model does not
+make it billable or automatically usable.
+
+The ledger is durable across application restart when `DATABASE_PATH` is on
+persistent storage, and SQLite immediate transactions serialize admissions for
+this single database. It is not a provider-side quota or invoice guarantee:
+providers can apply pricing dimensions, taxes, cache rates, minimums, delayed
+usage, or charges outside this application. Use provider billing alerts and a
+provider-enforced hard quota when available. Multi-node deployments also need a
+shared transactional accounting design before claiming a fleet-wide ceiling.
 
 ## Current-Release Model Support
 
@@ -250,7 +310,7 @@ the command name as blanket live proof.
 
 `npm run verify` is local repository-gate evidence. It must not be reported as production proof for live external providers, connectors, MCP/A2A peers, browser workflows, or deployment environments that were not actually exercised. Use the evidence labels in `docs/VERIFICATION_POLICY.md` for all release reports.
 
-`npm run live:docker` builds and runs a clean Linux production container from a digest-pinned Node base image as a non-root runtime user, then exercises selected real HTTP paths. It is Docker live-local proof, not Hyper-V/Azure VM proof and not proof of real third-party provider behavior. Set `LIVE_DOCKER_CLEAN_IMAGE=true` to remove the local proof image after the run.
+`npm run live:docker` builds and runs a clean Linux production container from a version-pinned Node base image as a non-root runtime user, then exercises selected real HTTP paths. The image installs the Chromium runtime used by the Playwright browser tool. It is Docker live-local proof, not Hyper-V/Azure VM proof and not proof of real third-party provider behavior. Immutable multi-architecture base-image digests remain tracked in PARK-0004. Set `LIVE_DOCKER_CLEAN_IMAGE=true` to remove the local proof image after the run.
 
 Durable execution status is tracked in `docs/DURABLE_EXECUTION_GATE.md` and
 `reports/durable-execution-readiness.md`. The production-shaped Compose gate
@@ -300,12 +360,13 @@ All endpoints are under `/api/`. Key groups:
 | `/api/skill-scripts` | Library | CRUD + versioning + run |
 | `/api/files` | Files | Browse + read + write + delete |
 | `/api/browser` | Browser | Navigate + screenshot + actions |
-| `/api/marketplace` | Marketplace | Skills + ratings + quality scores |
-| `/api/autonomy` | Autonomy | Watchdog + cron + checkpoints + learning |
+| `/api/marketplace` | Marketplace (experimental) | Skills + ratings + quality scores; requires `ULTRA_EXPERIMENTAL=1` |
+| `/api/autonomy` | Autonomy (experimental) | Watchdog + cron + checkpoints + learning; requires `ULTRA_EXPERIMENTAL=1` |
 | `/api/protocols` | Protocols | A2A + MCP + CLI adapters |
 | `/api/messaging` | Messaging | Channels + send + webhooks + subscriptions |
-| `/api/nip` | NIP | Sessions + messages + monitor + reports + access |
-| `/api/identity` | Identity | Register + verify + trust + blocks + directory |
+| `/api/nip` | NIP (experimental) | Sessions + messages + monitor + reports + access; requires `ULTRA_EXPERIMENTAL=1` |
+| `/api/identity` | Identity (experimental) | Register + verify + trust + blocks + directory; requires `ULTRA_EXPERIMENTAL=1` |
+| `/api/spend` | Spending admission | Current application ledger, reservations, limit, and available amount |
 
 Full API documentation: [Notion Page](https://www.notion.so/33f16b3224c981dca6c9c74293e36a47)
 

@@ -76,7 +76,7 @@ export type OrchestratorEvent =
   | { type: "message"; role: string; content: string; messageId: string }
   | { type: "memory_update"; summary: string }
   | { type: "done"; summary: string }
-  | { type: "error"; error: string };
+  | { type: "error"; error: string; code?: string };
 
 interface PlanTask {
   id: string;
@@ -154,7 +154,27 @@ export async function runOrchestrator(
     // 3. Get orchestrator model + per-area overrides
     const orchModel = storage.getOrchestratorModel() || storage.getDefaultModel();
     if (!orchModel) {
-      throw new Error("No model configured. Please add a model in the Models page first.");
+      const message = "No model is configured yet. Open Models, add a provider, and run a connection test. The first model that connects successfully is assigned automatically.";
+      recordDurableStep({
+        workflowId,
+        stepId: "orchestrator.no_model",
+        status: "failed",
+        idempotencyKey: `${workflowId}:no_model`,
+        error: message,
+      });
+      markDurableRunStatus(workflowId, "failed", { reason: "no_model_configured" });
+      const messageId = uuidv4();
+      storage.createMessage({
+        id: messageId,
+        conversationId,
+        role: "assistant",
+        content: message,
+        metadata: JSON.stringify({ errorCode: "no_model_configured" }),
+      });
+      storage.updateConversation(conversationId, { status: "idle" });
+      emit(conversationId, { type: "message", role: "assistant", content: message, messageId });
+      emit(conversationId, { type: "error", error: message, code: "no_model_configured" });
+      return;
     }
 
     // Per-area model overrides — fall back to orchModel if not set or model not found

@@ -3,8 +3,21 @@ import { QueryClient } from "@tanstack/react-query";
 const RAW_BASE = "__PORT_5000__";
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || (RAW_BASE.startsWith("__") ? "" : RAW_BASE);
 
-function browserApiKey(): string {
-  return (window as any).__ULTRA_API_KEY__ ?? "";
+const SESSION_API_KEY = "ultra_api_key";
+
+export function browserApiKey(): string {
+  return (window as any).__ULTRA_API_KEY__ ?? window.sessionStorage.getItem(SESSION_API_KEY) ?? "";
+}
+
+export function setBrowserApiKey(value: string): void {
+  const key = value.trim();
+  if (key) {
+    window.sessionStorage.setItem(SESSION_API_KEY, key);
+    (window as any).__ULTRA_API_KEY__ = key;
+  } else {
+    window.sessionStorage.removeItem(SESSION_API_KEY);
+    delete (window as any).__ULTRA_API_KEY__;
+  }
 }
 
 export async function apiRequest(method: string, path: string, body?: any) {

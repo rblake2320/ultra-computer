@@ -20,10 +20,16 @@ import {
   type ModelCapability,
   type ModelMessage,
   type ModelRequest,
+  type ModelResponse,
   type ModelToolCall,
   type ProviderAdapter,
 } from "./models/index.js";
 import { storage } from "./storage.js";
+import {
+  reserveModelRequest,
+  settleModelReservation,
+  settleReservationConservatively,
+} from "./spendGuard.js";
 
 export type TaskType =
   | "research"
@@ -83,7 +89,7 @@ const TASK_CAPABILITY_MAP: Readonly<Record<TaskType, readonly ModelCapability[]>
   code: ["chat", "code"],
   write: ["chat"],
   browse: ["chat"],
-  analyze: ["chat", "reasoning"],
+  analyze: ["chat"],
   image: ["chat", "vision"],
   general: ["chat"],
   speed: ["chat"],
@@ -136,10 +142,19 @@ export function selectModelFromCandidates(
     return preferred;
   }
 
-  const compatible = enabledModels.filter((model) =>
+  let compatible = enabledModels.filter((model) =>
     hasCapabilities(modelCapabilities(model), { all: required }),
   );
   if (!compatible.length) return null;
+
+  // Reasoning is preferred for analysis but not mandatory: a verified chat
+  // model must remain usable as a first/default model instead of falling into
+  // the connected-but-unroutable trap.
+  if (taskType === "analyze") {
+    compatible = [...compatible].sort((a, b) =>
+      Number(modelCapabilities(b).includes("reasoning")) - Number(modelCapabilities(a).includes("reasoning")),
+    );
+  }
 
   const tier = TASK_TIER_MAP[taskType] ?? "medium";
   const tierMatch = compatible.find((model) => model.speedTier === tier);
@@ -262,6 +277,33 @@ function cacheRequest(
   };
 }
 
+async function guardedGenerate(
+  adapter: ProviderAdapter,
+  model: Model,
+  request: ModelRequest,
+  signal?: AbortSignal,
+): Promise<ModelResponse> {
+  const reservation = reserveModelRequest(model, request);
+  let settled = false;
+  try {
+    const result = await adapter.generate(request, {
+      requestId: crypto.randomUUID(),
+      signal,
+    });
+    settleModelReservation(reservation, model, result.usage);
+    settled = true;
+    return result;
+  } catch (error) {
+    if (!settled) {
+      // Once adapter execution begins, transport failures are ambiguous: the
+      // provider may have accepted and billed the request.
+      settleReservationConservatively(reservation, model);
+      settled = true;
+    }
+    throw error;
+  }
+}
+
 export async function chat(
   messages: ChatMessage[],
   options: RouterOptions = {},
@@ -294,10 +336,7 @@ export async function chat(
   const request = toModelRequest(model, messages, options);
   const adapter = createProviderAdapter(model);
   assertAdapterSupports(model, adapter, request, false);
-  const result = await adapter.generate(request, {
-    requestId: crypto.randomUUID(),
-    signal: options.signal,
-  });
+  const result = await guardedGenerate(adapter, model, request, options.signal);
   const content = result.text || result.reasoning || "";
   const finalContent = content + toolCallBlocks(result.toolCalls);
 
@@ -340,49 +379,68 @@ export async function* chatStream(
   const request = toModelRequest(model, messages, options);
   const adapter = createProviderAdapter(model);
   assertAdapterSupports(model, adapter, request, true);
+  const reservation = reserveModelRequest(model, request);
 
   let emittedText = false;
   let reasoning = "";
+  let usage: ModelResponse["usage"];
+  let providerCompleted = false;
+  let settled = false;
   const toolCalls = new Map<number, { name: string; arguments: string }>();
 
-  for await (const event of adapter.stream!(request, {
-    requestId: crypto.randomUUID(),
-    signal: options.signal,
-  })) {
-    switch (event.type) {
-      case "output_text.delta":
-        emittedText = true;
-        yield event.delta;
-        break;
-      case "reasoning.delta":
-        reasoning += event.delta;
-        break;
-      case "tool_call.delta": {
-        const call = toolCalls.get(event.index) ?? { name: "", arguments: "" };
-        if (event.name) call.name += event.name;
-        if (event.argumentsDelta) call.arguments += event.argumentsDelta;
-        toolCalls.set(event.index, call);
-        break;
+  try {
+    for await (const event of adapter.stream!(request, {
+      requestId: crypto.randomUUID(),
+      signal: options.signal,
+    })) {
+      switch (event.type) {
+        case "output_text.delta":
+          emittedText = true;
+          yield event.delta;
+          break;
+        case "reasoning.delta":
+          reasoning += event.delta;
+          break;
+        case "tool_call.delta": {
+          const call = toolCalls.get(event.index) ?? { name: "", arguments: "" };
+          if (event.name) call.name += event.name;
+          if (event.argumentsDelta) call.arguments += event.argumentsDelta;
+          toolCalls.set(event.index, call);
+          break;
+        }
+        case "response.usage":
+          usage = event.usage;
+          break;
+        case "response.completed":
+          providerCompleted = true;
+          break;
+        case "response.error":
+          throw new Error(
+            `${adapter.provider} request failed (${event.error.code}): ${event.error.message}`,
+          );
       }
-      case "response.error":
-        throw new Error(
-          `${adapter.provider} request failed (${event.error.code}): ${event.error.message}`,
-        );
     }
-  }
 
-  if (toolCalls.size) {
-    yield toolCallBlocks(
-      [...toolCalls.entries()]
-        .sort(([left], [right]) => left - right)
-        .map(([index, call]) => ({
-          id: `tool-call-${index}`,
-          name: call.name,
-          arguments: call.arguments,
-        })),
-    );
-  } else if (!emittedText && reasoning) {
-    yield reasoning;
+    settleModelReservation(reservation, model, providerCompleted ? usage : undefined);
+    settled = true;
+
+    if (toolCalls.size) {
+      yield toolCallBlocks(
+        [...toolCalls.entries()]
+          .sort(([left], [right]) => left - right)
+          .map(([index, call]) => ({
+            id: `tool-call-${index}`,
+            name: call.name,
+            arguments: call.arguments,
+          })),
+      );
+    } else if (!emittedText && reasoning) {
+      yield reasoning;
+    }
+  } finally {
+    if (!settled) {
+      settleReservationConservatively(reservation, model);
+    }
   }
 }
 
@@ -394,13 +452,12 @@ export async function testModelConnection(
   const start = Date.now();
   try {
     const adapter = createProviderAdapter(model);
-    const result = await adapter.generate({
+    const request: ModelRequest = {
       model: model.modelId,
       messages: [{ role: "user", content: "Reply with exactly: pong" }],
       maxOutputTokens: 10,
-    }, {
-      requestId: crypto.randomUUID(),
-    });
+    };
+    const result = await guardedGenerate(adapter, model, request);
     if (!result.text.trim() && result.toolCalls.length === 0) {
       throw new Error("Provider returned an empty connection-test response");
     }

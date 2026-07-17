@@ -4,10 +4,12 @@
  * gRPC-Web protocol or HTTP/2 required.
  */
 
+import { browserApiKey } from "./queryClient";
+
 const BASE = "/api/grpc";
 
 async function grpcCall<T>(service: string, method: string, request: unknown): Promise<T> {
-  const key = (window as any).__ULTRA_API_KEY__ ?? "";
+  const key = browserApiKey();
   const res = await fetch(`${BASE}/${service}/${method}`, {
     method: "POST",
     headers: {

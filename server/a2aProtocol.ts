@@ -470,10 +470,9 @@ async function handleMessageSend(
       });
       clearTimeout(orchTimeout);
     } catch (orchErr) {
-      // If orchestrator import/execution fails, produce a best-effort echo
-      console.error("[A2A] Orchestrator error, using fallback:", orchErr);
-      const truncated = userText.slice(0, 500);
-      responseText = `Received your message: "${truncated}". (Orchestrator unavailable — raw echo.)`;
+      console.error("[A2A] Orchestrator error — failing task:", orchErr);
+      const message = orchErr instanceof Error ? orchErr.message : String(orchErr);
+      throw new Error(`Orchestrator failed to process this message: ${message}. No response was generated.`);
     }
 
     // Build output artifact
@@ -587,10 +586,9 @@ export async function* handleMessageStream(
         }
       }
     } catch (orchErr) {
-      console.error("[A2A] Orchestrator stream error, using fallback:", orchErr);
-      const fallback = `Received: "${userText}". (Orchestrator unavailable.)`;
-      chunks.push(fallback);
-      yield `event: token\ndata: ${JSON.stringify({ taskId: task.taskId, delta: fallback })}\n\n`;
+      console.error("[A2A] Orchestrator stream error — failing task:", orchErr);
+      const message = orchErr instanceof Error ? orchErr.message : String(orchErr);
+      throw new Error(`Orchestrator failed to process this message: ${message}. No response was generated.`);
     }
 
     const responseText = chunks.join("");
