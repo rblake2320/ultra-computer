@@ -14222,8 +14222,8 @@
     {
       "type": "library",
       "name": "adm-zip",
-      "version": "0.5.18",
-      "bom-ref": "rest-express@1.0.0|adm-zip@0.5.18",
+      "version": "0.6.0",
+      "bom-ref": "rest-express@1.0.0|adm-zip@0.6.0",
       "licenses": [
         {
           "license": {
@@ -14232,15 +14232,15 @@
           }
         }
       ],
-      "purl": "pkg:npm/adm-zip@0.5.18",
+      "purl": "pkg:npm/adm-zip@0.6.0",
       "externalReferences": [
         {
-          "url": "https://registry.npmjs.org/adm-zip/-/adm-zip-0.5.18.tgz",
+          "url": "https://registry.npmjs.org/adm-zip/-/adm-zip-0.6.0.tgz",
           "type": "distribution",
           "hashes": [
             {
               "alg": "SHA-512",
-              "content": "b9f267b2c4066f1ccb352d47a3d6c2b57e2b40a082be856e0cb1e827273717d74e1830780645acd828b492fe7796aa1c00443f09b8be2365c2b0d606a9562a9e"
+              "content": "5e57abc8c85bba4b1d2ada1f9d667d4a4fb80944db9ace0c6ff114df6499c13a00c99e51815a2cfe48bc9fecabd0b5873862ae6a46d74eeb983472d08e175d82"
             }
           ],
           "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
@@ -40123,7 +40123,7 @@
       "ref": "rest-express@1.0.0|acorn@8.17.0"
     },
     {
-      "ref": "rest-express@1.0.0|adm-zip@0.5.18"
+      "ref": "rest-express@1.0.0|adm-zip@0.6.0"
     },
     {
       "ref": "rest-express@1.0.0|agent-base@7.1.4"
@@ -42197,7 +42197,7 @@
     {
       "ref": "rest-express@1.0.0|onnxruntime-node@1.24.3",
       "dependsOn": [
-        "rest-express@1.0.0|adm-zip@0.5.18",
+        "rest-express@1.0.0|adm-zip@0.6.0",
         "rest-express@1.0.0|global-agent@3.0.0",
         "rest-express@1.0.0|onnxruntime-common@1.24.3"
       ]

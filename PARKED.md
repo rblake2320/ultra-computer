@@ -210,7 +210,7 @@ link so future contributors can tell whether the constraint still applies.
 
 ### PARK-0012: Automated container-recreation persistence proof
 
-- **Status:** Parked
+- **Status:** Resolved on 2026-07-17
 - **Owner:** Runtime engineering
 - **Parked on:** 2026-07-17
 - **Reason:** Playwright proves state across a real application process restart;
@@ -219,9 +219,13 @@ link so future contributors can tell whether the constraint still applies.
   process-restart gate detecting it.
 - **Reactivate when:** A clean Docker runner can seed state, recreate the app
   and worker containers, and inspect the same persisted records.
-- **Next decision:** Add Compose seed/recreate/assert coverage without reusing
-  host database files.
-- **Related:** WHY-0008 and PARK-0005.
+- **Resolution:** `npm run live:docker` now seeds a real conversation, queued
+  message and sandbox file into isolated named volumes; force-removes and
+  recreates the app container with the same encryption key and volumes; and
+  asserts all three artifacts remain available. Test volumes are removed only
+  after the assertions finish and no host database file is reused.
+- **Evidence:** The clean Docker gate passes through the recreation boundary.
+- **Related:** WHY-0008, WHY-0026 and PARK-0005.
 
 ### PARK-0013: Provider-enforced hard spending quota
 

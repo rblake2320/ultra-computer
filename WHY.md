@@ -563,3 +563,53 @@ hold detailed decisions that affect architecture or long-lived behavior.
   checks, clean production Docker boundary proof, zero npm vulnerabilities and
   the follow-up GitHub CodeQL gate.
 - **Related:** WHY-0015, WHY-0024 and PARK-0020.
+
+### WHY-0026: Persistence claims cross the container-recreation boundary
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Process-restart tests and declared Docker volumes did not prove
+  that application data survives deleting and recreating the production app
+  container. The live Docker gate also generated a new encryption key on each
+  start and discarded its root exception, making recreation failures both
+  likely and difficult to diagnose.
+- **Decision:** Give one gate run a stable encryption key and isolated named
+  data/sandbox volumes. Seed a real conversation, queued message and uploaded
+  file; force-remove and recreate the app container; then retrieve and assert
+  all three artifacts before cleaning up the test volumes. Preserve the actual
+  command failure and stderr in the gate output without logging its
+  secret-bearing argument list.
+- **Why:** Durable deployment behavior is a boundary property. It must be
+  exercised across container identity loss, not inferred from in-process
+  restart behavior or Compose declarations.
+- **Alternatives:** Inspect volume configuration or reuse a host database file.
+  Rejected because neither proves Docker volume ownership, mount wiring and
+  application reopening together.
+- **Evidence:** `npm run live:docker` passes after the app container is removed
+  and recreated; the persisted conversation ID, exact message content and
+  sandbox file content remain readable.
+- **Related:** WHY-0008, PARK-0012 and PARK-0005.
+
+### WHY-0027: Patch a vulnerable transitive archive parser without downgrading the embedding stack
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** A fresh release audit reported GHSA-xcpc-8h2w-3j85 in
+  `adm-zip <0.6.0`, reached through current `@huggingface/transformers 4.2.0`
+  and its pinned `onnxruntime-node 1.24.3`. npm's automatic remediation proposed
+  a breaking downgrade to Transformers 3.8.1.
+- **Decision:** Keep the current direct embedding package and force the
+  transitive archive parser to patched `adm-zip 0.6.0` with npm's lockfile-backed
+  override.
+- **Why:** The vulnerability is in the archive parser, while downgrading the
+  direct runtime would discard current behavior and introduce a larger,
+  unrelated compatibility change. The narrow override removes the affected
+  version and can be independently exercised.
+- **Alternatives:** Run `npm audit fix --force`, ignore the advisory, or remove
+  semantic embeddings. Rejected because those options respectively introduce
+  an unreviewed breaking change, ship a known high-severity denial-of-service
+  path, or remove real product capability.
+- **Evidence:** A clean `npm ci` resolves `adm-zip 0.6.0`; `npm audit` reports
+  zero vulnerabilities; and the real MiniLM load, 384-dimensional embedding,
+  similarity and serialization integration tests pass.
+- **Related:** WHY-0024 and WHY-0025.

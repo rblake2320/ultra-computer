@@ -13,6 +13,12 @@ All notable changes to this project will be documented in this file.
   boundary evidence and explicit labels for every unexercised dependency.
 
 ### Fixed
+- Extended the live production-container gate to create durable conversation,
+  message and sandbox-file state, destroy the application container, recreate
+  it with the same encryption key and named volumes, and assert that all state
+  survives. The gate now reports the underlying exception on failure instead
+  of discarding the diagnostic, without echoing secret-bearing process
+  arguments.
 - Routed OpenAI-compatible and Anthropic SDK traffic, including image
   generation, through the governed DNS-pinned egress boundary; disabled hidden
   SDK retries so one spend reservation cannot produce extra billable attempts.
@@ -80,6 +86,10 @@ All notable changes to this project will be documented in this file.
   strings after cross-platform CI and CodeQL found the gaps.
 
 ### Security
+- Overrode the vulnerable transitive `adm-zip <0.6.0` dependency used by the
+  current Hugging Face/ONNX embedding stack to patched `0.6.0`. A clean install
+  now audits with zero vulnerabilities, and the real MiniLM embedding runtime
+  integration remains green.
 - Removed host-shell fallback, shell-built search commands and dynamic
   JavaScript calculation; added a bounded arithmetic parser, literal
   in-process search, no-follow sandbox file descriptors, symlink-safe

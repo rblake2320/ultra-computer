@@ -160,6 +160,7 @@
     "bufferutil": "^4.0.8"
   },
   "overrides": {
+    "adm-zip": "0.6.0",
     "linkify-it": "6.0.0",
     "markdown-it": "14.3.0",
     "drizzle-kit": {

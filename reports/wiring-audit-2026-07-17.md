@@ -103,7 +103,7 @@ Passing unit tests are not treated as proof that an external integration works.
 |---|---:|---|
 | `npm run test:e2e` | 8/8 pass | **VERIFIED LOCALLY** — real Chromium, SQLite, process restart and local Ollama |
 | `npm run test:integration` | 11 pass, 8 skip | **VERIFIED LOCALLY** for passed local boundaries; skipped items remain unverified |
-| `npm run live:docker` | pass | **VERIFIED LOCALLY** — isolated production container, auth, files, policy and Redis/BullMQ dispatch |
+| `npm run live:docker` | pass | **VERIFIED LOCALLY** — isolated production container, auth, files, policy, Redis/BullMQ dispatch and retained state across app-container recreation |
 | Unit suite with coverage | 223/223 pass | **UNIT-LEVEL ONLY** for covered contracts |
 | Statement coverage | 34.49% | **CONFIRMED**; many integration-heavy modules have little or no coverage |
 | `npm run doctor` | 13/14 pass, Temporal warning | **VERIFIED LOCALLY**, but not reliable proof of the active container's health |
@@ -210,8 +210,10 @@ These are not omissions hidden behind “passed.” They remain explicit gaps:
   crash recovery or normal app-to-Temporal dispatch.
 - **Database upgrade from every historical schema:** **NOT VERIFIED**. No
   versioned migration framework or fixture matrix exists.
-- **Docker recreation with retained state:** **NOT VERIFIED**. Existing live
-  Docker proof does not recreate the user deployment volume end to end.
+- **Docker recreation with retained state:** **VERIFIED LOCALLY** after audit
+  remediation. The live production-container gate persists a conversation,
+  queued message and sandbox file on isolated named volumes, destroys and
+  recreates the app container, and requires all three artifacts to survive.
 - **Marketplace, Identity, NIP and Autonomy external behavior:** **NOT
   VERIFIED** because no external implementation exists; current behavior is
   local, in-memory, heuristic or non-executing.
