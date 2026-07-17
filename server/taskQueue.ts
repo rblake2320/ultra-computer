@@ -377,10 +377,7 @@ export class TaskQueue {
             : undefined,
       };
     } catch (err: any) {
-      console.error(
-        `[TaskQueue] Failed to fetch status for job ${jobId}:`,
-        err?.message ?? err
-      );
+      console.error("[TaskQueue] Failed to fetch status for job:", jobId, err?.message ?? err);
       return null;
     }
   }

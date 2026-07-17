@@ -291,8 +291,9 @@ link so future contributors can tell whether the constraint still applies.
   false Temporal application claim. WHY-0020 closes messaging restart state,
   inbound orchestration and MCP transport while making unsupported
   provider-native operations fail explicitly. Transactional outbound delivery,
-  remaining protocols, migrations and experimental semantics can still fail or
-  report false success.
+  A2A 1.0, versioned migrations and durable multi-process SSE replay remain
+  explicitly held in PARK-0017 through PARK-0019; experimental false-success
+  paths are closed by WHY-0022.
 - **Reactivate when:** Immediately, before public launch.
 - **Next decision:** Execute the ordered twelve-step repair plan in
   `reports/wiring-audit-2026-07-17.md`, with a passing real-boundary test for
@@ -353,3 +354,26 @@ link so future contributors can tell whether the constraint still applies.
 - **Next decision:** Store redacted events with cursors, ownership, retention and
   replay bounds; prove restart and cross-replica recovery.
 - **Related:** WHY-0019 and PARK-0017.
+
+### PARK-0020: External repository assurance programs
+
+- **Status:** Parked — documented governance gap, not a runtime vulnerability
+- **Owner:** Repository owner and release governance
+- **Parked on:** 2026-07-17
+- **Reason:** OpenSSF Scorecard recommends a second-party code-review approval,
+  a registered CII Best Practices project, and dedicated fuzzing infrastructure.
+  This repository currently has one active owner, is not registered with the
+  external CII program, and has no continuous fuzzing service. Those facts
+  cannot be made true by changing labels or adding empty workflows.
+- **Current risk:** A single maintainer can merge a subtly unsafe change after
+  required automated checks pass, and parser/security boundaries lack
+  coverage-guided long-running fuzz evidence.
+- **Reactivate when:** A second trusted maintainer can approve changes, the
+  project is ready for external CII registration, or a funded fuzzing service
+  and corpus/triage owner are available.
+- **Next decision:** Require one approving review once it will not deadlock the
+  sole owner; register the project honestly; then add maintained fuzz targets
+  for URL/path/command/protocol parsers with crash triage and regression seeds.
+- **Related:** WHY-0024. `master` already requires pull requests, the complete
+  CI/security context set, resolved conversations, and blocks force pushes and
+  deletion.

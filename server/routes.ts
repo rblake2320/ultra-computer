@@ -896,7 +896,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       storage.updateConnector(connectorId, { status: "connected", config: newConfig, lastSynced: Date.now() });
       return res.redirect(`/?connector_connected=${encodeURIComponent(connectorId)}`);
     } catch (err: any) {
-      console.error(`[connector oauth] Error for ${connectorId}:`, err);
+      console.error("[connector oauth] Error for connector:", connectorId, err);
       return res.redirect(`/?connector_error=oauth_failed`);
     }
   });
@@ -1008,7 +1008,11 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   // ─── Skill Script Library ─────────────────────────────────────────────────
   app.get("/api/skill-scripts", (req, res) => {
-    const q = req.query.q as string | undefined;
+    const rawQuery = req.query.q;
+    const q = typeof rawQuery === "string" ? rawQuery : undefined;
+    if (rawQuery !== undefined && q === undefined) {
+      return res.status(400).json({ error: "Search query must be a single string" });
+    }
     if (q) {
       if (q.length > 500) return res.status(400).json({ error: "Search query too long (max 500 chars)" });
       res.json(storage.searchSkillScripts(q));

@@ -22,6 +22,15 @@ Passing unit tests are not treated as proof that an external integration works.
 
 ## Remediation Log
 
+- **2026-07-17 security-alert follow-up:** repository-wide master scanning
+  exposed inherited findings that the PR new-alert gate did not include.
+  Genuine checkpoint path injection, host command/dynamic code execution,
+  regex parsing/sanitization, resource bounds, parameter confusion and tainted
+  logs were repaired with structured operations and focused regression tests.
+  Custom-sanitizer path alerts gained basename/no-follow defenses and live
+  traversal/symlink proof. Node is digest-pinned and `master` is protected by
+  the complete CI/security context set. External assurance gaps are PARK-0020.
+
 - **2026-07-17 — Runtime queue health closed locally:** BullMQ now honors the
   full `REDIS_URL`, tracks connection loss/recovery, closes failed clients, and
   uses persistent Redis AOF storage in Compose. Evidence: 230 unit tests,

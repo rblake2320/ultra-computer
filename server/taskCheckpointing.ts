@@ -56,7 +56,35 @@ export interface TaskCheckpoint {
 // ---------------------------------------------------------------------------
 
 function checkpointPath(taskId: string): string {
-  return path.join(CHECKPOINT_DIR, `${taskId}.json`);
+  const safeTaskId = validateTaskId(taskId);
+  // basename is a second, explicit filesystem-boundary sanitizer in addition
+  // to the identifier allowlist above.
+  return path.join(CHECKPOINT_DIR, path.basename(`${safeTaskId}.json`));
+}
+
+function validateTaskId(taskId: string): string {
+  if (
+    typeof taskId !== 'string'
+    || taskId.length === 0
+    || taskId.length > 128
+    || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(taskId)
+  ) {
+    throw new Error('Invalid checkpoint taskId');
+  }
+  return taskId;
+}
+
+function safeErrorCode(error: unknown): string {
+  if (
+    typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && typeof error.code === 'string'
+    && /^[A-Z0-9_]{1,32}$/.test(error.code)
+  ) {
+    return error.code;
+  }
+  return 'UNKNOWN';
 }
 
 function readCheckpoint(taskId: string): TaskCheckpoint | null {
@@ -66,13 +94,17 @@ function readCheckpoint(taskId: string): TaskCheckpoint | null {
     raw = fs.readFileSync(filePath, 'utf8');
   } catch (err: any) {
     if (err.code === 'ENOENT') return null; // file simply doesn't exist
-    console.error(`[taskCheckpointing] readCheckpoint: failed to read ${filePath}:`, err.message);
+    console.error('[taskCheckpointing] checkpoint read failed; code:', safeErrorCode(err));
     return null;
   }
   try {
-    return JSON.parse(raw) as TaskCheckpoint;
+    const parsed = JSON.parse(raw) as Partial<TaskCheckpoint> | null;
+    if (!parsed || typeof parsed !== 'object' || parsed.taskId !== taskId) {
+      throw new Error('Checkpoint identity mismatch');
+    }
+    return parsed as TaskCheckpoint;
   } catch (err: any) {
-    console.error(`[taskCheckpointing] readCheckpoint: failed to parse ${filePath}:`, err.message);
+    console.error('[taskCheckpointing] checkpoint JSON parse failed');
     return null;
   }
 }
@@ -82,7 +114,7 @@ function writeCheckpoint(checkpoint: TaskCheckpoint): void {
   try {
     fs.writeFileSync(filePath, JSON.stringify(checkpoint, null, 2), 'utf8');
   } catch (err: any) {
-    console.error(`[taskCheckpointing] writeCheckpoint: failed to write ${filePath}:`, err.message);
+    console.error('[taskCheckpointing] checkpoint write failed; code:', safeErrorCode(err));
     throw err;
   }
 }
@@ -131,8 +163,9 @@ export function createCheckpoint(opts: {
   maxRetries?: number;
 }): TaskCheckpoint {
   const timestamp = now();
+  const taskId = validateTaskId(opts.taskId);
   const checkpoint: TaskCheckpoint = {
-    taskId: opts.taskId,
+    taskId,
     conversationId: opts.conversationId,
     taskTitle: opts.taskTitle,
     status: 'running',
@@ -259,8 +292,13 @@ export function getAllCheckpoints(status?: TaskCheckpoint['status']): TaskCheckp
   const checkpoints: TaskCheckpoint[] = [];
   for (const file of files) {
     const taskId = path.basename(file, '.json');
+    try {
+      validateTaskId(taskId);
+    } catch {
+      continue;
+    }
     const cp = readCheckpoint(taskId);
-    if (cp && (!status || cp.status === status)) {
+    if (cp && cp.taskId === taskId && (!status || cp.status === status)) {
       checkpoints.push(cp);
     }
   }

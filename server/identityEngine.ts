@@ -557,9 +557,9 @@ export class IdentityEngine extends EventEmitter {
     if (typeof name !== "string") {
       throw new Error("Display name must be a string.");
     }
-    // Strip HTML tags to prevent XSS in display names
-    const sanitized = name.replace(/<[^>]*>/g, "");
-    const trimmed = sanitized.trim();
+    // Reject markup rather than trying to remove it. The allowlist below is the
+    // single canonical validation rule and cannot reveal a dangerous remainder.
+    const trimmed = name.trim();
     if (!DISPLAY_NAME_REGEX.test(trimmed)) {
       throw new Error(
         `Display name must be 2-50 characters and may only contain letters, ` +
@@ -698,10 +698,8 @@ export class IdentityEngine extends EventEmitter {
     if (this.identityStore.size >= 10_000) {
       throw new Error("Identity store capacity reached (max 10,000 identities)");
     }
-    // Strip HTML tags from displayName before validation
-    const cleanDisplayName = displayName.replace(/<[^>]*>/g, "");
-    // Validate display name
-    this._validateDisplayName(cleanDisplayName);
+    this._validateDisplayName(displayName);
+    const cleanDisplayName = displayName.trim();
     if (this._isDisplayNameTaken(cleanDisplayName)) {
       throw new Error(
         `Display name "${displayName}" is already taken. Please choose another.`

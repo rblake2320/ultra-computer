@@ -80,12 +80,28 @@ All notable changes to this project will be documented in this file.
   strings after cross-platform CI and CodeQL found the gaps.
 
 ### Security
+- Removed host-shell fallback, shell-built search commands and dynamic
+  JavaScript calculation; added a bounded arithmetic parser, literal
+  in-process search, no-follow sandbox file descriptors, symlink-safe
+  recursion and server-controlled isolated execution.
+- Replaced regex HTML/tag parsing and URL substring checks with inert scanners
+  and parsed protocol/hostname validation; replaced regex-generated MCP globs
+  with a bounded dynamic-programming matcher.
+- Validated checkpoint identifiers before filesystem use, bounded cron timers
+  and swarm traversal, rejected non-scalar query parameters, removed tainted
+  log format strings, and strengthened upload/wildcard basename boundaries.
+- Pinned the Node 24 production image by digest, narrowed CodeQL token
+  permissions to its analysis job, and protected `master` with required
+  CI/security checks, resolved conversations, and force/deletion prevention.
 - Allowed external OAuth and messaging callbacks through owner auth only when
   the destination route performs signed-state, provider-signature, shared-token
   or timestamped raw-body HMAC verification; restored rate limiting for public
   callback traffic and retired the duplicate registered OAuth flow.
 
 ### Documentation
+- Removed the obsolete `ALLOW_HOST_SHELL` setup guidance and recorded the
+  single-maintainer review, external CII registration and continuous-fuzzing
+  gaps explicitly in `PARKED.md`.
 - Corrected the Temporal readiness claim: the historical three-activity proof
   is an isolated sample, normal application messages do not dispatch through
   Temporal, and the sample stack now requires the `temporal-proof` profile.

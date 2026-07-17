@@ -42,10 +42,13 @@ const MCP_BEARER_TOKEN = crypto.randomBytes(32).toString("hex");
  */
 export function validateMCPAuthHeader(authHeader: string | undefined): boolean {
   if (!authHeader) return false;
-  const match = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (!match) return false;
+  // The generated token is exactly 64 hex characters. Requiring the canonical
+  // header shape avoids running a backtracking expression over attacker input.
+  if (authHeader.length !== 71 || authHeader.slice(0, 7).toLowerCase() !== "bearer ") {
+    return false;
+  }
   // Constant-time comparison to prevent timing attacks
-  const provided = Buffer.from(match[1], "utf-8");
+  const provided = Buffer.from(authHeader.slice(7), "utf-8");
   const expected = Buffer.from(MCP_BEARER_TOKEN, "utf-8");
   if (provided.length !== expected.length) return false;
   return crypto.timingSafeEqual(provided, expected);
@@ -819,7 +822,7 @@ export async function handleMCPRequest(
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[mcpProtocol] Unhandled error in method '${req.method}':`, err);
+    console.error("[mcpProtocol] Unhandled error in method:", req.method, err);
     return rpcError(id, RPC_ERRORS.INTERNAL_ERROR, message);
   }
 }

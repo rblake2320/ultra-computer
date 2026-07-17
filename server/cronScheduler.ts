@@ -9,6 +9,14 @@ import * as fs from "fs";
 import * as path from "path";
 import crypto from "crypto";
 
+const DEFAULT_JOB_TIMEOUT_MS = 5 * 60 * 1000;
+const MAX_JOB_TIMEOUT_MS = 60 * 60 * 1000;
+
+export function normalizeJobTimeout(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_JOB_TIMEOUT_MS;
+  return Math.max(1, Math.min(Math.trunc(value), MAX_JOB_TIMEOUT_MS));
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -611,7 +619,7 @@ export function startScheduler(
 
       // Execute asynchronously — don't await in the tick loop
       (async () => {
-        const timeoutMs = job.taskConfig.timeout ?? 5 * 60 * 1000; // default 5 min
+        const timeoutMs = normalizeJobTimeout(job.taskConfig.timeout);
         try {
           const result = await Promise.race([
             onExecute(job),

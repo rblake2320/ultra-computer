@@ -332,9 +332,8 @@ idle timeout; files written under the mounted sandbox directory persist.
 The standard Compose deployment does not mount the Docker daemon socket into
 the app container because that socket grants host-equivalent control. Shell
 tools therefore fail closed in that topology until a separately isolated
-executor is configured. Developers running the server directly may opt into
-host execution only with `ALLOW_HOST_SHELL=true`; production rejects that
-setting at startup.
+executor is configured. Host-shell execution is unavailable in every
+environment; isolated Docker execution is required.
 
 Outbound agent HTTP is independently governed. `OUTBOUND_HTTP_TIMEOUT_MS`,
 `OUTBOUND_HTTP_MAX_REDIRECTS`, and `OUTBOUND_HTTP_MAX_RESPONSE_BYTES` bound

@@ -79,6 +79,27 @@ describe("HTTP security headers", () => {
 });
 
 describe("sandbox upload limits", () => {
+  it("rejects traversal and symlink escapes before filesystem access", async () => {
+    const outside = path.join(process.cwd(), `sandbox-outside-${crypto.randomUUID()}`);
+    const linkName = `upload-link-${crypto.randomUUID()}`;
+    const linkPath = track(linkName);
+    cleanupPaths.add(outside);
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, "secret.txt"), "outside");
+    fs.symlinkSync(outside, linkPath, process.platform === "win32" ? "junction" : "dir");
+
+    const app = express();
+    registerFileRoutes(app);
+    const baseUrl = await listen(app);
+
+    const traversal = await fetch(`${baseUrl}/api/sandbox/files/%2E%2E%2Fsecret.txt`);
+    const symlink = await fetch(`${baseUrl}/api/sandbox/files/${linkName}/secret.txt`);
+
+    expect(traversal.status).toBe(400);
+    expect(symlink.status).toBe(400);
+    expect(fs.readFileSync(path.join(outside, "secret.txt"), "utf8")).toBe("outside");
+  });
+
   it("stores valid files and reports their real paths", async () => {
     const destination = `upload-test-${crypto.randomUUID()}`;
     track(destination);
