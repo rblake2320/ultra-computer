@@ -567,31 +567,48 @@ const MATH_CONSTANTS: Readonly<Record<string, number>> = Object.freeze({
   "Math.E": Math.E,
 });
 
-const MATH_FUNCTIONS: Readonly<Record<string, (...values: number[]) => number>> = Object.freeze({
-  "Math.abs": Math.abs,
-  "Math.ceil": Math.ceil,
-  "Math.floor": Math.floor,
-  "Math.round": Math.round,
-  "Math.sqrt": Math.sqrt,
-  "Math.cbrt": Math.cbrt,
-  "Math.pow": Math.pow,
-  "Math.min": Math.min,
-  "Math.max": Math.max,
-  "Math.log": Math.log,
-  "Math.log2": Math.log2,
-  "Math.log10": Math.log10,
-  "Math.sin": Math.sin,
-  "Math.cos": Math.cos,
-  "Math.tan": Math.tan,
-  "Math.asin": Math.asin,
-  "Math.acos": Math.acos,
-  "Math.atan": Math.atan,
-  "Math.atan2": Math.atan2,
-  "Math.exp": Math.exp,
-  "Math.sign": Math.sign,
-  "Math.trunc": Math.trunc,
-  "Math.hypot": Math.hypot,
-});
+function callMathFunction(identifier: string, args: number[]): number {
+  const first = args[0];
+  if (first === undefined) throw new Error(`${identifier} requires an argument`);
+  switch (identifier) {
+    case "Math.abs": return Math.abs(first);
+    case "Math.ceil": return Math.ceil(first);
+    case "Math.floor": return Math.floor(first);
+    case "Math.round": return Math.round(first);
+    case "Math.sqrt": return Math.sqrt(first);
+    case "Math.cbrt": return Math.cbrt(first);
+    case "Math.log": return Math.log(first);
+    case "Math.log2": return Math.log2(first);
+    case "Math.log10": return Math.log10(first);
+    case "Math.sin": return Math.sin(first);
+    case "Math.cos": return Math.cos(first);
+    case "Math.tan": return Math.tan(first);
+    case "Math.asin": return Math.asin(first);
+    case "Math.acos": return Math.acos(first);
+    case "Math.atan": return Math.atan(first);
+    case "Math.exp": return Math.exp(first);
+    case "Math.sign": return Math.sign(first);
+    case "Math.trunc": return Math.trunc(first);
+    case "Math.pow":
+    case "Math.atan2": {
+      const second = args[1];
+      if (second === undefined) throw new Error(`${identifier} requires two arguments`);
+      return identifier === "Math.pow" ? Math.pow(first, second) : Math.atan2(first, second);
+    }
+    case "Math.min": return Math.min(...args);
+    case "Math.max": return Math.max(...args);
+    case "Math.hypot": return Math.hypot(...args);
+    default: throw new Error(`Disallowed function: ${identifier}`);
+  }
+}
+
+const MATH_FUNCTION_NAMES = new Set([
+  "Math.abs", "Math.ceil", "Math.floor", "Math.round", "Math.sqrt",
+  "Math.cbrt", "Math.log", "Math.log2", "Math.log10", "Math.sin",
+  "Math.cos", "Math.tan", "Math.asin", "Math.acos", "Math.atan",
+  "Math.exp", "Math.sign", "Math.trunc", "Math.pow", "Math.atan2",
+  "Math.min", "Math.max", "Math.hypot",
+]);
 
 /**
  * Safe math expression evaluator.
@@ -628,15 +645,14 @@ export function safeEvalMath(expression: string): number {
     if (!identifier) throw new Error(`Unexpected token at position ${cursor}`);
     cursor += identifier.length;
     if (Object.hasOwn(MATH_CONSTANTS, identifier)) return MATH_CONSTANTS[identifier];
-    const fn = MATH_FUNCTIONS[identifier];
-    if (!fn) throw new Error(`Disallowed function: ${identifier}`);
+    if (!MATH_FUNCTION_NAMES.has(identifier)) throw new Error(`Disallowed function: ${identifier}`);
     if (!consume("(")) throw new Error(`Expected '(' after ${identifier}`);
     const args: number[] = [];
     if (!consume(")")) {
       do { args.push(parseAdditive()); } while (consume(","));
       if (!consume(")")) throw new Error(`Missing ')' after ${identifier}`);
     }
-    return fn(...args);
+    return callMathFunction(identifier, args);
   };
 
   const parseUnary = (): number => {
