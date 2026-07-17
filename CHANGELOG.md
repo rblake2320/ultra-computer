@@ -86,6 +86,11 @@ All notable changes to this project will be documented in this file.
   strings after cross-platform CI and CodeQL found the gaps.
 
 ### Security
+- Added a bounded `live-docker` GitHub job that runs the real production-image,
+  queue, policy and container-recreation persistence proof on every pull
+  request and protected-branch push. Its Redis dependency is digest-pinned,
+  setup is covered by cleanup even on early failure, and `master` requires the
+  resulting check.
 - Overrode the vulnerable transitive `adm-zip <0.6.0` dependency used by the
   current Hugging Face/ONNX embedding stack to patched `0.6.0`. A clean install
   now audits with zero vulnerabilities, and the real MiniLM embedding runtime

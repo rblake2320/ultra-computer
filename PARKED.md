@@ -225,6 +225,8 @@ link so future contributors can tell whether the constraint still applies.
   asserts all three artifacts remain available. Test volumes are removed only
   after the assertions finish and no host database file is reused.
 - **Evidence:** The clean Docker gate passes through the recreation boundary.
+- **Enforcement:** The `live-docker` GitHub job runs the same gate on pull
+  requests and protected-branch pushes; `master` requires that context.
 - **Related:** WHY-0008, WHY-0026 and PARK-0005.
 
 ### PARK-0013: Provider-enforced hard spending quota

@@ -613,3 +613,26 @@ hold detailed decisions that affect architecture or long-lived behavior.
   zero vulnerabilities; and the real MiniLM load, 384-dimensional embedding,
   similarity and serialization integration tests pass.
 - **Related:** WHY-0024 and WHY-0025.
+
+### WHY-0028: Deployment durability is a required remote check
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** The container-recreation gate proved persistent state locally,
+  but a future pull request could regress the Dockerfile, volume ownership,
+  encryption-key continuity or mount wiring and still satisfy the protected
+  checks.
+- **Decision:** Run `npm run live:docker` as its own bounded Ubuntu GitHub job
+  for pull requests and protected-branch pushes, digest-pin the Redis image
+  used by the proof, keep all Docker setup inside the cleanup boundary, and
+  require the `live-docker` context on `master`.
+- **Why:** A durability test is only a release control when the merge path
+  enforces it. A separate context keeps the evidence visible and prevents a
+  matrix or unit-test success from masking deployment failure.
+- **Alternatives:** Keep the test optional, fold it into service integration,
+  or infer correctness from Compose validation. Rejected because optional
+  evidence drifts, a combined job obscures the failed boundary, and static
+  configuration does not exercise container identity loss.
+- **Evidence:** Local `npm run live:docker`, the first remote `live-docker` job,
+  protected-branch context configuration, and the post-merge job must all pass.
+- **Related:** WHY-0008, WHY-0026 and PARK-0012.
