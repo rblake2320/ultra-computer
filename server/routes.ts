@@ -33,6 +33,8 @@ import { initWatchdog, getHealthStatus } from "./processWatchdog.js";
 import { startCheckpointHeartbeats } from "./taskCheckpointing.js";
 import { workflowIdFromMessage } from "./durableExecution.js";
 import { startScheduler } from "./cronScheduler.js";
+import { createStreamToken } from "./streamAuth.js";
+import { governedFetch } from "./governedFetch.js";
 import { startLearningLoop } from "./selfLearning.js";
 import { startAutoImproveLoop } from "./skillAutoImprove.js";
 import { registerCacheRoutes } from "./cacheRoutes.js";
@@ -41,6 +43,7 @@ import { knowledgeEngine } from "./knowledgeEngine.js";
 import { registerSwarmRoutes } from "./swarmRoutes.js";
 import { swarmEngine } from "./swarmEngine.js";
 import { warmBrowserPool } from "./browserTool.js";
+import { getSpendStatus, HARD_MAX_SPEND_USD } from "./spendGuard.js";
 
 const sseConnectionsPerIp = new Map<string, number>();
 const MAX_SSE_PER_IP = 5;
@@ -85,6 +88,19 @@ function verifyOAuthState(state: string): { connectorId: string; ts: number } | 
 }
 
 export async function registerRoutes(httpServer: Server, app: Express) {
+  app.post("/api/auth/stream-token", (req, res) => {
+    const path = typeof req.body?.path === "string" ? req.body.path.trim() : "";
+    try {
+      const token = createStreamToken(path);
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ token, expiresInMs: 60_000 });
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : "Invalid stream token request",
+      });
+    }
+  });
+
   // ─── Seed on startup ──────────────────────────────────────────────────────
   seedConnectors();
   seedBuiltInSkills();
@@ -106,35 +122,33 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   registerOAuthRoutes(app);
   registerExportRoutes(app);
   registerBrowserRoutes(app);
-  registerMarketplaceRoutes(app);
-  registerAutonomyRoutes(app);
   registerProtocolRoutes(app);
   registerMessagingRoutes(app);
-  registerNIPRoutes(app);
-  registerIdentityRoutes(app);
   registerCacheRoutes(app);
-  registerSwarmRoutes(app);
 
-  // ─── Restore persisted swarms from SQLite ──────────────────────────────────
-  swarmEngine.restoreFromDB();
+  const experimental = process.env.ULTRA_EXPERIMENTAL === "1";
+  app.get("/api/app-config", (_req, res) => res.json({ experimental }));
 
-  // ─── Link identity engine to NIP for session authentication ────────────────
-  setIdentityEngine(identityEngine);
-  console.log("[identity] Identity engine linked to NIP protocol for session auth");
-
-  // ─── Initialize autonomy systems ────────────────────────────────────────────
-  initWatchdog(httpServer);
-  startCheckpointHeartbeats();
-  startScheduler(async (job) => {
-    console.log(`[cron] Executing job: ${job.name}`);
-    if (job.taskType === "health_check") {
-      return JSON.stringify(getHealthStatus());
-    }
-    return `Job ${job.name} executed`;
-  });
-  startLearningLoop();
-  startAutoImproveLoop();
-  console.log("[autonomy] All autonomous systems initialized: watchdog, checkpointing, cron, learning, skill-improvement");
+  if (experimental) {
+    registerMarketplaceRoutes(app);
+    registerAutonomyRoutes(app);
+    registerNIPRoutes(app);
+    registerIdentityRoutes(app);
+    registerSwarmRoutes(app);
+    swarmEngine.restoreFromDB();
+    setIdentityEngine(identityEngine);
+    initWatchdog(httpServer, { installProcessHandlers: false });
+    startCheckpointHeartbeats();
+    startScheduler(async (job) => {
+      if (job.taskType === "health_check") return JSON.stringify(getHealthStatus());
+      return `Job ${job.name} executed`;
+    });
+    startLearningLoop();
+    startAutoImproveLoop();
+    console.log("[experimental] Swarm, NIP, Identity, Marketplace, and autonomy enabled");
+  } else {
+    console.log("[experimental] Optional surfaces disabled; set ULTRA_EXPERIMENTAL=1 to enable");
+  }
 
   // ─── Initialize task queue (non-blocking) ──────────────────────────────────
   taskQueue.setProcessor(async (task) => {
@@ -183,6 +197,23 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.json(modelService.discoverEnvVars());
   });
 
+  app.get("/api/model-catalog", (req, res) => {
+    const provider = typeof req.query.provider === "string" ? req.query.provider : undefined;
+    res.json({ entries: modelService.getCatalog(provider) });
+  });
+
+  app.post("/api/model-catalog/sync", async (req, res) => {
+    const provider = typeof req.body?.provider === "string" ? req.body.provider.trim() : "";
+    if (!provider) return res.status(400).json({ error: "provider is required" });
+    try {
+      res.json(await modelService.syncCatalog(provider));
+    } catch (error: any) {
+      const message = error instanceof Error ? error.message : "Model catalog sync failed";
+      const status = /Unknown provider|No configured credentials/.test(message) ? 400 : 502;
+      res.status(status).json({ error: message });
+    }
+  });
+
   app.get("/api/models/:id", (req, res) => {
     try {
       res.json(modelService.get(req.params.id));
@@ -192,9 +223,12 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.post("/api/models", (req, res) => {
+    const body = { ...(req.body ?? {}) };
+    if (!body.id) body.id = uuidv4();
+    if (Array.isArray(body.capabilities)) body.capabilities = JSON.stringify(body.capabilities);
     let input: any;
     try {
-      input = validate(insertModelSchema, req.body);
+      input = validate(insertModelSchema, body);
     } catch (e: any) {
       return res.status(e.statusCode ?? 400).json({ error: e.message });
     }
@@ -216,14 +250,14 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     let model;
     try {
       model = modelService.create({
-        id: id || uuidv4(),
+        id,
         name,
         provider,
         modelId,
         baseUrl: baseUrl || null,
         apiKey: apiKey || null,
         enabled: true,
-        capabilities: capabilities ? JSON.stringify(capabilities) : '["chat"]',
+        capabilities: capabilities || '["chat"]',
         contextWindow: contextWindow || 8192,
         isDefault: isDefault || false,
         isOrchestrator: isOrchestrator || false,
@@ -760,7 +794,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     try { config = JSON.parse(connector.config || "{}"); } catch { config = {}; }
     try {
       const redirectUri = `${req.protocol}://${req.get("host")}/api/connectors/oauth/callback`;
-      const tokenRes = await fetch(def.oauthTokenUrl, {
+      const tokenRes = await governedFetch(def.oauthTokenUrl, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
         body: new URLSearchParams({
@@ -770,6 +804,9 @@ export async function registerRoutes(httpServer: Server, app: Express) {
           client_id: config.client_id || "",
           client_secret: config.client_secret || "",
         }).toString(),
+      }, `oauth-${connectorId}`, "network", "network:oauth_token_exchange", {
+        timeoutMs: 15_000,
+        maxResponseBytes: 1024 * 1024,
       });
       if (!tokenRes.ok) {
         const errText = await tokenRes.text();
@@ -861,9 +898,13 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.json(storage.searchMemories(query));
   });
 
+  app.get("/api/spend", (_req, res) => {
+    res.json(getSpendStatus());
+  });
+
   // ─── Settings ─────────────────────────────────────────────────────────────
   app.get("/api/settings", (req, res) => {
-    const keys = ["theme", "default_model_id", "system_name", "max_tool_iterations", "sandbox_auto_enable",
+    const keys = ["theme", "default_model_id", "system_name", "max_tool_iterations", "sandbox_auto_enable", "spend_limit_usd",
       "model_for_decomposition", "model_for_workers", "model_for_swarm", "model_for_synthesis", "model_for_memory"];
     const result: Record<string, string> = {};
     for (const k of keys) {
@@ -877,10 +918,18 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
       return res.status(400).json({ error: "Request body must be a plain object" });
     }
-    const ALLOWED_SETTINGS = new Set(["theme", "default_model_id", "system_name", "max_tool_iterations", "sandbox_auto_enable", "sandbox_config",
+    const ALLOWED_SETTINGS = new Set(["theme", "default_model_id", "system_name", "max_tool_iterations", "sandbox_auto_enable", "sandbox_config", "spend_limit_usd",
       "model_for_decomposition", "model_for_workers", "model_for_swarm", "model_for_synthesis", "model_for_memory"]);
     for (const [k, v] of Object.entries(req.body)) {
       if (!ALLOWED_SETTINGS.has(k)) continue; // silently skip unknown keys
+      if (k === "spend_limit_usd") {
+        const parsed = typeof v === "string" ? Number(v) : NaN;
+        if (!Number.isFinite(parsed) || parsed < 0 || parsed > HARD_MAX_SPEND_USD) {
+          return res.status(400).json({
+            error: `spend_limit_usd must be between 0 and ${HARD_MAX_SPEND_USD}`,
+          });
+        }
+      }
       if (typeof v === "string" && v.length <= 10_000) storage.setSetting(k, v);
     }
     res.json({ ok: true });
@@ -1204,26 +1253,6 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       if (count <= 1) sseConnectionsPerIp.delete(clientIp);
       else sseConnectionsPerIp.set(clientIp, count - 1);
       cleanup();
-    });
-  });
-
-  // ─── Health ───────────────────────────────────────────────────────────────
-  app.get("/api/health", async (req, res) => {
-    const models = storage.getModels();
-    const hasOrch = !!storage.getOrchestratorModel();
-    const hasDefault = !!storage.getDefaultModel();
-    res.json({
-      status: "ok",
-      modelCount: models.length,
-      hasOrchestratorModel: hasOrch,
-      hasDefaultModel: hasDefault,
-      memoryCount: storage.getMemories(1000).length,
-      skillCount: storage.getSkills().length,
-      connectorCount: storage.getConnectors().length,
-      sandbox: dockerSandbox.getStatus(),
-      taskQueue: taskQueue.isAvailable(),
-      marketplaceSkillCount: storage.getMarketplaceSkills().length,
-      knowledgeBaseEntries: storage.getKnowledgeEntries().length,
     });
   });
 

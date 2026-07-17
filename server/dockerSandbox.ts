@@ -8,7 +8,7 @@
  * - CPU and memory resource limits
  * - Configurable network isolation (default: disabled)
  * - Automatic container cleanup on timeout or idle
- * - Graceful fallback to host-process execution if Docker is unavailable
+ * - Fail-closed behavior if Docker is unavailable
  * 
  * Container lifecycle:
  * 1. On first bash call, a warm container is created (or reused from pool)
@@ -42,7 +42,7 @@ export interface DockerSandboxConfig {
   maxContainers: number;
   /** Idle timeout before reaping a container (ms) */
   idleTimeoutMs: number;
-  /** Whether Docker sandbox is enabled (vs host fallback) */
+  /** Whether Docker sandbox execution is enabled */
   enabled: boolean;
 }
 
@@ -103,7 +103,7 @@ export class DockerSandbox {
       }
     } catch {
       this.dockerAvailable = false;
-      console.log("[DockerSandbox] Docker not available — using host fallback");
+      console.warn("[DockerSandbox] Docker not available — shell execution will fail closed");
     }
 
     return this.dockerAvailable;
@@ -444,13 +444,9 @@ function formatDuration(ms: number): string {
 
 export const dockerSandbox = new DockerSandbox();
 
-// Cleanup on process exit — await shutdown before exiting
-process.on("SIGTERM", () => {
-  dockerSandbox.shutdown().finally(() => process.exit(0));
-});
-process.on("SIGINT", () => {
-  dockerSandbox.shutdown().finally(() => process.exit(0));
-});
+// The application entrypoint owns asynchronous signal handling so all
+// resources are drained together. This synchronous exit hook is only a final
+// best-effort guard for exits that bypass the normal lifecycle.
 process.on("exit", () => {
   // Synchronous cleanup — best effort (async shutdown already runs on SIGTERM/SIGINT)
   try {

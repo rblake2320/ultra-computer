@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest, getSSEUrl } from "../lib/queryClient";
+import { apiRequest, connectEventSource } from "../lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
@@ -151,8 +151,9 @@ function ChannelConfigFields({
   );
   if (type === "gmail") return (
     <div className="space-y-3">
-      {field("email", "Email Address", "you@gmail.com")}
-      {field("filter", "Filter / Label", "INBOX")}
+      {field("fromAddress", "From Address", "you@gmail.com")}
+      {field("defaultRecipient", "Default Recipient", "alerts@example.com")}
+      {field("accessToken", "OAuth Access Token", "ya29....", "password")}
     </div>
   );
   if (type === "webhook") return (
@@ -869,10 +870,8 @@ function DashboardTab() {
 
   // SSE stream
   useEffect(() => {
-    let es: EventSource;
-    try {
-      es = new EventSource(getSSEUrl("/api/messaging/stream"));
-      es.onmessage = (ev) => {
+    return connectEventSource("/api/messaging/stream", {
+      onMessage: (ev) => {
         try {
           const data = JSON.parse(ev.data) as LiveEvent;
           setLiveEvents((prev) => [data, ...prev].slice(0, 100));
@@ -882,14 +881,8 @@ function DashboardTab() {
             ...prev,
           ].slice(0, 100));
         }
-      };
-      es.onerror = () => {
-        // silently handle SSE errors (backend may not have stream implemented)
-      };
-    } catch (e) {
-      // SSE not supported or unavailable
-    }
-    return () => es?.close();
+      },
+    });
   }, []);
 
   const statCards = [

@@ -3,15 +3,21 @@
  *
  * Covers:
  *   1. SSRF protection (isPrivateHost + validateFetchUrl)
- *   2. Docker sandbox DOCKER_SANDBOX_ONLY mode
+ *   2. Docker sandbox fail-closed mode
  *   3. Health endpoint info disclosure (no heap/node version/port details)
  *   4. Prompt injection delimiter presence in orchestrator
  *   5. Honeypot canary path list sanity
  *   6. Webhook bypass gating (non-dev mode rejects unconfigured webhooks)
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { isPrivateHost, validateFetchUrl } from "../../server/networkSecurity.js";
+import {
+  dockerSandbox,
+  executeTool,
+  isHostShellFallbackAllowed,
+} from "../../server/tools.js";
+import { validateProductionEnvironment } from "../../server/productionConfig.js";
 
 // ─── 1. SSRF — isPrivateHost ─────────────────────────────────────────────────
 
@@ -109,32 +115,84 @@ describe("SSRF — validateFetchUrl()", () => {
   });
 });
 
-// ─── 3. Docker sandbox SANDBOX_ONLY mode ─────────────────────────────────────
-// Verify the source-level guard exists — the actual Docker exec path is an
-// integration concern. We prove the guard code is wired in, not that Docker
-// itself fails (which would require killing the daemon in CI).
+// ─── 3. Docker sandbox fail-closed mode ──────────────────────────────────────
 
-describe("Docker sandbox — DOCKER_SANDBOX_ONLY env gate", () => {
-  it("tools.ts contains DOCKER_SANDBOX_ONLY guard inside the Docker catch block", async () => {
-    const { readFileSync } = await import("fs");
-    const src = readFileSync(new URL("../../server/tools.ts", import.meta.url), "utf8");
-    expect(src).toContain("DOCKER_SANDBOX_ONLY");
-    // Guard and its paired host fallback must appear inside the same catch block.
-    // Find the catch block that contains both.
-    const catchIdx = src.indexOf("Docker exec failed, falling back to host");
-    const guardIdx = src.indexOf("DOCKER_SANDBOX_ONLY");
-    // The DOCKER_SANDBOX_ONLY guard must appear before the warn message
-    expect(guardIdx).toBeGreaterThan(0);
-    expect(catchIdx).toBeGreaterThan(0);
-    expect(guardIdx).toBeLessThan(catchIdx);
+describe("Docker sandbox — host-shell policy", () => {
+  it("never permits host-shell fallback in production", () => {
+    expect(isHostShellFallbackAllowed({
+      NODE_ENV: "production",
+      ALLOW_HOST_SHELL: "true",
+    })).toBe(false);
   });
 
-  it("guard returns an error result (not a throw) when activated", async () => {
-    const { readFileSync } = await import("fs");
-    const src = readFileSync(new URL("../../server/tools.ts", import.meta.url), "utf8");
-    // Verify the guard block returns a ToolResult error, not throws
-    expect(src).toContain("Docker sandbox required but unavailable");
-    expect(src).toContain("success: false");
+  it("requires an explicit opt-in outside production", () => {
+    expect(isHostShellFallbackAllowed({ NODE_ENV: "development" })).toBe(false);
+    expect(isHostShellFallbackAllowed({
+      NODE_ENV: "development",
+      ALLOW_HOST_SHELL: "true",
+    })).toBe(true);
+  });
+
+  it("returns an error instead of executing on the host when isolation is disabled", async () => {
+    const previousConfig = dockerSandbox.getConfig();
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousHostShell = process.env.ALLOW_HOST_SHELL;
+    dockerSandbox.updateConfig({ enabled: false });
+    process.env.NODE_ENV = "production";
+    process.env.ALLOW_HOST_SHELL = "true";
+
+    try {
+      const result = await executeTool("bash", { command: "echo should-not-run" });
+      expect(result.success).toBe(false);
+      expect(result.output).toBe("");
+      expect(result.error).toMatch(/Docker sandbox required but unavailable/);
+    } finally {
+      dockerSandbox.updateConfig(previousConfig);
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousHostShell === undefined) delete process.env.ALLOW_HOST_SHELL;
+      else process.env.ALLOW_HOST_SHELL = previousHostShell;
+    }
+  });
+});
+
+describe("Production configuration — negative cases", () => {
+  const valid = {
+    NODE_ENV: "production",
+    ULTRA_API_KEY: "a-secure-random-api-key-with-32-chars",
+    ENCRYPTION_KEY: "ab".repeat(32),
+  };
+
+  it("rejects missing and known API keys", () => {
+    expect(validateProductionEnvironment({
+      ...valid,
+      ULTRA_API_KEY: "",
+    }).errors).toContain("ULTRA_API_KEY must contain at least 32 characters");
+    expect(validateProductionEnvironment({
+      ...valid,
+      ULTRA_API_KEY: "dev-local-key",
+    }).valid).toBe(false);
+  });
+
+  it("rejects zero, repeated, and malformed encryption keys", () => {
+    for (const ENCRYPTION_KEY of ["0".repeat(64), "f".repeat(64), "not-a-key"]) {
+      expect(validateProductionEnvironment({
+        ...valid,
+        ENCRYPTION_KEY,
+      }).valid).toBe(false);
+    }
+  });
+
+  it("rejects production host-shell opt-in", () => {
+    const result = validateProductionEnvironment({
+      ...valid,
+      ALLOW_HOST_SHELL: "true",
+    });
+    expect(result.errors).toContain("ALLOW_HOST_SHELL cannot be enabled in production");
+  });
+
+  it("accepts strong production secrets and fail-closed shell settings", () => {
+    expect(validateProductionEnvironment(valid)).toEqual({ valid: true, errors: [] });
   });
 });
 

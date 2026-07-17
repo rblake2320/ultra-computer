@@ -9,16 +9,15 @@
  * @module cliToolEngine
  */
 
-import { spawn, exec, spawnSync } from "child_process";
-import { promisify } from "util";
+import { spawn, spawnSync } from "child_process";
+import type { ChildProcessWithoutNullStreams, SpawnOptionsWithoutStdio } from "child_process";
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
 import { v4 as uuidv4 } from "uuid";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 import { isSensitiveKey, redactEnv, redactString } from "./redaction.js";
-
-const execAsync = promisify(exec);
+import { governedFetch } from "./governedFetch.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -52,7 +51,7 @@ export interface CommandResult {
 
 /** Options controlling how a command is executed. */
 export interface CommandOptions {
-  /** Working directory (default: /tmp/ultra-sandbox). */
+  /** Working directory. Only the fixed sandbox root is accepted. */
   workDir?: string;
   /** Timeout in milliseconds (default: 30 000, max: 300 000). */
   timeout?: number;
@@ -223,10 +222,91 @@ async function ensureSandbox(workDir: string = DEFAULT_WORK_DIR): Promise<void> 
 /** Map of running PIDs to AbortControllers so they can be killed on demand. */
 const runningProcesses = new Map<number, AbortController>();
 
+const SHELL_OPERATORS = new Set(["|", "&", ";", "<", ">", "`", "$", "(", ")", "\r", "\n"]);
+const EXTERNAL_COMMANDS = new Set([
+  "awk", "cat", "convert", "ffmpeg", "find", "git", "grep", "head", "jq",
+  "ls", "node", "npm", "npx", "pandoc", "pdftotext", "python", "python3",
+  "sed", "sort", "tail", "tar", "tsx", "uniq", "unzip", "wc", "which",
+]);
+
+export interface StructuredCommand {
+  executable: string;
+  args: string[];
+}
+
 /**
- * Execute a shell command with timeout, stdin, and environment support.
+ * Parse one command without invoking a shell. Quotes group arguments; shell
+ * operators, substitutions, redirections, and compound commands are rejected.
+ */
+export function parseStructuredCommand(command: string): StructuredCommand {
+  const tokens: string[] = [];
+  let token = "";
+  let quote: "'" | '"' | null = null;
+  let tokenStarted = false;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+    if (quote) {
+      if (character === quote) {
+        quote = null;
+        tokenStarted = true;
+        continue;
+      }
+      if (character === "\\" && quote === '"') {
+        const next = command[index + 1];
+        if (next === '"' || next === "\\") {
+          token += next;
+          index += 1;
+          tokenStarted = true;
+          continue;
+        }
+      }
+      token += character;
+      tokenStarted = true;
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+      tokenStarted = true;
+    } else if (/\s/.test(character)) {
+      if (tokenStarted) {
+        tokens.push(token);
+        token = "";
+        tokenStarted = false;
+      }
+    } else if (SHELL_OPERATORS.has(character)) {
+      throw new Error(`Shell operator ${JSON.stringify(character)} is not supported; use one structured command`);
+    } else if (character === "\\") {
+      const next = command[index + 1];
+      if (next && (/\s/.test(next) || next === "\\" || next === "'" || next === '"')) {
+        token += next;
+        index += 1;
+      } else {
+        token += character;
+      }
+      tokenStarted = true;
+    } else {
+      token += character;
+      tokenStarted = true;
+    }
+  }
+
+  if (quote) throw new Error("Command contains an unterminated quote");
+  if (tokenStarted) tokens.push(token);
+  if (tokens.length === 0) throw new Error("Command must not be empty");
+
+  const executable = tokens[0].toLowerCase();
+  if (!/^[a-z0-9][a-z0-9._-]*$/.test(executable) || !EXTERNAL_COMMANDS.has(executable) && executable !== "echo" && executable !== "pwd") {
+    throw new Error(`Executable ${JSON.stringify(tokens[0])} is not allowlisted`);
+  }
+  return { executable, args: tokens.slice(1) };
+}
+
+/**
+ * Execute one allowlisted command with timeout, stdin, and environment support.
  *
- * @param cmd       Shell command string (executed via /bin/sh -c).
+ * @param cmd       Command string parsed into an executable and argument array.
  * @param opts      Execution options.
  * @returns         CommandResult with stdout, stderr, exitCode, duration.
  */
@@ -244,7 +324,9 @@ function buildSafeEnv(extraEnv?: Record<string, string>): Record<string, string>
     if (val !== undefined) safe[key] = val;
   }
   for (const [key, value] of Object.entries(extraEnv ?? {})) {
-    if (!isSensitiveKey(key)) safe[key] = value;
+    if (/^[A-Z_][A-Z0-9_]*$/i.test(key) && !SAFE_ENV_KEYS.includes(key) && !isSensitiveKey(key)) {
+      safe[key] = value;
+    }
   }
   return safe;
 }
@@ -253,10 +335,20 @@ export async function executeCommand(
   cmd: string,
   opts: CommandOptions = {}
 ): Promise<CommandResult> {
-  const workDir = opts.workDir ?? DEFAULT_WORK_DIR;
+  const workDir = path.resolve(DEFAULT_WORK_DIR);
   const timeout = Math.min(opts.timeout ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
   // Use safe env: only curated keys + caller-provided extras (not full process.env)
   const env = buildSafeEnv(opts.env);
+
+  if (opts.workDir !== undefined && path.resolve(opts.workDir) !== workDir) {
+    return {
+      stdout: "",
+      stderr: `Command blocked: workDir is fixed to ${workDir}`,
+      exitCode: 1,
+      duration: 0,
+      timedOut: false,
+    };
+  }
 
   const fileContext = { domain: "filesystem" as const, action: "filesystem:execute", tool: "cli.execute", path: workDir, metadata: { env: redactEnv(opts.env) } };
   const fileDecision = evaluatePolicy(fileContext);
@@ -297,16 +389,62 @@ export async function executeCommand(
     };
   }
 
+  let structured: StructuredCommand;
+  try {
+    structured = parseStructuredCommand(cmd);
+  } catch (error) {
+    return {
+      stdout: "",
+      stderr: `Command blocked: ${error instanceof Error ? error.message : "invalid command"}`,
+      exitCode: 1,
+      duration: 0,
+      timedOut: false,
+    };
+  }
+
   const start = Date.now();
+  if (structured.executable === "echo") {
+    return { stdout: `${structured.args.join(" ")}\n`, stderr: "", exitCode: 0, duration: Date.now() - start, timedOut: false };
+  }
+  if (structured.executable === "pwd") {
+    return { stdout: `${workDir}\n`, stderr: "", exitCode: 0, duration: Date.now() - start, timedOut: false };
+  }
+
   let timedOut = false;
   const controller = new AbortController();
 
   return new Promise((resolve) => {
-    const proc = spawn("/bin/sh", ["-c", cmd], {
-      cwd: workDir,
-      env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+    const spawnOptions: SpawnOptionsWithoutStdio = { cwd: workDir, env, shell: false };
+    let proc: ChildProcessWithoutNullStreams;
+    switch (structured.executable) {
+      case "awk": proc = spawn("awk", structured.args, spawnOptions); break;
+      case "cat": proc = spawn("cat", structured.args, spawnOptions); break;
+      case "convert": proc = spawn("convert", structured.args, spawnOptions); break;
+      case "ffmpeg": proc = spawn("ffmpeg", structured.args, spawnOptions); break;
+      case "find": proc = spawn("find", structured.args, spawnOptions); break;
+      case "git": proc = spawn("git", structured.args, spawnOptions); break;
+      case "grep": proc = spawn("grep", structured.args, spawnOptions); break;
+      case "head": proc = spawn("head", structured.args, spawnOptions); break;
+      case "jq": proc = spawn("jq", structured.args, spawnOptions); break;
+      case "ls": proc = spawn("ls", structured.args, spawnOptions); break;
+      case "node": proc = spawn(process.execPath, structured.args, spawnOptions); break;
+      case "npm": proc = spawn("npm", structured.args, spawnOptions); break;
+      case "npx": proc = spawn("npx", structured.args, spawnOptions); break;
+      case "pandoc": proc = spawn("pandoc", structured.args, spawnOptions); break;
+      case "pdftotext": proc = spawn("pdftotext", structured.args, spawnOptions); break;
+      case "python": proc = spawn("python", structured.args, spawnOptions); break;
+      case "python3": proc = spawn("python3", structured.args, spawnOptions); break;
+      case "sed": proc = spawn("sed", structured.args, spawnOptions); break;
+      case "sort": proc = spawn("sort", structured.args, spawnOptions); break;
+      case "tail": proc = spawn("tail", structured.args, spawnOptions); break;
+      case "tar": proc = spawn("tar", structured.args, spawnOptions); break;
+      case "tsx": proc = spawn("tsx", structured.args, spawnOptions); break;
+      case "uniq": proc = spawn("uniq", structured.args, spawnOptions); break;
+      case "unzip": proc = spawn("unzip", structured.args, spawnOptions); break;
+      case "wc": proc = spawn("wc", structured.args, spawnOptions); break;
+      case "which": proc = spawn("which", structured.args, spawnOptions); break;
+      default: throw new Error("Executable passed validation but has no launcher");
+    }
 
     if (proc.pid !== undefined) {
       runningProcesses.set(proc.pid, controller);
@@ -549,25 +687,16 @@ export async function getInstalledTools(): Promise<InstalledTool[]> {
     return toolCache.tools;
   }
 
-  const discovered = await Promise.all(
-    PROBED_TOOLS.map(async ({ name, versionFlag }) => {
-      // Validate tool name before interpolating into shell command
-      if (!/^[a-zA-Z0-9_\-\.]+$/.test(name)) return null;
-      try {
-        const { stdout: whichOut } = await execAsync(`which ${name} 2>/dev/null`, { timeout: 5_000 });
-        const toolPath = whichOut.trim();
-        if (!toolPath) return null;
-
-        const { stdout: verOut, stderr: verErr } = await execAsync(
-          `${toolPath} ${versionFlag} 2>&1`, { timeout: 5_000 }
-        ).catch(() => ({ stdout: "", stderr: "unknown" }));
-        const version = (verOut || verErr).split("\n")[0].trim();
-        return { name, path: toolPath, version } as InstalledTool;
-      } catch {
-        return null;
-      }
-    })
-  );
+  const discovered = PROBED_TOOLS.map(({ name, versionFlag }) => {
+    const locator = process.platform === "win32"
+      ? spawnSync("where.exe", [name], { encoding: "utf8", timeout: 5_000 })
+      : spawnSync("which", [name], { encoding: "utf8", timeout: 5_000 });
+    const toolPath = locator.status === 0 ? locator.stdout.split(/\r?\n/)[0].trim() : "";
+    if (!toolPath || !path.isAbsolute(toolPath)) return null;
+    const probe = spawnSync(toolPath, [versionFlag], { encoding: "utf8", timeout: 5_000, shell: false });
+    const version = (probe.stdout || probe.stderr || "unknown").split(/\r?\n/)[0].trim();
+    return { name, path: toolPath, version } as InstalledTool;
+  });
 
   const tools = discovered.filter((t): t is InstalledTool => t !== null);
   toolCache = { tools, cachedAt: now };
@@ -756,81 +885,57 @@ export async function executeHttpRequest(
     responseType = "json",
   } = config;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
   const start = Date.now();
-  const policyContext = {
-    domain: "network" as const,
-    action: "network:http_request",
-    tool: "cli.http",
-    url,
-    method,
-    metadata: { headers },
-  };
-  const policyDecision = evaluatePolicy(policyContext);
-  writePolicyAudit(policyContext, policyDecision);
-  if (!policyDecision.allowed) {
-    clearTimeout(timer);
-    return {
-      status: 0,
-      headers: {},
-      body: { error: `Policy denied: ${policyDecision.reason}` },
-      duration: Date.now() - start,
-    };
+
+  let fetchBody: BodyInit | undefined;
+  const reqHeaders: Record<string, string> = { ...headers };
+
+  if (body !== undefined) {
+    if (typeof body === "string") {
+      fetchBody = body;
+    } else if (body instanceof FormData) {
+      fetchBody = body;
+      // Let fetch set the Content-Type with boundary for multipart
+    } else {
+      fetchBody = JSON.stringify(body);
+      reqHeaders["Content-Type"] ??= "application/json";
+    }
   }
 
-  try {
-    let fetchBody: BodyInit | undefined;
-    const reqHeaders: Record<string, string> = { ...headers };
+  const response = await governedFetch(url, {
+    method,
+    headers: reqHeaders,
+    body: fetchBody,
+  }, "cli-http", "network", "network:http_request", {
+    timeoutMs: timeout,
+    maxRedirects: followRedirects ? undefined : 0,
+  });
 
-    if (body !== undefined) {
-      if (typeof body === "string") {
-        fetchBody = body;
-      } else if (body instanceof FormData) {
-        fetchBody = body;
-        // Let fetch set the Content-Type with boundary for multipart
-      } else {
-        fetchBody = JSON.stringify(body);
-        reqHeaders["Content-Type"] ??= "application/json";
-      }
-    }
+  const respHeaders: Record<string, string> = {};
+  response.headers.forEach((value, key) => {
+    respHeaders[key] = value;
+  });
 
-    const response = await fetch(url, {
-      method,
-      headers: reqHeaders,
-      body: fetchBody,
-      signal: controller.signal,
-      redirect: followRedirects ? "follow" : "manual",
-    });
-
-    const respHeaders: Record<string, string> = {};
-    response.headers.forEach((value, key) => {
-      respHeaders[key] = value;
-    });
-
-    let respBody: unknown;
-    if (responseType === "json") {
-      try {
-        respBody = await response.json();
-      } catch {
-        respBody = await response.text();
-      }
-    } else if (responseType === "blob") {
-      const buf = await response.arrayBuffer();
-      respBody = Buffer.from(buf).toString("base64");
-    } else {
+  let respBody: unknown;
+  if (responseType === "json") {
+    try {
+      respBody = await response.json();
+    } catch {
       respBody = await response.text();
     }
-
-    return {
-      status: response.status,
-      headers: respHeaders,
-      body: respBody,
-      duration: Date.now() - start,
-    };
-  } finally {
-    clearTimeout(timer);
+  } else if (responseType === "blob") {
+    const buf = await response.arrayBuffer();
+    respBody = Buffer.from(buf).toString("base64");
+  } else {
+    respBody = await response.text();
   }
+
+  return {
+    status: response.status,
+    headers: respHeaders,
+    body: respBody,
+    duration: Date.now() - start,
+  };
 }
 
 // ---------------------------------------------------------------------------

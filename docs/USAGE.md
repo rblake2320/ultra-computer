@@ -21,26 +21,30 @@ The difference from a chatbot: if you ask a standard chatbot to "research this t
 
 ## Before You Start — One-Time Setup
 
-### Step 1: Start the stack
+### Step 1: Configure and start the stack
 
-You need Docker Desktop installed and running. Then open a terminal in the ultra-computer folder and run:
+Copy `.env.example` to `.env`. Set unique `ULTRA_API_KEY`,
+`ENCRYPTION_KEY`, and `TEMPORAL_DB_PASSWORD` values; do not use examples or
+reuse one secret for every purpose. Then:
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
-This starts five things in the background:
+This starts six things in the background:
 - **Redis** — handles the task queue
 - **PostgreSQL** — stores Temporal workflow state
-- **Temporal** — durable execution engine (tasks survive crashes)
+- **Temporal** — durable execution engine for registered Temporal workflows
 - **Temporal UI** — workflow dashboard at http://localhost:8080
 - **Your app** — the main interface at http://localhost:5000
+- **Temporal worker** — executes registered durable workflows
 
-Wait about 30 seconds for everything to finish starting.
+Use `docker compose ps` and wait for required services to report healthy.
 
-### Step 2: Register the Temporal namespace (first time only)
+### Step 2: Confirm Temporal (optional)
 
-Run this once after the stack is up:
+The auto-setup service creates the default namespace. To confirm it or repair a
+missing namespace:
 
 ```bash
 npm run temporal:namespace
@@ -58,27 +62,39 @@ You will see the Ultra Computer welcome screen with a "Start New Session" button
 
 ## The Most Important Thing — Connect an AI Model
 
-**Nothing works until you connect at least one AI model.** This is the first thing to do.
+Inference and orchestration require at least one connected AI model.
 
-### How to add a model:
+### How to add and verify a model:
 
 1. In the left sidebar, click **Models**
 2. Click **Quick Add** (the fastest way)
 3. Choose a provider:
    - **Anthropic** — Claude models (API key from [console.anthropic.com](https://console.anthropic.com))
-   - **OpenAI** — GPT-4o, GPT-4 (API key from [platform.openai.com](https://platform.openai.com))
+   - **OpenAI** — models returned by your account (API key from [platform.openai.com](https://platform.openai.com))
    - **Google** — Gemini (API key from [aistudio.google.com](https://aistudio.google.com))
    - **Ollama** — local models on your machine, free, no API key needed
    - **Groq** — fast inference, free tier available
    - **Mistral, Together, Cohere, DeepSeek, xAI** — also supported
    - Any **OpenAI-compatible** endpoint — set a custom base URL
 4. Paste your API key
-5. Click **Connect** — it tests the connection immediately and shows green if working
+5. Choose **Sync current models** to fetch the provider's current catalog.
+6. Select a model and run **Test connection** before assigning it work.
+
+Catalog discovery proves only that the provider listed an identifier. It does
+not prove tools, images, streaming, structured output, or even chat
+compatibility. Successful explicit testing records verified chat capability.
+The system never silently replaces a model you pinned as default.
+
+During the 2026-07-16 readiness pass, the real OpenAI catalog request returned
+HTTP 401. Do not treat local adapter tests as proof that a paid provider account
+worked live.
 
 ### What Orchestrator vs Default means:
 
 When you add a model, you will see two toggles:
-- **Orchestrator** — this model does the planning. It reads your message, decides what tasks to create, and decides which sub-agent handles what. Use your smartest model here (Claude Opus, GPT-4o, etc.)
+- **Orchestrator** — this model does the planning. It reads your message,
+  decides what tasks to create, and decides which sub-agent handles what. Use
+  the strongest model whose required capabilities you have explicitly verified.
 - **Default** — the fallback model for worker tasks when nothing more specific is configured
 
 You only need one model to start. Set it as both Orchestrator and Default.
@@ -86,7 +102,7 @@ You only need one model to start. Set it as both Orchestrator and Default.
 ### Add multiple models for best results:
 
 The system automatically routes each task to the best model based on the `speedTier` you assign when adding a model:
-- **fast** — quick lookups, simple responses (Haiku, GPT-4o-mini, Groq)
+- **fast** — quick lookups and simple responses
 - **medium** — general tasks
 - **powerful** — complex analysis, writing, code (Claude Opus, GPT-4o)
 
@@ -296,7 +312,10 @@ The Swarm page shows each agent's status in real-time:
 
 ## Docker Sandbox — Safe Code Execution
 
-The sandbox lets the AI run code safely in an isolated Docker container. The code cannot access your files or network.
+The sandbox runs agent shell commands in a resource-limited Docker container.
+Only the application sandbox directory is mounted, and container networking is
+disabled by default. If Docker isolation is unavailable, shell execution fails
+instead of running the command on the application host.
 
 ### Enabling the sandbox:
 
@@ -306,7 +325,24 @@ The sandbox lets the AI run code safely in an isolated Docker container. The cod
 
 ### Using the sandbox:
 
-Once enabled, when the AI writes code it will offer to run it. Results come back in the chat. The container is discarded after each run — no state persists between executions.
+Once enabled, when the AI writes code it can offer to run it. Results come back
+in the chat. A container is reused within an agent session and reaped after its
+idle timeout; files written under the mounted sandbox directory persist.
+
+The standard Compose deployment does not mount the Docker daemon socket into
+the app container because that socket grants host-equivalent control. Shell
+tools therefore fail closed in that topology until a separately isolated
+executor is configured. Developers running the server directly may opt into
+host execution only with `ALLOW_HOST_SHELL=true`; production rejects that
+setting at startup.
+
+Outbound agent HTTP is independently governed. `OUTBOUND_HTTP_TIMEOUT_MS`,
+`OUTBOUND_HTTP_MAX_REDIRECTS`, and `OUTBOUND_HTTP_MAX_RESPONSE_BYTES` bound
+requests. Private/local targets remain denied unless a local developer
+adds the exact required hostname or IP address to the comma-separated
+`ULTRA_LOCAL_EGRESS_ALLOWLIST`. Plain HTTP remains denied unless
+`ULTRA_ALLOW_INSECURE_HTTP=true` is set for a documented exception. Keep both
+exceptions empty or disabled unless a specific integration requires them.
 
 ### Settings you can adjust:
 
@@ -353,7 +389,11 @@ Inside any chat session, the right panel shows the live task graph:
 
 Go to **http://localhost:8080**
 
-This shows every workflow that has run, its full event history, and current status. If a task crashes and resumes, you can see exactly which steps were replayed versus re-executed. This is how you verify durable execution is working correctly.
+This shows registered Temporal workflows, their event history, and current
+status. The ordinary chat route is not automatically proof of durable
+crash/restart recovery. The live integration gate proves real activity
+execution, history, and idempotent result retrieval; the worker-termination
+chaos proof remains tracked in `PARKED.md`.
 
 ### Health check:
 
@@ -385,15 +425,25 @@ Click **Settings** in the sidebar to configure:
 If you are running this where anyone other than you can reach it:
 
 1. Open the `.env` file
-2. Set `ULTRA_API_KEY=some-long-random-string` (generate with `npm run gen:key`)
+2. Generate separate values with `npm run gen:key` for `ULTRA_API_KEY` and
+   `ENCRYPTION_KEY`, and set a separate `TEMPORAL_DB_PASSWORD`
 3. Restart the stack: `docker compose down && docker compose up -d`
 
-Once set, every request to `/api/*` requires:
+Production will not start without a non-placeholder key of at least 32
+characters and a separate valid `ENCRYPTION_KEY`. Protected REST requests use:
 ```
 Authorization: Bearer your-api-key-here
 ```
 
-Without this, the API is open to anyone who can reach port 5000. Fine for local use only.
+Browser event streams obtain short-lived, path-bound stream tokens; the
+long-lived deployment key is not placed in EventSource URLs. Development may
+run without API authentication, so bind it locally and never expose it to an
+untrusted network.
+
+The bundled Compose deployment binds published ports to loopback. For remote
+access, terminate TLS at a trusted reverse proxy or use the explicit Cloudflare
+Tunnel profile. This application is currently a single-owner deployment; it
+does not provide multi-user RBAC or tenant isolation.
 
 ---
 

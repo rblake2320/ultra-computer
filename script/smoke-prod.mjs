@@ -4,13 +4,16 @@ import { setTimeout as delay } from "node:timers/promises";
 
 const port = process.env.SMOKE_PORT ?? process.env.PORT ?? "5099";
 const grpcPort = process.env.SMOKE_GRPC_PORT ?? process.env.GRPC_PORT ?? "5100";
-const apiKey = process.env.ULTRA_API_KEY ?? "test-smoke-key";
+const apiKey = process.env.ULTRA_API_KEY ?? `smoke-${randomBytes(24).toString("hex")}`;
 const env = {
   ...process.env,
   NODE_ENV: "production",
   PORT: port,
   GRPC_PORT: grpcPort,
   ULTRA_API_KEY: apiKey,
+  // This smoke starts only the application process. Redis is exercised by the
+  // separate production-shaped service integration gate.
+  REQUIRE_TASK_QUEUE: "0",
   SLACK_SIGNING_SECRET: process.env.SLACK_SIGNING_SECRET ?? "test-slack-secret",
   GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET ?? "test-github-secret",
   ENCRYPTION_KEY: process.env.ENCRYPTION_KEY ?? randomBytes(32).toString("hex"),

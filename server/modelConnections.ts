@@ -63,9 +63,9 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     apiKeyUrl: "https://platform.openai.com/api-keys",
     envVarNames: ["OPENAI_API_KEY"],
     models: [
-      { name: "GPT-5.4", modelId: "gpt-5.4", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1000000, description: "Latest flagship multimodal model", recommended: true },
-      { name: "GPT-5.4 Mini", modelId: "gpt-5.4-mini", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Fast and affordable latest gen" },
-      { name: "GPT-5.4 Nano", modelId: "gpt-5.4-nano", speedTier: "fast", capabilities: ["chat"], contextWindow: 1000000, description: "Ultra-fast, ultra-cheap" },
+      { name: "GPT-5.6 Sol", modelId: "gpt-5.6-sol", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1050000, description: "Frontier GPT-5.6 model for complex professional work", recommended: true },
+      { name: "GPT-5.6 Terra", modelId: "gpt-5.6-terra", speedTier: "medium", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1050000, description: "GPT-5.6 model balancing intelligence and cost" },
+      { name: "GPT-5.6 Luna", modelId: "gpt-5.6-luna", speedTier: "fast", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1050000, description: "GPT-5.6 model optimized for cost-sensitive workloads" },
       { name: "o4-mini", modelId: "o4-mini", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 200000, description: "Advanced reasoning" },
       { name: "o3", modelId: "o3", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 200000, description: "Powerful reasoning model" },
     ],
@@ -233,7 +233,7 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     defaultBaseUrl: "https://openrouter.ai/api/v1",
     models: [
       { name: "Claude Sonnet 4.6 (via OR)", modelId: "anthropic/claude-sonnet-4.6", speedTier: "medium", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Anthropic Claude 4.6 via OpenRouter", recommended: true },
-      { name: "GPT-5.4 (via OR)", modelId: "openai/gpt-5.4", speedTier: "powerful", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "OpenAI GPT-5.4 via OpenRouter" },
+      { name: "GPT-5.6 Sol (via OR)", modelId: "openai/gpt-5.6-sol", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1050000, description: "OpenAI GPT-5.6 Sol via OpenRouter" },
       { name: "Gemini 3.1 Pro (via OR)", modelId: "google/gemini-3.1-pro-preview", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1000000, description: "Google Gemini 3.1 Pro via OpenRouter" },
       { name: "Llama 4 Maverick (via OR)", modelId: "meta-llama/llama-4-maverick", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1048000, description: "Meta Llama 4 MoE via OpenRouter" },
       { name: "DeepSeek V3 (via OR)", modelId: "deepseek/deepseek-chat-v3-0324", speedTier: "fast", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "DeepSeek V3 — cheapest cloud brain ($0.14/$0.28 per M)", recommended: true },
@@ -748,6 +748,16 @@ export function disconnectModel(modelId: string): boolean {
   return true;
 }
 
+/** Assign the first model that proves connectivity to any unfilled core role. */
+function autoAssignRoles(modelId: string): void {
+  const model = storage.getModel(modelId);
+  if (!model || !model.enabled) return;
+  const updates: Record<string, boolean> = {};
+  if (!storage.getDefaultModel()) updates.isDefault = true;
+  if (!storage.getOrchestratorModel()) updates.isOrchestrator = true;
+  if (Object.keys(updates).length > 0) storage.updateModel(modelId, updates);
+}
+
 /**
  * Test a model's connection by sending a minimal completion request.
  */
@@ -773,6 +783,8 @@ export async function testConnection(modelId: string): Promise<{ ok: boolean; er
       lastTestedAt: Date.now() as any,
       lastTestLatency: (result.latencyMs || null) as any,
     });
+
+    if (result.ok) autoAssignRoles(modelId);
 
     return result;
   } catch (e: any) {
@@ -896,15 +908,40 @@ export function getProviderCatalog(): Array<{
   models: ProviderModelPreset[];
   hasBaseUrl: boolean;
 }> {
-  return Object.values(PROVIDER_REGISTRY).map(p => ({
-    id: p.id,
-    name: p.name,
-    icon: p.icon,
-    supportedAuth: p.supportedAuth,
-    defaultAuth: p.defaultAuth,
-    apiKeyUrl: p.apiKeyUrl,
-    envVarNames: p.envVarNames,
-    models: p.models,
-    hasBaseUrl: !!p.defaultBaseUrl || p.id === "openai_compat" || p.id === "custom" || p.id === "ollama",
-  }));
+  return Object.values(PROVIDER_REGISTRY).map((p) => {
+    const presets = new Map(p.models.map((model) => [model.modelId, model]));
+    for (const entry of storage.getModelCatalog(p.id)) {
+      if (entry.lifecycle === "retired" || presets.has(entry.modelId)) continue;
+      let capabilities: string[] = [];
+      try {
+        const parsed = JSON.parse(entry.capabilities);
+        if (Array.isArray(parsed)) {
+          capabilities = parsed.filter((value): value is string => typeof value === "string");
+        }
+      } catch {
+        capabilities = [];
+      }
+      presets.set(entry.modelId, {
+        name: entry.displayName,
+        modelId: entry.modelId,
+        speedTier: "medium",
+        capabilities,
+        contextWindow: entry.contextWindow ?? 0,
+        description:
+          `Discovered from ${p.name}; compatibility is ${entry.compatibility}. ` +
+          "Run an explicit connection test before selecting it.",
+      });
+    }
+    return {
+      id: p.id,
+      name: p.name,
+      icon: p.icon,
+      supportedAuth: p.supportedAuth,
+      defaultAuth: p.defaultAuth,
+      apiKeyUrl: p.apiKeyUrl,
+      envVarNames: p.envVarNames,
+      models: [...presets.values()],
+      hasBaseUrl: !!p.defaultBaseUrl || p.id === "openai_compat" || p.id === "custom" || p.id === "ollama",
+    };
+  });
 }

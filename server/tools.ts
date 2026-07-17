@@ -3,9 +3,9 @@
  * Real tools that worker agents can invoke: bash, file I/O, URL fetch, calculator.
  * Each tool has a JSON schema (for the LLM function-calling interface) and a real executor.
  * 
- * Security: bash runs inside Docker containers when available (isolated CPU, memory,
- * network, and PID namespace). Falls back to host-process execution with cwd-scoping
- * when Docker is not available. File I/O is scoped to the sandbox directory.
+ * Security: bash requires Docker container isolation by default (CPU, memory,
+ * network, and PID namespaces). Host execution is an explicit non-production
+ * development escape hatch. File I/O is scoped to the sandbox directory.
  */
 
 import { exec } from "child_process";
@@ -19,6 +19,7 @@ import { resolveInside } from "./pathSafety.js";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 import { redactString } from "./redaction.js";
 import { isPrivateHost } from "./networkSecurity.js";
+import { governedFetch } from "./governedFetch.js";
 
 // Lazy import to avoid circular dependency (mcpProtocol imports from tools)
 let _mcpModule: typeof import("./mcpProtocol.js") | null = null;
@@ -189,21 +190,21 @@ function mcpToolToSchema(tool: { name: string; description: string; inputSchema:
 /** Get all tool schemas including connected MCP servers */
 export function getAllToolSchemas(): ToolSchema[] {
   const mcpSchemas: ToolSchema[] = [];
-  try {
-    // Lazy access — _mcpModule is populated after first async call
-    if (_mcpModule) {
-      for (const server of _mcpModule.listConnectedServers()) {
-        for (const tool of server.tools) {
-          mcpSchemas.push(mcpToolToSchema(tool, server.name, server.id));
-        }
+  // Lazy access — _mcpModule is populated after first async call.
+  if (_mcpModule) {
+    for (const server of _mcpModule.listConnectedServers()) {
+      for (const tool of server.tools) {
+        mcpSchemas.push(mcpToolToSchema(tool, server.name, server.id));
       }
     }
-  } catch { /* MCP not ready yet */ }
+  }
   return [...TOOL_SCHEMAS, ...mcpSchemas];
 }
 
 /** Eagerly load the MCP module so getAllToolSchemas works synchronously after boot */
-setTimeout(() => getMCPModule().catch(() => {}), 1000);
+setTimeout(() => {
+  void getMCPModule();
+}, 1000);
 
 /** Execute an MCP tool by its prefixed name */
 async function executeMCPTool(prefixedName: string, args: Record<string, string>, start: number): Promise<ToolResult> {
@@ -297,11 +298,15 @@ async function executeBash(command: string, start: number, sessionId: string = "
   writePolicyAudit(context, decision);
   if (!decision.allowed) return policyDeniedResult(decision.reason, start);
 
-  // Try Docker sandbox first, fall back to host process
+  // Shell execution requires container isolation by default. A host shell is a
+  // local-development escape hatch only and must be explicitly enabled.
   if (await dockerSandbox.isActive()) {
     return executeBashDocker(command, start, sessionId);
   }
-  return executeBashHost(command, start);
+  if (isHostShellFallbackAllowed()) {
+    return executeBashHost(command, start);
+  }
+  return sandboxUnavailableResult(start);
 }
 
 /** Execute in Docker container — full isolation */
@@ -327,15 +332,33 @@ async function executeBashDocker(command: string, start: number, sessionId: stri
       durationMs: Date.now() - start,
     };
   } catch (err: any) {
-    if (process.env.DOCKER_SANDBOX_ONLY === "true") {
-      return { success: false, output: "", error: `Docker sandbox required but unavailable: ${redactString(err.message)}`, durationMs: Date.now() - start };
+    if (isHostShellFallbackAllowed()) {
+      console.warn(`[tools/bash] Docker exec failed; explicit development host-shell fallback is enabled: ${redactString(err.message)}`);
+      return executeBashHost(command, start);
     }
-    console.warn(`[tools/bash] Docker exec failed, falling back to host: ${redactString(err.message)}`);
-    return executeBashHost(command, start);
+    return sandboxUnavailableResult(start, err);
   }
 }
 
-/** Execute on host — sandbox directory scoped, no container isolation */
+export function isHostShellFallbackAllowed(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.NODE_ENV !== "production" && env.ALLOW_HOST_SHELL === "true";
+}
+
+function sandboxUnavailableResult(start: number, error?: unknown): ToolResult {
+  const detail = error instanceof Error && error.message
+    ? `: ${redactString(error.message)}`
+    : "";
+  return {
+    success: false,
+    output: "",
+    error: `Docker sandbox required but unavailable${detail}`,
+    durationMs: Date.now() - start,
+  };
+}
+
+/** Execute on host — explicit local-development escape hatch; never production. */
 async function executeBashHost(command: string, start: number): Promise<ToolResult> {
   try {
     // Only pass a minimal set of safe env vars — never forward full process.env (avoids leaking secrets)
@@ -492,19 +515,15 @@ async function executeFetchUrl(url: string, extractText: boolean, start: number)
     return { success: false, output: "", error: "Fetching private/internal network addresses is not allowed", durationMs: Date.now() - start };
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
-
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
+    const response = await governedFetch(url, {
       headers: {
         "User-Agent": "Ultra-Computer/1.0 (agent-harness)",
         "Accept": "text/html,application/json,text/plain,*/*",
       },
+    }, "tool-fetch-url", "network", "network:fetch", {
+      timeoutMs: 15_000,
     });
-
-    clearTimeout(timeout);
 
     // SSRF redirect protection: verify the final URL after any server-side redirects
     if (response.url && response.url !== url) {
@@ -556,7 +575,6 @@ async function executeFetchUrl(url: string, extractText: boolean, start: number)
       durationMs: Date.now() - start,
     };
   } catch (err: any) {
-    clearTimeout(timeout);
     const msg = err.name === "AbortError" ? "Request timed out (15s limit)" : err.message;
     return { success: false, output: "", error: msg, durationMs: Date.now() - start };
   }
@@ -665,19 +683,17 @@ async function executeSearchWeb(query: string, numResultsStr: string | undefined
   writePolicyAudit(context, decision);
   if (!decision.allowed) return policyDeniedResult(decision.reason, start);
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
-
   try {
-    const response = await fetch(searchUrl, {
-      signal: controller.signal,
+    const response = await governedFetch(searchUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "text/html,*/*",
         "Accept-Language": "en-US,en;q=0.9",
       },
+    }, "tool-search-web", "network", "network:search", {
+      timeoutMs: 15_000,
+      maxResponseBytes: 5 * 1024 * 1024,
     });
-    clearTimeout(timeout);
 
     if (!response.ok) {
       return { success: false, output: "", error: `Search request failed: HTTP ${response.status}`, durationMs: Date.now() - start };
@@ -747,7 +763,6 @@ async function executeSearchWeb(query: string, numResultsStr: string | undefined
       durationMs: Date.now() - start,
     };
   } catch (err: any) {
-    clearTimeout(timeout);
     const msg = err.name === "AbortError" ? "Search request timed out (15s limit)" : err.message;
     return { success: false, output: "", error: msg, durationMs: Date.now() - start };
   }

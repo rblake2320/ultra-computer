@@ -3,8 +3,21 @@ import { QueryClient } from "@tanstack/react-query";
 const RAW_BASE = "__PORT_5000__";
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || (RAW_BASE.startsWith("__") ? "" : RAW_BASE);
 
-function browserApiKey(): string {
-  return (window as any).__ULTRA_API_KEY__ ?? "";
+const SESSION_API_KEY = "ultra_api_key";
+
+export function browserApiKey(): string {
+  return (window as any).__ULTRA_API_KEY__ ?? window.sessionStorage.getItem(SESSION_API_KEY) ?? "";
+}
+
+export function setBrowserApiKey(value: string): void {
+  const key = value.trim();
+  if (key) {
+    window.sessionStorage.setItem(SESSION_API_KEY, key);
+    (window as any).__ULTRA_API_KEY__ = key;
+  } else {
+    window.sessionStorage.removeItem(SESSION_API_KEY);
+    delete (window as any).__ULTRA_API_KEY__;
+  }
 }
 
 export async function apiRequest(method: string, path: string, body?: any) {
@@ -25,11 +38,51 @@ export async function apiRequest(method: string, path: string, body?: any) {
   return res.json();
 }
 
-export function getSSEUrl(path: string) {
+export async function getSSEUrl(path: string): Promise<string> {
   const key = browserApiKey();
   if (!key) return `${API_BASE}${path}`;
+  const { token } = await apiRequest("POST", "/api/auth/stream-token", { path });
   const separator = path.includes("?") ? "&" : "?";
-  return `${API_BASE}${path}${separator}api_key=${encodeURIComponent(key)}`;
+  return `${API_BASE}${path}${separator}stream_token=${encodeURIComponent(token)}`;
+}
+
+export function connectEventSource(
+  path: string,
+  handlers: {
+    onMessage: (event: MessageEvent<string>) => void;
+    onOpen?: () => void;
+    onError?: () => void;
+  },
+): () => void {
+  let closed = false;
+  let source: EventSource | null = null;
+  let reconnectTimer: number | undefined;
+
+  const connect = async () => {
+    try {
+      const url = await getSSEUrl(path);
+      if (closed) return;
+      source = new EventSource(url);
+      source.onmessage = handlers.onMessage;
+      source.onopen = () => handlers.onOpen?.();
+      source.onerror = () => {
+        source?.close();
+        source = null;
+        handlers.onError?.();
+        if (!closed) reconnectTimer = window.setTimeout(connect, 1_000);
+      };
+    } catch {
+      handlers.onError?.();
+      if (!closed) reconnectTimer = window.setTimeout(connect, 1_000);
+    }
+  };
+
+  void connect();
+  return () => {
+    closed = true;
+    if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+    source?.close();
+  };
 }
 
 export const queryClient = new QueryClient({

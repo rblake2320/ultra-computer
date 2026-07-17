@@ -17,7 +17,7 @@ import { v4 as uuidv4 } from "uuid";
 import { storage } from "./storage.js";
 import { TOOL_SCHEMAS, executeTool } from "./tools.js";
 import crypto from "crypto";
-import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
+import { governedFetch } from "./governedFetch.js";
 
 // ─── MCP Protocol Version ─────────────────────────────────────────────────────
 
@@ -839,21 +839,6 @@ async function sendRemoteRequest(
   method: string,
   params?: Record<string, unknown>
 ): Promise<unknown> {
-  const policyContext = {
-    domain: "network" as const,
-    action: "network:mcp_call",
-    tool: "mcp.remote",
-    toolName: method,
-    url: connection.url,
-    method: "POST",
-    metadata: { serverId: connection.id, serverName: connection.name, headers: connection.headers },
-  };
-  const policyDecision = evaluatePolicy(policyContext);
-  writePolicyAudit(policyContext, policyDecision);
-  if (!policyDecision.allowed) {
-    throw new Error(`Policy denied: ${policyDecision.reason}`);
-  }
-
   connection._requestCounter++;
   const requestId = `${connection.id}-${connection._requestCounter}`;
 
@@ -864,54 +849,43 @@ async function sendRemoteRequest(
     ...(params ? { params } : {}),
   };
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
+  const response = await governedFetch(connection.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      "User-Agent": `${SERVER_NAME}/${SERVER_VERSION} MCP-Client`,
+      ...connection.headers,
+    },
+    body: JSON.stringify(body),
+  }, requestId, "network", "network:mcp_call");
 
-  try {
-    const response = await fetch(connection.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        "User-Agent": `${SERVER_NAME}/${SERVER_VERSION} MCP-Client`,
-        ...connection.headers,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${response.statusText} from ${connection.url}`);
-    }
-
-    const contentType = response.headers.get("content-type") || "";
-
-    let rpcResponse: JsonRpcResponse;
-
-    if (contentType.includes("text/event-stream")) {
-      // SSE transport: parse the first data: event from the stream
-      const text = await response.text();
-      const dataLine = text.split("\n").find((line) => line.startsWith("data:"));
-      if (!dataLine) throw new Error("No data event received in SSE stream");
-      rpcResponse = JSON.parse(dataLine.replace(/^data:\s*/, "")) as JsonRpcResponse;
-    } else {
-      rpcResponse = (await response.json()) as JsonRpcResponse;
-    }
-
-    if (rpcResponse.error) {
-      throw new Error(
-        `RPC error ${rpcResponse.error.code}: ${rpcResponse.error.message}` +
-          (rpcResponse.error.data ? ` — ${JSON.stringify(rpcResponse.error.data)}` : "")
-      );
-    }
-
-    return rpcResponse.result;
-  } catch (err) {
-    clearTimeout(timeout);
-    throw err;
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} ${response.statusText} from ${connection.url}`);
   }
+
+  const contentType = response.headers.get("content-type") || "";
+
+  let rpcResponse: JsonRpcResponse;
+
+  if (contentType.includes("text/event-stream")) {
+    // SSE transport: parse the first data: event from the stream
+    const text = await response.text();
+    const dataLine = text.split("\n").find((line) => line.startsWith("data:"));
+    if (!dataLine) throw new Error("No data event received in SSE stream");
+    rpcResponse = JSON.parse(dataLine.replace(/^data:\s*/, "")) as JsonRpcResponse;
+  } else {
+    rpcResponse = (await response.json()) as JsonRpcResponse;
+  }
+
+  if (rpcResponse.error) {
+    throw new Error(
+      `RPC error ${rpcResponse.error.code}: ${rpcResponse.error.message}` +
+        (rpcResponse.error.data ? ` — ${JSON.stringify(rpcResponse.error.data)}` : "")
+    );
+  }
+
+  return rpcResponse.result;
 }
 
 /**
@@ -923,19 +897,6 @@ async function sendRemoteNotification(
   method: string,
   params?: Record<string, unknown>
 ): Promise<void> {
-  const policyContext = {
-    domain: "network" as const,
-    action: "network:mcp_call",
-    tool: "mcp.remote",
-    toolName: method,
-    url: connection.url,
-    method: "POST",
-    metadata: { serverId: connection.id, serverName: connection.name, headers: connection.headers },
-  };
-  const policyDecision = evaluatePolicy(policyContext);
-  writePolicyAudit(policyContext, policyDecision);
-  if (!policyDecision.allowed) return;
-
   const body = {
     jsonrpc: "2.0" as const,
     method,
@@ -943,20 +904,17 @@ async function sendRemoteNotification(
     // No id — this is a notification
   };
 
-  try {
-    await fetch(connection.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": `${SERVER_NAME}/${SERVER_VERSION} MCP-Client`,
-        ...connection.headers,
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(10_000),
-    });
-  } catch {
-    // Notifications are fire-and-forget; swallow errors
-  }
+  await governedFetch(connection.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": `${SERVER_NAME}/${SERVER_VERSION} MCP-Client`,
+      ...connection.headers,
+    },
+    body: JSON.stringify(body),
+  }, `${connection.id}:notification:${method}`, "network", "network:mcp_call", {
+    timeoutMs: 10_000,
+  });
 }
 
 /**

@@ -4,7 +4,6 @@
  * Connects to a REAL Temporal server (localhost:7233) and proves:
  * 1. Workflows execute through activities
  * 2. Activity results are recorded in event history (idempotent)
- * 3. A workflow survives and completes even when a worker is restarted mid-execution
  *
  * Evidence label: VERIFIED LIVE (requires running Temporal server)
  *
@@ -15,83 +14,90 @@
  *   TEMPORAL_ADDRESS=localhost:7233 npx vitest run tests/integration/temporal-durable-live.test.ts
  */
 
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, beforeAll } from "vitest";
 import { Connection, Client } from "@temporalio/client";
-import { Worker } from "@temporalio/worker";
-import { proxyActivities } from "@temporalio/workflow";
-import { fileURLToPath } from "url";
+import { temporal } from "@temporalio/proto";
+import { NativeConnection, Worker } from "@temporalio/worker";
 import { randomUUID } from "crypto";
-import path from "path";
+import { fileURLToPath } from "url";
+import { setTimeout as delay } from "node:timers/promises";
+import { stepA, stepB, stepC, stepLog } from "./temporal-proof-activities.js";
+import { durableProofWorkflow } from "./temporal-proof-workflow.js";
 
-const TEMPORAL_ADDRESS = process.env.TEMPORAL_ADDRESS || "localhost:7233";
+const TEMPORAL_ADDRESS = process.env.TEMPORAL_ADDRESS || "127.0.0.1:7233";
 const TASK_QUEUE = `ultra-durable-proof-${Date.now()}`;
-
-// ─── Test activities (self-contained, no DB dependency) ──────────────────────
-
-let stepLog: string[] = [];
-
-export async function stepA(id: string): Promise<string> {
-  stepLog.push(`stepA:${id}`);
-  return `a:${id}`;
-}
-
-export async function stepB(prevResult: string): Promise<string> {
-  stepLog.push(`stepB:${prevResult}`);
-  return `b:${prevResult}`;
-}
-
-export async function stepC(prevResult: string): Promise<string> {
-  stepLog.push(`stepC:${prevResult}`);
-  return `done:${prevResult}`;
-}
-
-// ─── Test workflow (deterministic) ───────────────────────────────────────────
-
-const acts = proxyActivities<typeof import("./temporal-durable-live.test.js")>({
-  startToCloseTimeout: "30 seconds",
-  retry: { maximumAttempts: 3 },
-});
-
-export async function durableProofWorkflow(id: string): Promise<string> {
-  const a = await acts.stepA(id);
-  const b = await acts.stepB(a);
-  const c = await acts.stepC(b);
-  return c;
-}
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
-let connection: Connection | undefined;
+let clientConnection: Connection | undefined;
+let workerConnection: NativeConnection | undefined;
 let worker: Worker | undefined;
+let workerRun: Promise<void> | undefined;
+
+async function connectClient(): Promise<Connection> {
+  const deadline = Date.now() + 60_000;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      return await Connection.connect({ address: TEMPORAL_ADDRESS });
+    } catch (error) {
+      lastError = error;
+      await delay(1_000);
+    }
+  }
+  throw lastError;
+}
+
+async function connectWorker(): Promise<NativeConnection> {
+  const deadline = Date.now() + 60_000;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      return await NativeConnection.connect({ address: TEMPORAL_ADDRESS });
+    } catch (error) {
+      lastError = error;
+      await delay(1_000);
+    }
+  }
+  throw lastError;
+}
 
 describe.skipIf(!process.env.TEMPORAL_ADDRESS)("Temporal durable execution — VERIFIED LIVE", () => {
+  beforeAll(async () => {
+    clientConnection = await connectClient();
+  }, 65_000);
+
   afterAll(async () => {
     worker?.shutdown();
-    await connection?.close();
+    await workerRun;
+    await workerConnection?.close();
+    await clientConnection?.close();
   });
 
   it("connects to Temporal server", async () => {
-    connection = await Connection.connect({ address: TEMPORAL_ADDRESS });
-    const client = new Client({ connection });
+    const client = new Client({ connection: clientConnection! });
     const info = await client.workflowService.getSystemInfo({});
     expect(info).toBeDefined();
     console.log("Temporal connected");
   });
 
   it("runs a 3-step workflow and all steps complete via activity history", async () => {
-    const workflowsPath = fileURLToPath(import.meta.url);
+    const workflowsPath = fileURLToPath(
+      new URL("./temporal-proof-workflow.ts", import.meta.url),
+    );
+    workerConnection = await connectWorker();
 
     worker = await Worker.create({
-      connection: connection!,
+      connection: workerConnection,
       namespace: "default",
       taskQueue: TASK_QUEUE,
       workflowsPath,
       activities: { stepA, stepB, stepC },
     });
 
-    const workerRun = worker.run();
+    workerRun = worker.run();
 
-    const client = new Client({ connection: connection! });
+    const client = new Client({ connection: clientConnection! });
     const workflowId = `durable-proof-${randomUUID()}`;
 
     const handle = await client.workflow.start(durableProofWorkflow, {
@@ -106,19 +112,18 @@ describe.skipIf(!process.env.TEMPORAL_ADDRESS)("Temporal durable execution — V
     // Verify event history recorded all 3 activities
     const history = await handle.fetchHistory();
     const completedActivities = history.events?.filter(
-      (e) => e.eventType?.toString().includes("ACTIVITY_TASK_COMPLETED")
+      (event) =>
+        event.eventType ===
+        temporal.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED,
     ) ?? [];
     expect(completedActivities.length).toBe(3);
     console.log(`VERIFIED LIVE: 3 activities completed, event history has ${completedActivities.length} ACTIVITY_TASK_COMPLETED events`);
     console.log(`VERIFIED LIVE: result=${result}`);
     console.log(`VERIFIED LIVE: step execution order: ${stepLog.join(" → ")}`);
-
-    worker.shutdown();
-    await workerRun;
   }, 60_000);
 
   it("workflow result is idempotent — fetching twice returns same result", async () => {
-    const client = new Client({ connection: connection! });
+    const client = new Client({ connection: clientConnection! });
 
     // Find the last workflow we ran (re-query by known prefix)
     // This is a simplified check — in production use the workflowId

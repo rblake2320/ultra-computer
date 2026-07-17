@@ -246,6 +246,18 @@ export async function shutdownGracefully(): Promise<void> {
   process.exit(0);
 }
 
+/** Stop watchdog timers without terminating the process. */
+export function stopWatchdog(): void {
+  if (_heartbeatTimer) {
+    clearInterval(_heartbeatTimer);
+    _heartbeatTimer = null;
+  }
+  if (_lagMeasureTimer) {
+    clearTimeout(_lagMeasureTimer);
+    _lagMeasureTimer = null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Auto-restart helpers (for fatal errors)
 // ---------------------------------------------------------------------------
@@ -299,7 +311,10 @@ async function handleFatalError(
  * Initialise the watchdog. Call once during server startup, passing the
  * http.Server instance created by express / http.createServer().
  */
-export function initWatchdog(server: http.Server): void {
+export function initWatchdog(
+  server: http.Server,
+  options: { installProcessHandlers?: boolean } = {},
+): void {
   if (_heartbeatTimer) {
     console.warn("[watchdog] initWatchdog called more than once — ignoring");
     return;
@@ -323,6 +338,14 @@ export function initWatchdog(server: http.Server): void {
 
   // Run immediately so we have a baseline in the logs at startup
   runHeartbeat();
+
+  if (options.installProcessHandlers === false) {
+    console.log(
+      `[watchdog] Initialised. restartCount=${_restartCount} ` +
+        `heartbeatInterval=${HEARTBEAT_INTERVAL_MS}ms`
+    );
+    return;
+  }
 
   // -------------------------------------------------------------------
   // Signal handlers

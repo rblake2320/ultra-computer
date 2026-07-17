@@ -4,7 +4,8 @@ import { setTimeout as delay } from "node:timers/promises";
 
 const image = process.env.LIVE_DOCKER_IMAGE || "ultra-computer-live-gate:local";
 const port = process.env.LIVE_DOCKER_PORT || "5188";
-const apiKey = process.env.LIVE_DOCKER_API_KEY || `live-${randomBytes(12).toString("hex")}`;
+const apiKey = process.env.LIVE_DOCKER_API_KEY || `live-${randomBytes(24).toString("hex")}`;
+const networkName = `ultra-live-network-${process.pid}`;
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -77,10 +78,18 @@ async function startContainer(name, extraEnv = []) {
     "-e", "NODE_ENV=production",
     "-e", "PORT=5000",
     "-e", "GRPC_PORT=50051",
-    "-e", "REDIS_URL=redis://127.0.0.1:6379",
+    "-e", "REDIS_URL=redis://redis:6379",
+    "-e", "REDIS_HOST=redis",
+    "-e", "REDIS_PORT=6379",
     ...extraEnv.flatMap((item) => ["-e", item]),
   ];
-  await docker(["run", "-d", "--name", name, "--network", "host", ...env, image], { capture: true });
+  await docker([
+    "run", "-d", "--name", name,
+    "--network", networkName,
+    "-p", `127.0.0.1:${port}:5000`,
+    ...env,
+    image,
+  ], { capture: true });
   await waitForHealth(name);
 }
 
@@ -92,14 +101,16 @@ async function main() {
   const redisName = `ultra-live-redis-${process.pid}`;
 
   console.log("Building clean Docker image for live-local gate...");
-  await docker(["build", "-f", "Dockerfile.live", "-t", image, "."]);
+  await docker(["build", "--target", "app", "-f", "Dockerfile.live", "-t", image, "."]);
 
   // Start Redis for BullMQ queue dispatch proof
   console.log("Starting Redis container for queue dispatch proof...");
+  await docker(["network", "create", networkName], { capture: true });
   await docker(["rm", "-f", redisName], { capture: true }).catch(() => {});
   await docker([
     "run", "-d", "--name", redisName,
-    "--network", "host",
+    "--network", networkName,
+    "--network-alias", "redis",
     "redis:7-alpine", "redis-server", "--save", "", "--loglevel", "warning"
   ], { capture: true });
   // Small delay for Redis to be ready
@@ -187,6 +198,7 @@ async function main() {
     await stopContainer(badPolicy);
     await stopContainer(badAudit);
     await stopContainer(redisName);
+    await docker(["network", "rm", networkName], { capture: true }).catch(() => {});
     if (process.env.LIVE_DOCKER_CLEAN_IMAGE === "true") {
       await docker(["image", "rm", image], { capture: true }).catch((err) => {
         console.warn(`image cleanup skipped: ${err instanceof Error ? err.message : String(err)}`);
@@ -195,7 +207,7 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
+main().catch(() => {
+  console.error("live-local Docker gate failed");
   process.exit(1);
 });

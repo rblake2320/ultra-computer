@@ -15,6 +15,7 @@
 
 import { storage } from "./storage.js";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
+import { governedFetch } from "./governedFetch.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -557,15 +558,14 @@ export async function validateConnectorKey(
     } else {
       headers["Authorization"] = `Bearer ${apiKey}`;
     }
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    const res = await fetch(def.validateUrl, {
+    const res = await governedFetch(def.validateUrl, {
       method: connectorId === "linear" ? "POST" : "GET",
       headers,
-      signal: controller.signal,
       body: connectorId === "linear" ? JSON.stringify({ query: "{ viewer { id } }" }) : undefined,
+    }, `connector-${connectorId}`, "network", "network:connector_validate", {
+      timeoutMs: 8_000,
+      maxResponseBytes: 1024 * 1024,
     });
-    clearTimeout(timeout);
     if (res.status === 401 || res.status === 403) {
       return { valid: false, error: "Invalid API key or insufficient permissions" };
     }
@@ -637,26 +637,22 @@ export async function callMCPTool(
     throw new Error(`Policy denied: ${networkDecision.reason}`);
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
-
   try {
-    const response = await fetch(`${serverUrl}/tools/${toolName}`, {
+    const response = await governedFetch(`${serverUrl}/tools/${toolName}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
       },
       body: JSON.stringify(args),
-      signal: controller.signal,
+    }, `connector-${connectorId}`, "network", "network:mcp_call", {
+      timeoutMs: 30_000,
     });
-    clearTimeout(timeout);
     if (!response.ok) {
       throw new Error(`MCP call failed: ${response.status} ${response.statusText}`);
     }
     return response.json();
   } catch (err: any) {
-    clearTimeout(timeout);
     if (err.name === "AbortError") throw new Error("MCP tool call timed out after 30s");
     throw err;
   }

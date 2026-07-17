@@ -46,7 +46,8 @@ describe("filterOutput — credential leak (hard block)", () => {
   });
 
   it("blocks Bearer token pattern", () => {
-    const r = filterOutput("Use this: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c");
+    const syntheticBearerToken = "test-token-".repeat(5);
+    const r = filterOutput(`Use this: Bearer ${syntheticBearerToken}`);
     expect(r.clean).toBe(false);
     expect(r.flags).toContain("credential-pattern");
   });

@@ -50,7 +50,7 @@ const TIER_THRESHOLDS = {
 // ─── Individual Signal Scorers (each returns 0–100) ─────────────────────────
 
 /**
- * Install Velocity — installs per day over a simulated 7d window.
+ * Estimated install velocity derived from total installs and skill age.
  * Since we don't have daily snapshots, we approximate from total installs
  * and skill age. Capped at 50 installs/day for normalization.
  */
@@ -222,7 +222,7 @@ export interface SkillScoreBreakdown {
   featured: boolean;
   verified: boolean;
   signals: {
-    installVelocity: { value: number; score: number; weight: number };
+    installVelocity: { value: number; score: number; weight: number; estimated: true };
     ratingBayesian: { value: number; score: number; weight: number };
     ratingConsensus: { value: number; score: number; weight: number };
     forkLineage: { value: number; score: number; weight: number };
@@ -273,7 +273,7 @@ export function scoreSkill(
     featured: tier === "platinum",
     verified: tier === "platinum" || tier === "gold",
     signals: {
-      installVelocity: { value: iv.velocity, score: +iv.score.toFixed(1), weight: WEIGHTS.installVelocity },
+      installVelocity: { value: iv.velocity, score: +iv.score.toFixed(1), weight: WEIGHTS.installVelocity, estimated: true },
       ratingBayesian: { value: rb.bayesian, score: +rb.score.toFixed(1), weight: WEIGHTS.ratingBayesian },
       ratingConsensus: { value: rc.variance, score: +rc.score.toFixed(1), weight: WEIGHTS.ratingConsensus },
       forkLineage: { value: fl.depth, score: +fl.score.toFixed(1), weight: WEIGHTS.forkLineage },

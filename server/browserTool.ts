@@ -47,6 +47,7 @@ const _pool: PoolSlot[] = [];
 // Maps sessionKey → pool slot so closePage() can return the slot instead of closing it
 const _poolSlots: Map<string, PoolSlot> = new Map();
 let _poolWarmed = false;
+let _shuttingDown = false;
 
 const UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 const VIEWPORT = { width: 1280, height: 800 };
@@ -59,7 +60,7 @@ async function _createSlot(browser: any): Promise<PoolSlot> {
 
 /** Fill pool up to POOL_SIZE. Fire-and-forget safe. */
 async function _refillPool(): Promise<void> {
-  if (!_poolWarmed) return;
+  if (!_poolWarmed || _shuttingDown) return;
   try {
     const browser = await getBrowser();
     while (_pool.length < POOL_SIZE) {
@@ -88,6 +89,7 @@ function _returnSlot(slot: PoolSlot): void {
  * Silently no-ops when Playwright is not installed.
  */
 export async function warmBrowserPool(): Promise<void> {
+  if (_shuttingDown) return;
   try {
     const browser = await getBrowser(); // launches chromium if not already running
     const slots = await Promise.all(
@@ -116,6 +118,9 @@ async function getPlaywright(): Promise<any | null> {
 }
 
 async function getBrowser(): Promise<any> {
+  if (_shuttingDown) {
+    throw new Error("Browser runtime is shutting down");
+  }
   const pw = await getPlaywright();
   if (!pw) throw new Error("Playwright not installed. Run: npx playwright install chromium");
 
@@ -933,5 +938,33 @@ export async function takeSessionScreenshot(sessionKey: string): Promise<Buffer 
     return await page.screenshot({ type: "png" });
   } catch {
     return null;
+  }
+}
+
+/** Close every browser context and the shared browser process. */
+export async function shutdownBrowser(): Promise<void> {
+  _shuttingDown = true;
+  await Promise.allSettled(_pendingPages.values());
+
+  const contexts = new Set<any>([
+    ..._contexts.values(),
+    ..._pool.map((slot) => slot.context),
+  ]);
+
+  _pages.clear();
+  _contexts.clear();
+  _poolSlots.clear();
+  _pool.length = 0;
+  _poolWarmed = false;
+  _pendingPages.clear();
+
+  await Promise.allSettled(
+    Array.from(contexts, (context) => context.close()),
+  );
+
+  if (_browser) {
+    const browser = _browser;
+    _browser = null;
+    await browser.close();
   }
 }

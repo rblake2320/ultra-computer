@@ -17,6 +17,11 @@ import { storage } from "./storage.js";
 import type { ToolSchema, ToolResult } from "./tools.js";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 import { redactString } from "./redaction.js";
+import {
+  imageReservationCostNanoUsd,
+  reserveFixedCost,
+  settleFixedReservation,
+} from "./spendGuard.js";
 
 // ─── Sandbox directory ────────────────────────────────────────────────────────
 
@@ -193,6 +198,24 @@ async function executeGenerateImage(
   }
 
   const openai = new OpenAI(clientOptions);
+  let spendReservation;
+  let imageCostNanoUsd: number;
+  try {
+    imageCostNanoUsd = imageReservationCostNanoUsd(imageModel, n, size, quality);
+    spendReservation = reserveFixedCost(
+      imageModel,
+      "image.generate",
+      imageCostNanoUsd,
+      { count: n, size, quality },
+    );
+  } catch (error) {
+    return {
+      success: false,
+      output: "",
+      error: error instanceof Error ? error.message : "Image generation spend admission failed",
+      durationMs: Date.now() - start,
+    };
+  }
 
   let imageResponse: OpenAI.Images.ImagesResponse;
   try {
@@ -205,6 +228,8 @@ async function executeGenerateImage(
       response_format: "url",
     });
   } catch (err: any) {
+    // A transport/provider failure after dispatch may still be billable.
+    settleFixedReservation(spendReservation, imageModel, Buffer.byteLength(prompt, "utf8"), n);
     const message =
       err?.error?.message ||
       err?.message ||
@@ -216,6 +241,7 @@ async function executeGenerateImage(
       durationMs: Date.now() - start,
     };
   }
+  settleFixedReservation(spendReservation, imageModel, Buffer.byteLength(prompt, "utf8"), n);
 
   if (!imageResponse.data || imageResponse.data.length === 0) {
     return {

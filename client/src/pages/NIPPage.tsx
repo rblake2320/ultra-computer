@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest, getSSEUrl } from "../lib/queryClient";
+import { apiRequest, connectEventSource } from "../lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
@@ -644,7 +644,6 @@ function ConversationTab() {
   const [msgType, setMsgType] = useState("instruction");
   const [msgContent, setMsgContent] = useState("");
   const [expandedMsgId, setExpandedMsgId] = useState<string | null>(null);
-  const sseRef = useRef<EventSource | null>(null);
 
   // Active sessions for selector
   const { data: activeSessions = [] } = useQuery<NIPSession[]>({ queryKey: ["/api/nip/sessions?state=active"] });
@@ -659,22 +658,22 @@ function ConversationTab() {
   // SSE for real-time updates
   useEffect(() => {
     if (!selectedSessionId) return;
-    const url = getSSEUrl(`/api/nip/sessions/${selectedSessionId}/stream`);
-    const es = new EventSource(url);
-    sseRef.current = es;
-    es.onmessage = (ev) => {
-      try {
-        const data = JSON.parse(ev.data);
-        if (data.type === "message" || data.type === "new_message") {
-          qc.setQueryData<NIPMessage[]>([`/api/nip/sessions/${selectedSessionId}/messages`], (old = []) => {
-            if (old.find(m => m.id === data.message?.id)) return old;
-            return [...old, data.message];
-          });
-        }
-      } catch (_) {}
-    };
-    es.onerror = () => { es.close(); };
-    return () => { es.close(); };
+    return connectEventSource(
+      `/api/nip/sessions/${selectedSessionId}/stream`,
+      {
+        onMessage: (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (data.type === "message" || data.type === "new_message") {
+            qc.setQueryData<NIPMessage[]>([`/api/nip/sessions/${selectedSessionId}/messages`], (old = []) => {
+              if (old.find(m => m.id === data.message?.id)) return old;
+              return [...old, data.message];
+            });
+          }
+        } catch (_) {}
+        },
+      },
+    );
   }, [selectedSessionId, qc]);
 
   // Auto-scroll

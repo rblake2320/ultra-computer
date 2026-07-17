@@ -153,6 +153,15 @@ function isPrivateNetworkTarget(host: string): boolean {
   return false;
 }
 
+export function isExplicitLocalNetworkTargetAllowed(host: string): boolean {
+  const normalizedHost = host.toLowerCase().replace(/^\[|\]$/g, "");
+  return (process.env.ULTRA_LOCAL_EGRESS_ALLOWLIST ?? "")
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase().replace(/^\[|\]$/g, ""))
+    .filter(Boolean)
+    .includes(normalizedHost);
+}
+
 function parsedUrl(context: PolicyContext): URL | null {
   if (!context.url) return null;
   try {
@@ -190,7 +199,10 @@ export function evaluatePolicy(context: PolicyContext): PolicyDecision {
     if (!url) {
       return deny(context, "Invalid or missing URL");
     }
-    if (isPrivateNetworkTarget(url.hostname)) {
+    if (
+      isPrivateNetworkTarget(url.hostname)
+      && !isExplicitLocalNetworkTargetAllowed(url.hostname)
+    ) {
       return deny(context, "Private, loopback, link-local, and .local network targets are not allowed");
     }
   }

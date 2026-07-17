@@ -1,27 +1,19 @@
-version: "3.9"
-
-# Ultra Computer — full local stack with durable execution + Cloudflare Tunnel
+# Ultra Computer — production-shaped local stack
 #
-# Starts: Redis, PostgreSQL (Temporal state), Temporal server, Temporal UI, app, cloudflared.
-# cloudflared exposes the app at your configured public hostname via Cloudflare's network.
+# The HTTP app, queue, Temporal server, and Temporal worker are distinct
+# processes. Infrastructure services are internal or bound to loopback only.
+# No service has a known credential fallback.
 #
-# Quick start:
-#   1. Get a tunnel token: Cloudflare Dashboard → Zero Trust → Networks → Tunnels → Create
-#      Name: ultra-computer  |  Public hostname: <your-domain> → http://app:5000
-#   2. Add TUNNEL_TOKEN=<token> to .env
-#   3. docker compose up -d
-#   4. npm run temporal:namespace   (first time only — registers default namespace)
-#
-# Durable execution proof:  See docs/DURABLE_EXECUTION_VERIFICATION.md
-# Cloudflare tunnel docs:   docs/CLOUDFLARE_SETUP.md
+# Image tags remain version-pinned rather than digest-pinned. Verified
+# multi-architecture digests are tracked in PARKED.md and must not be invented.
 
 services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     command: redis-server --save "" --loglevel warning
+    networks:
+      - backend
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -33,10 +25,14 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: temporal
-      POSTGRES_PASSWORD: temporal
+      POSTGRES_PASSWORD: ${TEMPORAL_DB_PASSWORD:?Set TEMPORAL_DB_PASSWORD in .env}
       POSTGRES_DB: temporal
+    networks:
+      - backend
+    volumes:
+      - temporal-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      test: ["CMD-SHELL", "pg_isready -U temporal -d temporal"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -45,17 +41,22 @@ services:
     image: temporalio/auto-setup:1.29.3
     restart: unless-stopped
     ports:
-      - "7233:7233"
+      - "127.0.0.1:${TEMPORAL_PORT:-7233}:7233"
     environment:
-      - DB=postgres12
-      - DB_PORT=5432
-      - POSTGRES_USER=temporal
-      - POSTGRES_PWD=temporal
-      - POSTGRES_SEEDS=temporal-postgres
-      # The server binds to the container's Docker bridge IP, not 127.0.0.1.
-      # The setup script uses TEMPORAL_CLI_ADDRESS; it auto-detects the container IP.
-      # Healthcheck uses the host-mapped port.
-      - SKIP_DEFAULT_NAMESPACE_CREATION=false
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD:?Set TEMPORAL_DB_PASSWORD in .env}
+      POSTGRES_SEEDS: temporal-postgres
+      BIND_ON_IP: 0.0.0.0
+      SKIP_DEFAULT_NAMESPACE_CREATION: "false"
+    networks:
+      frontend:
+        aliases:
+          - temporal-frontend
+      backend:
+        aliases:
+          - temporal-backend
     depends_on:
       temporal-postgres:
         condition: service_healthy
@@ -70,57 +71,132 @@ services:
     image: temporalio/ui:2.51.0
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "127.0.0.1:${TEMPORAL_UI_PORT:-8080}:8080"
     environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
+      TEMPORAL_ADDRESS: temporal-frontend:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:${TEMPORAL_UI_PORT:-8080}
+    networks:
+      - frontend
+      - backend
     depends_on:
-      - temporal
+      temporal:
+        condition: service_healthy
 
   app:
     build:
       context: .
       dockerfile: Dockerfile.live
+      target: app
     restart: unless-stopped
+    init: true
+    read_only: true
     ports:
-      - "5000:5000"
-      - "50051:50051"
+      - "127.0.0.1:${APP_PORT:-5000}:5000"
+      - "127.0.0.1:${GRPC_HOST_PORT:-50051}:50051"
     environment:
-      - NODE_ENV=production
-      - PORT=5000
-      - GRPC_PORT=50051
-      - REDIS_URL=redis://redis:6379
-      - TEMPORAL_ADDRESS=temporal:7233
-      - ULTRA_API_KEY=${ULTRA_API_KEY:-dev-local-key}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
-      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET:-dev-slack-secret}
-      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-dev-github-secret}
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 5000
+      GRPC_PORT: 50051
+      DATABASE_PATH: /app/data/ultra_computer.db
+      TRUST_PROXY: ${TRUST_PROXY:-1}
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-http://localhost:5000}
+      REDIS_URL: redis://redis:6379
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      TEMPORAL_ADDRESS: temporal-frontend:7233
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-ultra-computer}
+      ULTRA_API_KEY: ${ULTRA_API_KEY:?Set ULTRA_API_KEY in .env}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:-}
+      GMAIL_PUSH_TOKEN: ${GMAIL_PUSH_TOKEN:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      ALLOW_HOST_SHELL: "false"
+    networks:
+      - frontend
+      - backend
+    volumes:
+      - app-data:/app/data
+      - app-ipc:/app/ipc
+      - sandbox-data:/app/sandbox
+    tmpfs:
+      - /tmp:size=128m,mode=1777
     depends_on:
       redis:
         condition: service_healthy
-      temporal:
-        condition: service_started
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:5000/api/health"]
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:5000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 20s
 
-  # Cloudflare Tunnel — exposes the app at your configured public hostname
-  # Set TUNNEL_TOKEN in .env (see docs/CLOUDFLARE_SETUP.md)
-  # If TUNNEL_TOKEN is not set the service exits cleanly and the rest of the stack runs fine.
+  temporal-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.live
+      target: temporal-worker
+    restart: unless-stopped
+    init: true
+    read_only: true
+    environment:
+      NODE_ENV: production
+      RUN_TEMPORAL_WORKER: "1"
+      TEMPORAL_ADDRESS: temporal-frontend:7233
+      TEMPORAL_TASK_QUEUE: ${TEMPORAL_TASK_QUEUE:-ultra-computer}
+      REDIS_URL: redis://redis:6379
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DATABASE_PATH: /app/data/ultra_computer.db
+      ULTRA_API_KEY: ${ULTRA_API_KEY:?Set ULTRA_API_KEY in .env}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env}
+      ALLOW_HOST_SHELL: "false"
+    networks:
+      - frontend
+      - backend
+    volumes:
+      - app-data:/app/data
+      - app-ipc:/app/ipc
+      - sandbox-data:/app/sandbox
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    depends_on:
+      temporal:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "if(!require('fs').existsSync('/tmp/temporal-worker-ready'))process.exit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
   cloudflared:
     image: cloudflare/cloudflared:2026.6.0
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
-      - TUNNEL_TOKEN=${TUNNEL_TOKEN:-}
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    networks:
+      - frontend
     depends_on:
       app:
-        condition: service_started
-    # Only run if TUNNEL_TOKEN is set; cloudflared exits with code 1 without it.
-    # Use `docker compose --profile tunnel up -d` to ensure it only starts when intended,
-    # or simply set TUNNEL_TOKEN in .env.
+        condition: service_healthy
     profiles:
       - tunnel
+
+networks:
+  frontend:
+  backend:
+    internal: true
+
+volumes:
+  app-data:
+  app-ipc:
+  sandbox-data:
+  temporal-postgres-data:

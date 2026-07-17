@@ -5,6 +5,9 @@ node_modules/
 
 # Build output
 dist/
+coverage/
+test-results/
+playwright-report/
 *.cjs
 
 # SQLite runtime files

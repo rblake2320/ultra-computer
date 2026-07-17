@@ -122,6 +122,22 @@ interface ChannelAdapter {
   testConnection(config: any): Promise<{ ok: boolean; error?: string }>;
 }
 
+const SENSITIVE_KEY = /(token|secret|password|api.?key|authorization)/i;
+
+export function redactSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(redactSecrets);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !SENSITIVE_KEY.test(key))
+        .map(([key, entry]) => [key, redactSecrets(entry)]),
+    );
+  }
+  return value;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Notification Templates
 // ─────────────────────────────────────────────────────────────────────────────
@@ -195,15 +211,16 @@ const NOTIFICATION_TEMPLATES: Record<
 class SlackAdapter implements ChannelAdapter {
   type: ChannelType = "slack";
 
-  /**
-   * STUB: Builds a Slack Block Kit payload and stores it on message metadata.
-   * Actual HTTP delivery is NOT implemented here — this is a stub that prepares
-   * the payload for the routes layer to send via a connected Slack integration.
-   * TODO: wire up real Slack API calls when a Slack connector is available.
-   */
   async send(payload: OutboundMessage): Promise<SendResult> {
-    console.warn("[MessagingHub] SlackAdapter.send() is a stub — message is prepared but not actually delivered to Slack");
-    const channelTarget = payload.metadata?.slackChannel ?? payload.recipient ?? "#general";
+    const token = payload.metadata?.botToken
+      ?? payload.metadata?.accessToken
+      ?? payload.metadata?.apiKey;
+    const channelTarget = payload.metadata?.slackChannel
+      ?? payload.metadata?.channelName
+      ?? payload.metadata?.defaultChannel
+      ?? payload.recipient;
+    if (!token) return { ok: false, error: "Slack bot token is not configured", retryable: false };
+    if (!channelTarget) return { ok: false, error: "Slack channel is not configured", retryable: false };
 
     try {
       const blocks = this._buildBlocks(payload);
@@ -214,12 +231,32 @@ class SlackAdapter implements ChannelAdapter {
         ...(payload.threadId ? { thread_ts: payload.threadId } : {}),
       };
 
-      // Store the composed payload on the message metadata for the routes layer
-      payload.metadata.slackPayload = slackPayload;
-
+      const response = await governedFetch(
+        "https://slack.com/api/chat.postMessage",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json; charset=utf-8",
+          },
+          body: JSON.stringify(slackPayload),
+        },
+        `messaging-${payload.id}`,
+        "network",
+        "network:messaging_send",
+        { timeoutMs: 15_000, maxResponseBytes: 1024 * 1024 },
+      );
+      const result = await response.json() as { ok?: boolean; ts?: string; error?: string };
+      if (!response.ok || !result.ok) {
+        return {
+          ok: false,
+          error: result.error ?? `Slack returned HTTP ${response.status}`,
+          retryable: response.status === 429 || response.status >= 500,
+        };
+      }
       return {
         ok: true,
-        messageId: `slack-pending-${uuidv4()}`,
+        messageId: result.ts,
       };
     } catch (err: any) {
       return { ok: false, error: err.message, retryable: true };
@@ -373,19 +410,32 @@ class SlackAdapter implements ChannelAdapter {
 
   /** Validates that required Slack config fields are present. */
   async testConnection(config: any): Promise<{ ok: boolean; error?: string }> {
-    if (!config?.workspaceId) {
-      return { ok: false, error: "Missing required field: workspaceId" };
-    }
-    if (!config?.defaultChannel) {
-      return { ok: false, error: "Missing required field: defaultChannel" };
-    }
-    if (!config.defaultChannel.startsWith("#") && !config.defaultChannel.startsWith("C")) {
+    const token = config?.botToken ?? config?.accessToken ?? config?.apiKey;
+    const channel = config?.channelName ?? config?.defaultChannel;
+    if (!token) return { ok: false, error: "Missing required field: botToken" };
+    if (!channel) return { ok: false, error: "Missing required field: channelName" };
+    if (!channel.startsWith("#") && !channel.startsWith("C")) {
       return {
         ok: false,
-        error: "defaultChannel must start with # (e.g. #general) or be a channel ID (Cxxxxxxxx)",
+        error: "channelName must start with # (e.g. #general) or be a channel ID (Cxxxxxxxx)",
       };
     }
-    return { ok: true };
+    try {
+      const response = await governedFetch(
+        "https://slack.com/api/auth.test",
+        { headers: { Authorization: `Bearer ${token}` } },
+        "messaging-slack-test",
+        "network",
+        "network:connector_validate",
+        { timeoutMs: 8_000, maxResponseBytes: 1024 * 1024 },
+      );
+      const result = await response.json() as { ok?: boolean; error?: string };
+      return result.ok
+        ? { ok: true }
+        : { ok: false, error: result.error ?? `Slack returned HTTP ${response.status}` };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   private _buildBlocks(payload: OutboundMessage): any[] {
@@ -415,16 +465,16 @@ class SlackAdapter implements ChannelAdapter {
 class GmailAdapter implements ChannelAdapter {
   type: ChannelType = "gmail";
 
-  /**
-   * STUB: Formats a Gmail payload and stores it on message metadata.
-   * Actual delivery is NOT implemented here — this is a stub that prepares
-   * the payload for the routes layer to send via a connected Gmail integration.
-   * TODO: wire up real Gmail API calls when a Gmail connector is available.
-   */
   async send(payload: OutboundMessage): Promise<SendResult> {
-    console.warn("[MessagingHub] GmailAdapter.send() is a stub — message is prepared but not actually delivered via Gmail");
     if (!payload.recipient) {
       return { ok: false, error: "No recipient specified for Gmail channel", retryable: false };
+    }
+    const token = payload.metadata?.accessToken ?? payload.metadata?.oauthToken;
+    const fromAddress = payload.metadata?.fromAddress ?? payload.metadata?.email;
+    if (!token) return { ok: false, error: "Gmail OAuth access token is not configured", retryable: false };
+    if (!fromAddress) return { ok: false, error: "Gmail from address is not configured", retryable: false };
+    if (payload.attachments?.length) {
+      return { ok: false, error: "Gmail attachments are not supported by this adapter", retryable: false };
     }
 
     try {
@@ -433,27 +483,48 @@ class GmailAdapter implements ChannelAdapter {
           ? payload.content
           : this._textToHtml(payload.content);
 
-      const gmailPayload = {
-        to: payload.recipient,
-        subject: payload.subject ?? "Ultra Computer Notification",
-        body: htmlBody,
-        isHtml: true,
-        ...(payload.attachments?.length
-          ? {
-              attachments: payload.attachments.map((a) => ({
-                filename: a.name,
-                url: a.url,
-                mimeType: a.mimeType,
-              })),
-            }
-          : {}),
-      };
-
-      payload.metadata.gmailPayload = gmailPayload;
-
+      const subject = this._headerValue(payload.subject ?? "Ultra Computer Notification");
+      const to = this._headerValue(payload.recipient);
+      const from = this._headerValue(fromAddress);
+      const raw = Buffer.from(
+        [
+          `From: ${from}`,
+          `To: ${to}`,
+          `Subject: ${subject}`,
+          "MIME-Version: 1.0",
+          "Content-Type: text/html; charset=UTF-8",
+          "Content-Transfer-Encoding: 8bit",
+          "",
+          htmlBody,
+        ].join("\r\n"),
+        "utf8",
+      ).toString("base64url");
+      const response = await governedFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ raw }),
+        },
+        `messaging-${payload.id}`,
+        "network",
+        "network:messaging_send",
+        { timeoutMs: 15_000, maxResponseBytes: 1024 * 1024 },
+      );
+      const result = await response.json().catch(() => ({})) as { id?: string; error?: { message?: string } };
+      if (!response.ok || !result.id) {
+        return {
+          ok: false,
+          error: result.error?.message ?? `Gmail returned HTTP ${response.status}`,
+          retryable: response.status === 429 || response.status >= 500,
+        };
+      }
       return {
         ok: true,
-        messageId: `gmail-pending-${uuidv4()}`,
+        messageId: result.id,
       };
     } catch (err: any) {
       return { ok: false, error: err.message, retryable: true };
@@ -482,8 +553,8 @@ class GmailAdapter implements ChannelAdapter {
       .map(
         ([k, v]) =>
           `<tr>
-            <td style="padding:6px 12px;font-weight:600;color:#555;white-space:nowrap;border-bottom:1px solid #eee;">${this._camelToLabel(k)}</td>
-            <td style="padding:6px 12px;color:#333;border-bottom:1px solid #eee;">${String(v).slice(0, 500)}</td>
+            <td style="padding:6px 12px;font-weight:600;color:#555;white-space:nowrap;border-bottom:1px solid #eee;">${this._escapeHtml(this._camelToLabel(k))}</td>
+            <td style="padding:6px 12px;color:#333;border-bottom:1px solid #eee;">${this._escapeHtml(String(v).slice(0, 500))}</td>
           </tr>`
       )
       .join("");
@@ -493,7 +564,7 @@ class GmailAdapter implements ChannelAdapter {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${tpl.title}</title>
+  <title>${this._escapeHtml(tpl.title)}</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f4f4f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:32px 0;">
@@ -556,20 +627,6 @@ class GmailAdapter implements ChannelAdapter {
               : ""
           }
 
-          <!-- CTA Button -->
-          ${
-            notification.conversationId
-              ? `<tr>
-            <td style="padding:4px 32px 28px;text-align:center;">
-              <a href="https://ultra-computer.app/conversations/${notification.conversationId}"
-                 style="display:inline-block;padding:12px 28px;background:linear-gradient(135deg,#1a1a2e,#16213e);color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;border-radius:6px;letter-spacing:0.3px;">
-                View Conversation →
-              </a>
-            </td>
-          </tr>`
-              : ""
-          }
-
           <!-- Footer -->
           <tr>
             <td style="background:#f8f9fa;border-top:1px solid #eee;padding:20px 32px;">
@@ -577,9 +634,6 @@ class GmailAdapter implements ChannelAdapter {
                 <tr>
                   <td style="font-size:12px;color:#999;">
                     Sent by <strong>Ultra Computer</strong> at ${date}
-                  </td>
-                  <td align="right">
-                    <a href="https://ultra-computer.app" style="font-size:12px;color:#4A90E2;text-decoration:none;">ultra-computer.app</a>
                   </td>
                 </tr>
               </table>
@@ -652,12 +706,14 @@ class GmailAdapter implements ChannelAdapter {
 
   /** Validates that the configured from address is a valid email. */
   async testConnection(config: any): Promise<{ ok: boolean; error?: string }> {
-    if (!config?.fromAddress) {
+    const fromAddress = config?.fromAddress ?? config?.email;
+    const token = config?.accessToken ?? config?.oauthToken;
+    if (!fromAddress) {
       return { ok: false, error: "Missing required field: fromAddress" };
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(config.fromAddress)) {
-      return { ok: false, error: `Invalid email address: ${config.fromAddress}` };
+    if (!emailRegex.test(fromAddress)) {
+      return { ok: false, error: `Invalid email address: ${fromAddress}` };
     }
     if (!config?.defaultRecipient) {
       return { ok: false, error: "Missing required field: defaultRecipient" };
@@ -668,7 +724,28 @@ class GmailAdapter implements ChannelAdapter {
         error: `Invalid default recipient email: ${config.defaultRecipient}`,
       };
     }
-    return { ok: true };
+    if (!token) return { ok: false, error: "Missing required field: accessToken" };
+    try {
+      const response = await governedFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+        { headers: { Authorization: `Bearer ${token}` } },
+        "messaging-gmail-test",
+        "network",
+        "network:connector_validate",
+        { timeoutMs: 8_000, maxResponseBytes: 1024 * 1024 },
+      );
+      if (!response.ok) return { ok: false, error: `Gmail returned HTTP ${response.status}` };
+      const profile = await response.json() as { emailAddress?: string };
+      return profile.emailAddress
+        ? { ok: true }
+        : { ok: false, error: "Gmail profile response did not contain an email address" };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  private _headerValue(value: string): string {
+    return value.replace(/[\r\n]+/g, " ").trim();
   }
 
   private _textToHtml(text: string): string {
@@ -737,10 +814,7 @@ class WebhookAdapter implements ChannelAdapter {
         threadId: payload.threadId,
         attachments: payload.attachments ?? [],
       },
-      metadata: {
-        ...payload.metadata,
-        webhookUrl: undefined, // Don't echo the URL back
-      },
+      metadata: redactSecrets(payload.metadata) as Record<string, any>,
     };
 
     try {
@@ -753,16 +827,19 @@ class WebhookAdapter implements ChannelAdapter {
             "Content-Type": "application/json",
             "User-Agent": "UltraComputer/1.0",
             "X-Ultra-Computer-Event": payload.metadata?.notificationType ?? "message",
-            ...(payload.metadata?.webhookSecret
-              ? { "X-Webhook-Secret": payload.metadata.webhookSecret }
+            ...(payload.metadata?.webhookSecret ?? payload.metadata?.secret
+              ? {
+                  "X-Webhook-Secret":
+                    payload.metadata.webhookSecret ?? payload.metadata.secret,
+                }
               : {}),
           },
           body: JSON.stringify(envelope),
-          signal: AbortSignal.timeout(10_000),
         },
         sessionId,
         "network",
-        "webhook_send",
+        "network:messaging_send",
+        { timeoutMs: 10_000 },
       );
 
       if (!response.ok) {
@@ -776,7 +853,6 @@ class WebhookAdapter implements ChannelAdapter {
 
       return {
         ok: true,
-        messageId: `webhook-${uuidv4()}`,
       };
     } catch (err: any) {
       if (err instanceof PolicyDeniedError) {
@@ -911,11 +987,11 @@ class WebhookAdapter implements ChannelAdapter {
             "X-Ultra-Computer-Event": "ping",
           },
           body: JSON.stringify(pingPayload),
-          signal: AbortSignal.timeout(8_000),
         },
         `webhook-test-${pingPayload.id}`,
         "network",
-        "webhook_test",
+        "network:connector_validate",
+        { timeoutMs: 8_000, maxResponseBytes: 1024 * 1024 },
       );
 
       if (!response.ok) {
@@ -1095,7 +1171,10 @@ class MessageQueue {
   }
 
   private _addToHistory(message: OutboundMessage): void {
-    this.history.push(message);
+    this.history.push({
+      ...message,
+      metadata: redactSecrets(message.metadata) as Record<string, any>,
+    });
     if (this.history.length > this.MAX_HISTORY) {
       this.history.shift();
     }
@@ -1616,10 +1695,12 @@ class MessagingHub extends EventEmitter {
 
   /** Activate a channel by setting status to connected. */
   async connectChannel(channelId: string, _opts?: any): Promise<{ ok: boolean; error?: string }> {
-    const ch = this.updateChannelConfig(channelId, { status: "connected" });
-    if (!ch) return { ok: false, error: "Channel not found" };
-    this.emit("channel_status_change", { channelId, status: "connected" });
-    return { ok: true };
+    const result = await this.testChannel(channelId);
+    this.emit("channel_status_change", {
+      channelId,
+      status: result.ok ? "connected" : "error",
+    });
+    return result;
   }
 
   /** Deactivate a channel by setting status to disconnected. */

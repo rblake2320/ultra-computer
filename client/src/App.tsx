@@ -8,6 +8,7 @@ import { ThemeProvider } from "./components/ThemeProvider";
 import { Layout } from "./components/Layout";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { AuthGate } from "./components/AuthGate";
 
 const ChatPage = lazy(() => import("./pages/ChatPage").then(m => ({ default: m.ChatPage })));
 const ModelsPage = lazy(() => import("./pages/ModelsPage").then(m => ({ default: m.ModelsPage })));
@@ -61,7 +62,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <Router hook={useHashLocation}>
+        <AuthGate><Router hook={useHashLocation}>
           <Switch>
             <Route path="/">
               <Suspense fallback={<RouteFallback />}><WelcomePage /></Suspense>
@@ -130,7 +131,7 @@ export default function App() {
             </Route>
             <Route component={NotFound} />
           </Switch>
-        </Router>
+        </Router></AuthGate>
         <Toaster />
       </ThemeProvider>
     </QueryClientProvider>
