@@ -7,11 +7,12 @@
  * All side-effecting work happens in activities (temporalActivities.ts).
  *
  * Workflow run lifecycle:
- * 1. Client calls scheduleConversationRun(workflowId, input)
+ * 1. A proof client explicitly starts conversationRunWorkflow
  * 2. Temporal starts a workflow execution and persists event history
  * 3. Worker picks up the task and executes runOrchestratorActivity()
- * 4. If the worker crashes mid-activity, Temporal retries the activity on restart
- * 5. Completed activities in event history are skipped on replay — no duplication
+ * 4. Temporal can retry the whole activity. The application orchestrator is
+ *    not yet decomposed into resumable activities, so this is not production
+ *    crash-recovery proof.
  */
 
 import { proxyActivities, sleep } from "@temporalio/workflow";

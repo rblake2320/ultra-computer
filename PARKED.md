@@ -287,8 +287,11 @@ link so future contributors can tell whether the constraint still applies.
   model-response credential leakage is closed by WHY-0016. Model readiness and
   atomic core roles are closed by WHY-0017. Connector UI, upload auth, audited
   Identity request contracts and callback authentication are closed by
-  WHY-0018. Provider-native connector operations, messaging durability,
-  protocol, durable execution and experimental semantics can still fail or
+  WHY-0018. WHY-0019 closes duplicate orchestrator admission and removes the
+  false Temporal application claim. WHY-0020 closes messaging restart state,
+  inbound orchestration and MCP transport while making unsupported
+  provider-native operations fail explicitly. Transactional outbound delivery,
+  remaining protocols, migrations and experimental semantics can still fail or
   report false success.
 - **Reactivate when:** Immediately, before public launch.
 - **Next decision:** Execute the ordered twelve-step repair plan in

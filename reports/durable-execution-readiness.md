@@ -2,7 +2,14 @@
 
 Date: 2026-06-13 (VERIFIED LIVE update)
 
-Status: `VERIFIED LIVE — Temporal end-to-end workflow proof PASSED`
+Status: `SUPERSEDED FOR APPLICATION READINESS — sample proof only`
+
+> **Current correction — 2026-07-17:** The historical evidence below proves a
+> self-contained Temporal sample, not Ultra Computer's message/orchestrator
+> path. Normal application work uses BullMQ or direct execution and never
+> starts a Temporal workflow. The Temporal services now require the explicit
+> `temporal-proof` Compose profile. Do not use this report as production
+> crash-resume evidence for the application.
 
 ## VERIFIED LIVE — 2026-06-13
 
@@ -22,7 +29,8 @@ VERIFIED LIVE — Temporal durable execution proof PASSED
 
 - `scripts/temporal-proof-workflow.ts` — self-contained 3-step workflow for proof
 - `scripts/temporal-proof-run.ts` — full proof script: connect, start worker, run workflow, verify event history, verify idempotency, shutdown
-- `docker-compose.yml` — fixed DB backend from sqlite (not supported) to postgres12; fixed TEMPORAL_ADDRESS binding
+- `docker-compose.yml` — isolates the sample server/database/worker behind the
+  explicit `temporal-proof` profile
 - Temporal SDK installed: `@temporalio/activity`, `@temporalio/client`, `@temporalio/worker`, `@temporalio/workflow` v1.18.1
 - `npm run temporal:proof` — runs the live proof against localhost:7233
 - `npm run temporal:namespace` — registers default namespace (workaround for auto-setup binding quirk)
@@ -33,12 +41,17 @@ VERIFIED LIVE — Temporal durable execution proof PASSED
 Does ultra-computer currently have durable execution, or only ordinary request/worker execution?
 
 - VERIFIED LIVE as of 2026-06-13: Temporal end-to-end proof passed on a real server.
-- `server/temporal*.ts` wires the app orchestrator into a Temporal activity with retry policy and non-retryable error types.
-- App crash-resume (actual `runOrchestrator` through Temporal): WIRED, labeled ENVIRONMENT_REQUIRED (needs ULTRA_API_KEY + model connectors for a meaningful live test).
+- `server/temporal*.ts` contains a proof worker and a whole-orchestrator
+  activity wrapper, but no application ingress starts its workflow.
+- App crash-resume (actual `runOrchestrator` through Temporal): **NOT WIRED**.
+  Retrying the whole orchestrator after a partial failure could duplicate
+  provider or tool side effects, so this wrapper is deliberately not presented
+  as a production path.
 
 What has now been implemented to prevent duplicated work or lost state?
 
-- Temporal event history prevents activity re-execution on worker crash/restart (VERIFIED LIVE)
+- Temporal event history preserved the completed activities in the isolated
+  sample (historical VERIFIED LIVE evidence; not an app-path claim)
 - Idempotent result fetch: querying a completed workflow returns same result from history, no re-run (VERIFIED LIVE)
 - Workflow IDs from `workflowIdFromMessage(messageId)` prevent duplicate workflows per message
 - File ledger in `server/durableExecution.ts` records run/step state, attempts, and events with atomic file writes
@@ -48,8 +61,8 @@ What has now been implemented to prevent duplicated work or lost state?
 | Requirement | Status | Evidence | Gap |
 | --- | --- | --- | --- |
 | Workflow state persistence | VERIFIED LIVE | Temporal postgres12 backend; event history persisted in DB | None for workflow scope; file ledger for app-layer tracking |
-| Exact step resume after crash/restart | VERIFIED LIVE | 3-step workflow ran; event history shows 3/3 ACTIVITY_TASK_COMPLETED; idempotent re-fetch confirmed | App orchestrator crash-resume needs live ULTRA_API_KEY test |
-| Idempotent activity execution | VERIFIED LIVE | Second result fetch returned identical result without re-running | App-level LLM tool side effects: ENVIRONMENT_REQUIRED |
+| Exact step resume after crash/restart | SAMPLE ONLY | 3-step proof workflow ran | App orchestration is not decomposed into resumable activities |
+| Idempotent activity execution | SAMPLE ONLY | Second proof result fetch returned identical result | Provider/tool side effects are outside the sample |
 | Retry policies with backoff and non-retryable errors | WIRED | `temporalWorkflow.ts` retry policy wired; `classifyRetry()` maps to non-retryable types | Provider live rate-limit path not exercised |
 | Rate-limit handling | UNIT-LEVEL ONLY | `classifyRetry("429 rate limit")` tests | Provider live rate-limit path: CREDENTIAL_GATED |
 | Human approval/signal gates | NOT VERIFIED | No durable signal implementation | Needs workflow signals/updates |
@@ -70,7 +83,7 @@ What has now been implemented to prevent duplicated work or lost state?
 | Typecheck | STATIC ONLY PASS | `npm run check`: exit 0 |
 | Docker stack health | VERIFIED LIVE | `docker compose ps`: temporal healthy, postgres healthy, redis healthy |
 | Temporal UI | VERIFIED LIVE | localhost:8080 — workflow listed in Completed, event history accessible |
-| App worker crash-resume | ENVIRONMENT_REQUIRED | Requires ULTRA_API_KEY + model connectors for live test |
+| App worker crash-resume | NOT WIRED | Application ingress does not start Temporal workflows |
 
 ### Known: Temporal namespace setup quirk
 

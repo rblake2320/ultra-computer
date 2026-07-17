@@ -9,7 +9,13 @@
 
 import { v4 as uuidv4 } from "uuid";
 import { EventEmitter } from "events";
+import crypto from "crypto";
 import { governedFetch, PolicyDeniedError } from "./governedFetch.js";
+import { encrypt, decrypt } from "./encryption.js";
+import { storage } from "./storage.js";
+import { taskQueue, type QueuedTask } from "./taskQueue.js";
+import { runOrchestrator } from "./orchestrator.js";
+import { workflowIdFromMessage } from "./durableExecution.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Core Data Types
@@ -108,6 +114,94 @@ export interface MessagingHubStats {
   messagesReceived: number;
   deliverySuccessRate: number;
   queueDepth: number;
+}
+
+interface PersistedQueueEntry {
+  message: OutboundMessage;
+  delivery: DeliveryRecord;
+  maxRetries: number;
+  nextRetryAt: number;
+}
+
+interface PersistedMessagingState {
+  version: 1;
+  channels: Channel[];
+  subscriptions: ChannelSubscription[];
+  inboundHistory: InboundMessage[];
+  outboundHistory: OutboundMessage[];
+  deliveryRecords: DeliveryRecord[];
+  queue: PersistedQueueEntry[];
+  messagesSent: number;
+  messagesReceived: number;
+}
+
+export interface MessagingStateStore {
+  load(): PersistedMessagingState | null;
+  save(state: PersistedMessagingState): void;
+}
+
+const MESSAGING_STATE_KEY = "messaging.hub.state.v1";
+
+const sqliteMessagingStateStore: MessagingStateStore = {
+  load() {
+    const stored = storage.getSetting(MESSAGING_STATE_KEY);
+    if (!stored) return null;
+    const parsed = JSON.parse(decrypt(stored)) as PersistedMessagingState;
+    if (parsed.version !== 1) {
+      throw new Error(`Unsupported messaging state version: ${String((parsed as any).version)}`);
+    }
+    return parsed;
+  },
+  save(state) {
+    storage.setSetting(MESSAGING_STATE_KEY, encrypt(JSON.stringify(state)));
+  },
+};
+
+function mergeConfigPreservingSecrets(
+  current: Record<string, any>,
+  update: Record<string, any>,
+): Record<string, any> {
+  const merged: Record<string, any> = { ...current };
+  for (const [key, value] of Object.entries(update)) {
+    if (SENSITIVE_KEY.test(key) && (value === "" || value === "[REDACTED]" || value == null)) {
+      continue;
+    }
+    if (
+      value && typeof value === "object" && !Array.isArray(value) &&
+      merged[key] && typeof merged[key] === "object" && !Array.isArray(merged[key])
+    ) {
+      merged[key] = mergeConfigPreservingSecrets(merged[key], value);
+    } else {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+function dispatchInboundTask(task: QueuedTask): void {
+  const workflowId = workflowIdFromMessage(task.taskId);
+  const runDirect = () => {
+    void runOrchestrator(task.conversationId, task.userMessage, {
+      workflowId,
+      idempotencyKey: `message:${task.taskId}`,
+      messageId: task.taskId,
+      executionMode: "direct",
+    }).catch((error) => {
+      console.error("[messaging] Inbound orchestrator failed:", error);
+    });
+  };
+
+  if (!taskQueue.isAvailable()) {
+    runDirect();
+    return;
+  }
+
+  void taskQueue.enqueue(task).then((jobId) => {
+    if (jobId.startsWith("unavailable:") || jobId.startsWith("error:")) runDirect();
+  }).catch((error) => {
+    console.error("[messaging] Inbound queue enqueue failed; using direct execution:", error);
+    runDirect();
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1086,6 +1180,29 @@ class SubscriptionManager {
   getChannelSubscriptions(channelId: string): ChannelSubscription[] {
     return this.byChannel.get(channelId) ?? [];
   }
+
+  getAll(): ChannelSubscription[] {
+    return Array.from(this.byConversation.values()).flat().map((subscription) => ({
+      ...subscription,
+      events: [...subscription.events],
+    }));
+  }
+
+  restore(subscriptions: ChannelSubscription[]): void {
+    this.byConversation.clear();
+    this.byChannel.clear();
+    for (const subscription of subscriptions) {
+      this.subscribe(
+        subscription.channelId,
+        subscription.conversationId,
+        subscription.events,
+      );
+      const restored = this.byConversation
+        .get(subscription.conversationId)
+        ?.find((entry) => entry.channelId === subscription.channelId);
+      if (restored) restored.createdAt = subscription.createdAt;
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1108,6 +1225,8 @@ class MessageQueue {
   private processing = false;
   private readonly MAX_HISTORY = 500;
   private readonly MAX_RETRIES = 3;
+
+  constructor(private readonly onChange: () => void) {}
 
   /** Enqueues an outbound message for delivery with retry support. */
   enqueue(
@@ -1136,6 +1255,7 @@ class MessageQueue {
     });
 
     this._addToHistory(message);
+    this.onChange();
     this._scheduleProcessing();
 
     return delivery;
@@ -1168,6 +1288,56 @@ class MessageQueue {
       if (d.status === "sent") n++;
     }
     return n;
+  }
+
+  snapshot(): Pick<PersistedMessagingState, "outboundHistory" | "deliveryRecords" | "queue"> {
+    return {
+      outboundHistory: this.history.map((message) => ({
+        ...message,
+        metadata: { ...message.metadata },
+      })),
+      deliveryRecords: Array.from(this.deliveryRecords.values()).map((record) => ({ ...record })),
+      queue: this.queue.map((entry) => ({
+        message: entry.message,
+        delivery: entry.delivery,
+        maxRetries: entry.maxRetries,
+        nextRetryAt: entry.nextRetryAt,
+      })),
+    };
+  }
+
+  restore(
+    state: Pick<PersistedMessagingState, "outboundHistory" | "deliveryRecords" | "queue">,
+    resolveAdapter: (type: ChannelType) => ChannelAdapter | undefined,
+    resolveChannel: (id: string) => Channel | undefined,
+  ): void {
+    this.history = (state.outboundHistory ?? []).slice(-this.MAX_HISTORY);
+    this.deliveryRecords = new Map(
+      (state.deliveryRecords ?? []).map((record) => [record.id, { ...record }]),
+    );
+    this.queue = [];
+    for (const saved of state.queue ?? []) {
+      const channel = resolveChannel(saved.delivery.channelId);
+      const adapter = channel ? resolveAdapter(channel.type) : undefined;
+      if (!channel || !adapter) {
+        const delivery = this.deliveryRecords.get(saved.delivery.id) ?? saved.delivery;
+        delivery.status = "failed";
+        delivery.error = "Channel or adapter no longer exists after restart";
+        this.deliveryRecords.set(delivery.id, delivery);
+        continue;
+      }
+      const delivery = this.deliveryRecords.get(saved.delivery.id) ?? saved.delivery;
+      this.queue.push({
+        message: saved.message,
+        delivery,
+        adapter,
+        channel,
+        maxRetries: saved.maxRetries,
+        nextRetryAt: saved.nextRetryAt,
+      });
+    }
+    this.onChange();
+    if (this.queue.length > 0) this._scheduleProcessing();
   }
 
   private _addToHistory(message: OutboundMessage): void {
@@ -1217,6 +1387,7 @@ class MessageQueue {
       } else {
         this.processing = false;
       }
+      this.onChange();
     } finally {
       // Always reset processing flag so queue doesn’t get stuck on unexpected errors
       if (this.processing) {
@@ -1260,6 +1431,8 @@ class MessageQueue {
         entry.delivery.status = "failed";
         entry.delivery.error = err.message;
       }
+    } finally {
+      this.onChange();
     }
   }
 }
@@ -1268,11 +1441,11 @@ class MessageQueue {
 // Messaging Hub (Singleton)
 // ─────────────────────────────────────────────────────────────────────────────
 
-class MessagingHub extends EventEmitter {
+export class MessagingHub extends EventEmitter {
   private channels = new Map<string, Channel>();
   private adapters = new Map<ChannelType, ChannelAdapter>();
   private subscriptionManager = new SubscriptionManager();
-  private messageQueue = new MessageQueue();
+  private messageQueue: MessageQueue;
   private messagesSent = 0;
   private messagesReceived = 0;
   private inboundHistory: Array<any> = [];
@@ -1281,12 +1454,51 @@ class MessagingHub extends EventEmitter {
   // Built-in conversation tracking: conversationId → channel IDs
   private conversations = new Map<string, Set<string>>();
 
-  constructor() {
+  constructor(
+    private readonly stateStore: MessagingStateStore = sqliteMessagingStateStore,
+    private readonly inboundDispatcher: (task: QueuedTask) => void = dispatchInboundTask,
+  ) {
     super();
     // Register built-in adapters
     this.adapters.set("slack", new SlackAdapter());
     this.adapters.set("gmail", new GmailAdapter());
     this.adapters.set("webhook", new WebhookAdapter());
+    this.messageQueue = new MessageQueue(() => this.persistState());
+    this.restoreState();
+  }
+
+  private restoreState(): void {
+    const state = this.stateStore.load();
+    if (!state) return;
+    this.channels = new Map((state.channels ?? []).map((channel) => [channel.id, channel]));
+    this.subscriptionManager.restore(state.subscriptions ?? []);
+    this.inboundHistory = (state.inboundHistory ?? []).slice(-this.MAX_INBOUND_HISTORY);
+    this.messagesSent = state.messagesSent ?? 0;
+    this.messagesReceived = state.messagesReceived ?? 0;
+    this.messageQueue.restore(
+      state,
+      (type) => this.adapters.get(type),
+      (id) => this.channels.get(id),
+    );
+    for (const subscription of state.subscriptions ?? []) {
+      if (!this.conversations.has(subscription.conversationId)) {
+        this.conversations.set(subscription.conversationId, new Set());
+      }
+      this.conversations.get(subscription.conversationId)!.add(subscription.channelId);
+    }
+  }
+
+  private persistState(): void {
+    const queue = this.messageQueue.snapshot();
+    this.stateStore.save({
+      version: 1,
+      channels: Array.from(this.channels.values()),
+      subscriptions: this.subscriptionManager.getAll(),
+      inboundHistory: this.inboundHistory.slice(-this.MAX_INBOUND_HISTORY),
+      ...queue,
+      messagesSent: this.messagesSent,
+      messagesReceived: this.messagesReceived,
+    });
   }
 
   // ──────────────────────────────────────────
@@ -1341,6 +1553,7 @@ class MessagingHub extends EventEmitter {
       updatedAt: Date.now(),
     };
     this.channels.set(channel.id, channel);
+    this.persistState();
     return channel;
   }
 
@@ -1358,6 +1571,7 @@ class MessagingHub extends EventEmitter {
     }
 
     this.channels.delete(channelId);
+    this.persistState();
     return true;
   }
 
@@ -1385,7 +1599,12 @@ class MessagingHub extends EventEmitter {
     const channel = this.channels.get(channelId);
     if (!channel) return null;
 
-    Object.assign(channel, updates, { updatedAt: Date.now() });
+    const safeUpdates = { ...updates };
+    if (updates.config) {
+      safeUpdates.config = mergeConfigPreservingSecrets(channel.config, updates.config);
+    }
+    Object.assign(channel, safeUpdates, { updatedAt: Date.now() });
+    this.persistState();
     return channel;
   }
 
@@ -1402,6 +1621,7 @@ class MessagingHub extends EventEmitter {
     const result = await adapter.testConnection(channel.config);
     channel.status = result.ok ? "connected" : "error";
     channel.updatedAt = Date.now();
+    this.persistState();
 
     return result;
   }
@@ -1462,6 +1682,7 @@ class MessagingHub extends EventEmitter {
 
     const delivery = this.messageQueue.enqueue(message, adapter, channel);
     this.messagesSent++;
+    this.persistState();
 
     return { deliveryId: delivery.id, ok: true };
   }
@@ -1499,6 +1720,7 @@ class MessagingHub extends EventEmitter {
 
     const delivery = this.messageQueue.enqueue(outbound, adapter, channel);
     this.messagesSent++;
+    this.persistState();
 
     return { deliveryId: delivery.id, ok: true };
   }
@@ -1541,14 +1763,8 @@ class MessagingHub extends EventEmitter {
   ): { conversationId: string; message: any } {
     // Routes call with a single pre-parsed inbound object
     if (typeof channelIdOrObj === "object") {
-      const parsed = channelIdOrObj;
-      this.messagesReceived++;
-      // Store in inbound history (capped at MAX_INBOUND_HISTORY)
-      this.inboundHistory.push({ ...parsed, receivedAt: Date.now() });
-      if (this.inboundHistory.length > this.MAX_INBOUND_HISTORY) this.inboundHistory.shift();
-      this.emit("message_received", parsed);
-      const conversationId = parsed.threadId ?? uuidv4();
-      return { conversationId, message: parsed };
+      const parsed = channelIdOrObj as InboundMessage;
+      return this.acceptInbound(parsed, parsed.threadId);
     }
 
     // Original signature: (channelId, rawEvent)
@@ -1562,27 +1778,93 @@ class MessagingHub extends EventEmitter {
     const message = adapter.parseInbound({ ...rawEvent, channelId });
     if (!message) return { conversationId: "", message: null };
 
-    this.messagesReceived++;
-    this.inboundHistory.push({ ...message, receivedAt: Date.now() });
-    if (this.inboundHistory.length > this.MAX_INBOUND_HISTORY) this.inboundHistory.shift();
-    this.emit("message_received", message);
+    return this.acceptInbound(message, message.threadId ?? rawEvent.conversationId);
+  }
 
-    let conversationId =
-      message.threadId ??
-      rawEvent.conversationId ??
-      null;
+  private acceptInbound(
+    message: InboundMessage,
+    requestedConversationId?: string,
+  ): { conversationId: string; message: InboundMessage } {
+    const legacy = message as any;
+    const parsedTimestamp = typeof legacy.timestamp === "string"
+      ? Date.parse(legacy.timestamp)
+      : Number.NaN;
+    const receivedAt = Number.isFinite(message.receivedAt)
+      ? message.receivedAt
+      : Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now();
+    const channelType = String(message.channelType || "webhook");
+    const externalMessageId = String(legacy.externalId || message.id || uuidv4());
+    const configuredChannel = Array.from(this.channels.values())
+      .find((channel) => channel.type === channelType);
+    const normalized: InboundMessage = {
+      id: externalMessageId,
+      channelId: String(message.channelId || configuredChannel?.id || `inbound:${channelType}`),
+      channelType,
+      senderId: String(message.senderId || legacy.sender || "unknown"),
+      senderName: String(message.senderName || legacy.sender || "unknown"),
+      content: typeof message.content === "string" ? message.content : "",
+      threadId: message.threadId,
+      attachments: Array.isArray(message.attachments) ? message.attachments : undefined,
+      receivedAt,
+      metadata: redactSecrets(message.metadata ?? {}) as Record<string, any>,
+    };
+    const conversationId = requestedConversationId?.trim() || uuidv4();
+    const durableMessageId = `inbound:${crypto
+      .createHash("sha256")
+      .update(`${normalized.channelId}\0${normalized.id}`)
+      .digest("hex")}`;
 
-    if (!conversationId) {
-      conversationId = uuidv4();
+    const duplicate = storage.getMessage(durableMessageId);
+    if (!duplicate) {
+      if (!storage.getConversation(conversationId)) {
+        storage.createConversation({
+          id: conversationId,
+          title: normalized.content.slice(0, 60) || `Inbound from ${normalized.senderName || normalized.channelType}`,
+          status: "idle",
+          activeSkillIds: "[]",
+        });
+      }
+      storage.createMessage({
+        id: durableMessageId,
+        conversationId,
+        role: "user",
+        content: normalized.content,
+        metadata: JSON.stringify({
+          ...normalized.metadata,
+          direction: "inbound",
+          channelId: normalized.channelId,
+          channelType: normalized.channelType,
+          externalMessageId: normalized.id,
+          senderId: normalized.senderId,
+          senderName: normalized.senderName,
+          threadId: normalized.threadId,
+          receivedAt,
+        }),
+      });
+
+      this.messagesReceived++;
+      this.inboundHistory.push(normalized);
+      if (this.inboundHistory.length > this.MAX_INBOUND_HISTORY) this.inboundHistory.shift();
     }
 
     if (!this.conversations.has(conversationId)) {
       this.conversations.set(conversationId, new Set());
     }
-    this.conversations.get(conversationId)!.add(channelId);
-    this.subscriptionManager.subscribe(channelId, conversationId, ["*"]);
+    this.conversations.get(conversationId)!.add(normalized.channelId);
+    this.subscriptionManager.subscribe(normalized.channelId, conversationId, ["*"]);
+    this.persistState();
 
-    return { conversationId, message };
+    if (!duplicate && normalized.content.trim()) {
+      this.inboundDispatcher({
+        conversationId,
+        taskId: durableMessageId,
+        userMessage: normalized.content,
+        estimatedDuration: "medium",
+      });
+    }
+    if (!duplicate) this.emit("message_received", normalized);
+
+    return { conversationId, message: normalized };
   }
 
   /**
@@ -1614,12 +1896,16 @@ class MessagingHub extends EventEmitter {
 
   /** Subscribe a channel to events for a conversation. */
   subscribe(channelId: string, conversationId: string, events: string[]): ChannelSubscription {
-    return this.subscriptionManager.subscribe(channelId, conversationId, events);
+    const subscription = this.subscriptionManager.subscribe(channelId, conversationId, events);
+    this.persistState();
+    return subscription;
   }
 
   /** Remove a channel's subscription from a conversation. */
   unsubscribe(channelId: string, conversationId: string): boolean {
-    return this.subscriptionManager.unsubscribe(channelId, conversationId);
+    const removed = this.subscriptionManager.unsubscribe(channelId, conversationId);
+    this.persistState();
+    return removed;
   }
 
   /**
@@ -1694,7 +1980,21 @@ class MessagingHub extends EventEmitter {
   // ──────────────────────────────────────────
 
   /** Activate a channel by setting status to connected. */
-  async connectChannel(channelId: string, _opts?: any): Promise<{ ok: boolean; error?: string }> {
+  async connectChannel(
+    channelId: string,
+    opts?: { credentials?: Record<string, any>; config?: Record<string, any> },
+  ): Promise<{ ok: boolean; error?: string }> {
+    const channel = this.channels.get(channelId);
+    if (!channel) return { ok: false, error: "Channel not found" };
+    const supplied = {
+      ...(opts?.config ?? {}),
+      ...(opts?.credentials ?? {}),
+    };
+    if (Object.keys(supplied).length > 0) {
+      this.updateChannelConfig(channelId, {
+        config: mergeConfigPreservingSecrets(channel.config, supplied),
+      });
+    }
     const result = await this.testChannel(channelId);
     this.emit("channel_status_change", {
       channelId,

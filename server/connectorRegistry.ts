@@ -16,6 +16,11 @@
 import { storage } from "./storage.js";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 import { governedFetch } from "./governedFetch.js";
+import {
+  callRemoteTool,
+  connectToServer,
+  disconnectServer,
+} from "./mcpProtocol.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -527,8 +532,10 @@ export async function validateConnectorKey(
 ): Promise<{ valid: boolean; error?: string }> {
   const def = getConnectorDef(connectorId);
   if (!def?.validateUrl) {
-    // No validation URL — accept as-is (can't verify without calling the API)
-    return { valid: true };
+    return {
+      valid: false,
+      error: `Live credential validation is not implemented for connector '${connectorId}'`,
+    };
   }
   const networkContext = { domain: "network" as const, action: "network:connector_validate", tool: "connector.validate", connectorId, url: def.validateUrl, method: connectorId === "linear" ? "POST" : "GET" };
   const networkDecision = evaluatePolicy(networkContext);
@@ -550,7 +557,12 @@ export async function validateConnectorKey(
     };
     // Provider-specific auth header formats
     if (connectorId === "github") {
-      headers["Authorization"] = `token ${apiKey}`;
+      headers["Authorization"] = `Bearer ${apiKey}`;
+      headers["Accept"] = "application/vnd.github+json";
+      headers["X-GitHub-Api-Version"] = "2022-11-28";
+      headers["User-Agent"] = "ultra-computer-connector-validation";
+    } else if (connectorId === "discord") {
+      headers["Authorization"] = `Bot ${apiKey}`;
     } else if (connectorId === "stripe") {
       headers["Authorization"] = `Basic ${Buffer.from(apiKey + ":").toString("base64")}`;
     } else if (connectorId === "linear") {
@@ -569,8 +581,14 @@ export async function validateConnectorKey(
     if (res.status === 401 || res.status === 403) {
       return { valid: false, error: "Invalid API key or insufficient permissions" };
     }
-    if (res.status >= 500) {
-      return { valid: false, error: `Provider returned ${res.status} — try again later` };
+    if (!res.ok) {
+      return { valid: false, error: `Provider validation failed with HTTP ${res.status}` };
+    }
+    if (connectorId === "linear") {
+      const payload = await res.json() as { data?: { viewer?: { id?: unknown } }; errors?: unknown[] };
+      if (payload.errors?.length || typeof payload.data?.viewer?.id !== "string") {
+        return { valid: false, error: "Linear did not confirm an authenticated viewer" };
+      }
     }
     return { valid: true };
   } catch (err: any) {
@@ -585,6 +603,32 @@ export async function validateConnectorKey(
 
 // Tool name allowlist pattern: alphanumeric, underscores, hyphens, dots only
 const SAFE_TOOL_NAME = /^[a-zA-Z0-9_\-\.]{1,128}$/;
+
+/** Perform a real MCP initialize handshake before persisting connection state. */
+export async function validateMCPConnection(
+  connectorId: string,
+  serverUrl: string,
+  apiKey?: string,
+): Promise<{ valid: boolean; error?: string }> {
+  let connectionId: string | undefined;
+  try {
+    const connection = await connectToServer({
+      url: serverUrl,
+      name: `connector-${connectorId}`,
+      transport: "streamable-http",
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+    });
+    connectionId = connection.id;
+    return { valid: true };
+  } catch (error) {
+    return {
+      valid: false,
+      error: error instanceof Error ? error.message : "MCP initialization failed",
+    };
+  } finally {
+    if (connectionId) disconnectServer(connectionId);
+  }
+}
 
 export async function callMCPTool(
   connectorId: string,
@@ -609,6 +653,11 @@ export async function callMCPTool(
   if (connector.status !== "connected") {
     throw new Error(`Connector ${connectorId} is not connected. Please connect it first.`);
   }
+  if (connector.type !== "mcp") {
+    throw new Error(
+      `Connector '${connectorId}' does not expose MCP tools. Provider operations for this connector are not implemented.`,
+    );
+  }
 
   let config: Record<string, any> = {};
   try {
@@ -617,7 +666,7 @@ export async function callMCPTool(
     config = {};
   }
 
-  const serverUrl = connector.mcpServerUrl || config.serverUrl;
+  const serverUrl = config.serverUrl || connector.mcpServerUrl;
   if (!serverUrl) throw new Error("No MCP server URL configured for this connector");
 
   // Security: only allow http/https URLs
@@ -637,23 +686,21 @@ export async function callMCPTool(
     throw new Error(`Policy denied: ${networkDecision.reason}`);
   }
 
+  let connectionId: string | undefined;
   try {
-    const response = await governedFetch(`${serverUrl}/tools/${toolName}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
-      },
-      body: JSON.stringify(args),
-    }, `connector-${connectorId}`, "network", "network:mcp_call", {
-      timeoutMs: 30_000,
+    const connection = await connectToServer({
+      url: serverUrl,
+      name: connector.name,
+      transport: "streamable-http",
+      headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined,
     });
-    if (!response.ok) {
-      throw new Error(`MCP call failed: ${response.status} ${response.statusText}`);
+    connectionId = connection.id;
+    const result = await callRemoteTool(connection.id, toolName, args);
+    if (result.isError) {
+      throw new Error(`MCP tool '${toolName}' reported an error`);
     }
-    return response.json();
-  } catch (err: any) {
-    if (err.name === "AbortError") throw new Error("MCP tool call timed out after 30s");
-    throw err;
+    return result;
+  } finally {
+    if (connectionId) disconnectServer(connectionId);
   }
 }

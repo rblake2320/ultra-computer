@@ -64,6 +64,17 @@ Passing unit tests are not treated as proof that an external integration works.
   unverified without approved test accounts. Overall launch verdict remains
   NO-GO pending real connector operations, durability, protocol and
   false-success repairs.
+- **2026-07-17 — Messaging, connector truth and duplicate admission closed
+  locally:** Messaging state is encrypted and restart-persistent, inbound
+  events create durable conversations and dispatch once, redacted edits retain
+  secrets, and UI lifecycle/tests require explicit success. API-key connectors
+  without a real validator fail closed; MCP uses a current Streamable HTTP
+  JSON-RPC handshake and `tools/call`. Duplicate durable claims now return
+  before orchestrator side effects. The historical Temporal proof is isolated
+  behind `temporal-proof` and explicitly documented as a sample rather than an
+  application path. Evidence: 286 unit tests, focused 24/24 tests and a clean
+  TypeScript gate. Overall launch verdict remains NO-GO pending migrations,
+  remaining protocols, multimodal/streaming and false-success surfaces.
 
 ## Evidence Collected
 

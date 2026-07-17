@@ -11,6 +11,8 @@ import {
   workflowIdFromMessage,
 } from "../../server/durableExecution.js";
 import { executeTool } from "../../server/tools.js";
+import { runOrchestrator } from "../../server/orchestrator.js";
+import { storage } from "../../server/storage.js";
 
 const originalDurableDir = process.env.ULTRA_DURABLE_RUN_DIR;
 const originalAuditFile = process.env.ULTRA_POLICY_AUDIT_FILE;
@@ -102,6 +104,41 @@ describe("durable execution ledger", () => {
     expect(persisted?.steps).toHaveLength(1);
     expect(persisted?.steps[0]?.status).toBe("failed");
     expect(JSON.stringify(persisted)).not.toContain("ghp_1234567890abcdefghijklmnopqrstuvwxyz");
+  });
+
+  it("does not execute orchestration side effects after a duplicate durable claim", async () => {
+    const conversationId = `duplicate-conversation-${crypto.randomUUID()}`;
+    const messageId = `duplicate-message-${crypto.randomUUID()}`;
+    const workflowId = workflowIdFromMessage(messageId);
+    const idempotencyKey = `message:${messageId}`;
+    storage.createConversation({
+      id: conversationId,
+      title: "Duplicate gate",
+      status: "idle",
+      orchestratorModelId: null,
+      activeSkillIds: "[]",
+    });
+    beginDurableRun({
+      workflowId,
+      idempotencyKey,
+      conversationId,
+      messageId,
+      executionMode: "bullmq",
+    });
+
+    try {
+      await expect(runOrchestrator(conversationId, "must not execute", {
+        workflowId,
+        idempotencyKey,
+        messageId,
+        executionMode: "bullmq",
+      })).resolves.toBeUndefined();
+      expect(storage.getConversation(conversationId)?.status).toBe("idle");
+      expect(storage.getMessages(conversationId)).toEqual([]);
+      expect(getDurableRun(workflowId)?.attempts).toBe(2);
+    } finally {
+      storage.deleteConversation(conversationId);
+    }
   });
 
   it("classifies retryable and non-retryable failures", () => {

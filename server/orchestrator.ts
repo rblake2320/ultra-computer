@@ -120,6 +120,12 @@ export async function runOrchestrator(
     executionMode: options.executionMode || "direct",
     metadata: { userMessageLength: userMessage.length },
   });
+  if (!durableStart.created) {
+    // An identical message may be delivered again by an HTTP retry, BullMQ
+    // retry, or process recovery. The durable claim is the side-effect gate:
+    // only its creator may execute tools, providers, or persistence steps.
+    return;
+  }
   recordDurableStep({
     workflowId,
     stepId: "orchestrator.accepted",

@@ -173,8 +173,8 @@ Reliability behavior added in this pass:
 ## Production-Shaped Docker Deployment
 
 Create `.env` from `.env.example`, then set unique values for
-`ULTRA_API_KEY`, `ENCRYPTION_KEY`, and `TEMPORAL_DB_PASSWORD`. Generate the two
-application secrets independently:
+`ULTRA_API_KEY` and `ENCRYPTION_KEY`. Generate the two application secrets
+independently:
 
 ```bash
 npm run gen:key
@@ -187,11 +187,10 @@ Open `http://127.0.0.1:5000/` and enter the configured `ULTRA_API_KEY` at
 the owner-access screen. The browser validates it against the local server and
 keeps it only in that tab's `sessionStorage`; closing the tab ends the session.
 
-The stack runs the HTTP/gRPC application, Redis, Temporal, PostgreSQL, and a
-separate Temporal worker. Host-published ports bind to loopback. SQLite state is
-stored in the `app-data` volume; Temporal state is stored in
-`temporal-postgres-data`. Terminate inbound HTTPS at a trusted reverse proxy or
-the optional Cloudflare Tunnel profile:
+The standard stack runs the HTTP/gRPC application and Redis. Host-published
+ports bind to loopback, SQLite state is stored in the `app-data` volume, and
+Redis uses AOF persistence in `redis-data`. Terminate inbound HTTPS at a trusted
+reverse proxy or the optional Cloudflare Tunnel profile:
 
 ```bash
 docker compose --profile tunnel up -d --build
@@ -225,9 +224,8 @@ set the production variables below, then run `npm run build && npm start`.
 | `REDIS_URL` or `REDIS_HOST`/`REDIS_PORT` | Redis connection; host/port default to `localhost:6379`. |
 | `REDIS_CACHE_PERSIST` | Set `true` to persist the model-response cache through Redis. |
 | `REQUIRE_TASK_QUEUE` | Production requires the queue unless explicitly set to `0`; `1` requires it in other modes. |
-| `TEMPORAL_ADDRESS`, `TEMPORAL_TASK_QUEUE` | Temporal endpoint and queue; defaults `localhost:7233` and `ultra-computer`. |
-| `RUN_TEMPORAL_WORKER` | Set `1` in the dedicated worker process. |
-| `TEMPORAL_DB_PASSWORD`, `TEMPORAL_PORT`, `TEMPORAL_UI_PORT` | Compose Temporal database secret and loopback ports. |
+| `TEMPORAL_ADDRESS`, `TEMPORAL_TASK_QUEUE`, `RUN_TEMPORAL_WORKER` | Used only by the optional `temporal-proof` profile and proof worker. Normal application messages do not dispatch through Temporal. |
+| `TEMPORAL_DB_PASSWORD`, `TEMPORAL_PORT`, `TEMPORAL_UI_PORT` | Optional `temporal-proof` profile database secret and loopback ports. |
 | `SLACK_SIGNING_SECRET`, `GMAIL_PUSH_TOKEN`, `GITHUB_WEBHOOK_SECRET` | Optional webhook verification secrets. Unconfigured receivers reject requests outside development. |
 | `OAUTH_REDIRECT_BASE_URL` | Public HTTPS base URL used to construct connector OAuth callbacks; required before OAuth can start in production. |
 | `TUNNEL_TOKEN` | Optional Cloudflare Tunnel token for the `tunnel` profile. |
@@ -332,10 +330,12 @@ the command name as blanket live proof.
 `npm run live:docker` builds and runs a clean Linux production container from a version-pinned Node base image as a non-root runtime user, then exercises selected real HTTP paths. The image installs the Chromium runtime used by the Playwright browser tool. It is Docker live-local proof, not Hyper-V/Azure VM proof and not proof of real third-party provider behavior. Immutable multi-architecture base-image digests remain tracked in PARK-0004. Set `LIVE_DOCKER_CLEAN_IMAGE=true` to remove the local proof image after the run.
 
 Durable execution status is tracked in `docs/DURABLE_EXECUTION_GATE.md` and
-`reports/durable-execution-readiness.md`. The production-shaped Compose gate
-proves real Redis dispatch and a real three-activity Temporal workflow with
-history and idempotent result retrieval. It does not yet prove recovery from a
-worker terminated during an in-flight activity; that chaos case is PARK-0008.
+`reports/durable-execution-readiness.md`. BullMQ dispatch, the durable run
+ledger, and duplicate side-effect admission are application paths. The
+optional `temporal-proof` profile proves only a self-contained three-activity
+sample; normal messages do not use it, so it is not application crash-resume
+evidence. Start that isolated proof environment with
+`docker compose --profile temporal-proof up -d`.
 
 ---
 

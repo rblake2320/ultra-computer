@@ -12,7 +12,7 @@ import { insertConversationSchema, insertModelSchema } from "@shared/schema";
 import { runOrchestrator, subscribeToConversation, unsubscribeFromConversation } from "./orchestrator.js";
 import { testModelConnection } from "./modelRouter.js";
 import { connectModel, disconnectModel, testConnection, quickAdd, discoverEnvVars, getProviderCatalog, PROVIDER_REGISTRY } from "./modelConnections.js";
-import { seedConnectors, connectWithApiKey, callMCPTool, validateConnectorKey, getConnectorDef, BUILT_IN_CONNECTORS } from "./connectorRegistry.js";
+import { seedConnectors, connectWithApiKey, callMCPTool, validateConnectorKey, validateMCPConnection, getConnectorDef, BUILT_IN_CONNECTORS } from "./connectorRegistry.js";
 import { seedBuiltInSkills, buildSkillVector, scheduleEmbeddingUpgrade } from "./skillSystem.js";
 import { memoryManager } from "./memoryManager.js";
 import { dockerSandbox } from "./tools.js";
@@ -759,6 +759,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     }
     // For OAuth connectors, store client credentials and return OAuth URL
     const def = getConnectorDef(req.params.id);
+    const connector = storage.getConnector(req.params.id);
+    if (!connector) return res.status(404).json({ error: "Not found" });
     if (def?.type === "oauth" && client_id) {
       if (typeof client_id !== "string" || client_id.length > 1024) {
         return res.status(400).json({ error: "client_id must be a string under 1025 characters" });
@@ -785,12 +787,31 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       if (def.scopes?.length) authUrl.searchParams.set("scope", def.scopes.join(" "));
       return res.json({ ...updated, config: undefined, oauthUrl: authUrl.toString(), state });
     }
-    // For API key connectors, validate the key first
-    if (apiKey && def?.validateUrl) {
+    if (connector.type === "oauth") {
+      return res.status(400).json({ error: "client_id is required to start the OAuth flow" });
+    }
+    // API-key connectors are never marked connected without a real provider check.
+    if (connector.type === "api_key") {
+      if (!apiKey) {
+        return res.status(400).json({ error: "apiKey is required" });
+      }
       const validation = await validateConnectorKey(req.params.id, apiKey);
       if (!validation.valid) {
-        return res.status(400).json({ error: validation.error || "API key validation failed" });
+        return res.status(422).json({ error: validation.error || "API key validation failed" });
       }
+    }
+    if (connector.type === "mcp") {
+      const resolvedServerUrl = serverUrl || connector.mcpServerUrl || def?.mcpServerUrl;
+      if (!resolvedServerUrl || typeof resolvedServerUrl !== "string") {
+        return res.status(400).json({ error: "A Streamable HTTP MCP server URL is required" });
+      }
+      const validation = await validateMCPConnection(req.params.id, resolvedServerUrl, apiKey);
+      if (!validation.valid) {
+        return res.status(422).json({ error: validation.error || "MCP initialization failed" });
+      }
+    }
+    if (!def && !["api_key", "mcp"].includes(connector.type)) {
+      return res.status(422).json({ error: `Connector type '${connector.type}' has no implemented connection flow` });
     }
     const updated = connectWithApiKey(req.params.id, apiKey || "", { serverUrl, ...extra });
     if (!updated) return res.status(404).json({ error: "Not found" });

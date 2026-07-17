@@ -411,3 +411,51 @@ hold detailed decisions that affect architecture or long-lived behavior.
   real Express Identity flows, callback owner-gate tests and webhook HMAC/replay
   tests cover the remaining local contracts.
 - **Related:** WHY-0013, WHY-0016 and PARK-0016.
+
+### WHY-0019: A durable claim is the side-effect admission boundary
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Duplicate delivery returned an existing durable run record but
+  continued into model, tool and persistence side effects. Separately, a
+  standalone Temporal sample was documented as if normal application messages
+  used it, although no ingress started that workflow.
+- **Decision:** Return before all orchestrator side effects when the durable
+  run claim already exists. Keep the Temporal server, worker and database
+  behind an explicit `temporal-proof` profile until application work is
+  decomposed into idempotent, resumable activities and actually dispatched by
+  ingress.
+- **Why:** A ledger is useful only if its atomic claim controls execution.
+  Retrying the entire orchestrator as one activity after a partial failure can
+  duplicate external actions; isolating the sample is more truthful and safer
+  than advertising unearned crash-resume.
+- **Alternatives:** Treat the ledger as telemetry, or route messages through
+  the existing whole-orchestrator Temporal activity. Rejected because the
+  former repeats work and the latter creates false recovery semantics around
+  non-idempotent side effects.
+- **Evidence:** A duplicate-run unit test proves no status, message, provider
+  or tool path is entered; Compose config proves Temporal is absent by default
+  and present only with `--profile temporal-proof`.
+- **Related:** WHY-0007, PARK-0008 and PARK-0016.
+
+### WHY-0020: A connector is connected only after its real boundary responds
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Several connectors accepted credentials without contacting the
+  provider, and the generic tool path invented a `/tools/{name}` endpoint that
+  is not MCP. Messaging could also show success after an `ok: false` result and
+  lost all channel state on restart.
+- **Decision:** Fail closed where provider-native validation or operations are
+  not implemented; use MCP Streamable HTTP initialization and JSON-RPC
+  `tools/call` for MCP connectors; require explicit `ok: true` in the UI; and
+  persist encrypted messaging state plus deduplicated inbound dispatch.
+- **Why:** Configuration storage is not connectivity, and an HTTP 200 envelope
+  is not operational success. The product must distinguish implemented
+  provider behavior from saved metadata.
+- **Alternatives:** Keep optimistic status and add warnings, or preserve the
+  generic REST convention. Rejected because both still produce false success
+  at the exact boundary operators depend on.
+- **Evidence:** Focused connector/MCP/messaging tests, complete TypeScript and
+  unit gates, plus restart restoration and duplicate-inbound contract tests.
+- **Related:** WHY-0016, WHY-0018, PARK-0007 and PARK-0016.

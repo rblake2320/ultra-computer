@@ -11,6 +11,22 @@ All notable changes to this project will be documented in this file.
   platform wiring was production-proven and records a launch NO-GO.
 
 ### Fixed
+- Made the durable run claim the admission gate for orchestrator side effects,
+  so duplicate HTTP/BullMQ/inbound delivery cannot repeat a completed or
+  already-running model/tool execution.
+- Persisted messaging channels, encrypted configuration, subscriptions,
+  histories, delivery records and retry state; restored pending delivery after
+  restart, preserved redacted secrets during edits, and routed deduplicated
+  inbound events into persisted conversations and orchestration.
+- Added real messaging Connect/Disconnect controls and made connection tests
+  fail unless the server explicitly returns `ok: true`; removed the selectable
+  WebSocket channel because no adapter exists.
+- Replaced the connector registry's nonstandard `/tools/{name}` request with a
+  current MCP Streamable HTTP JSON-RPC handshake and `tools/call`, including
+  negotiated session headers, response-envelope validation and cleanup.
+- Made API-key connectors fail closed when no live validation exists or any
+  provider returns a non-success response; non-MCP connector tool calls now
+  report their unsupported status instead of simulating a generic operation.
 - Repaired connector create/connect/OAuth/disconnect response handling,
   authenticated multipart uploads through the shared browser request boundary,
   sent multipart destination metadata before file parts, normalized public file
@@ -38,6 +54,11 @@ All notable changes to this project will be documented in this file.
   the destination route performs signed-state, provider-signature, shared-token
   or timestamped raw-body HMAC verification; restored rate limiting for public
   callback traffic and retired the duplicate registered OAuth flow.
+
+### Documentation
+- Corrected the Temporal readiness claim: the historical three-activity proof
+  is an isolated sample, normal application messages do not dispatch through
+  Temporal, and the sample stack now requires the `temporal-proof` profile.
 - Encrypted complete connector credential configurations at rest, migrated
   legacy plaintext records on first use, sanitized model create/quick-add
   responses, and made internal default/orchestrator lookups decrypt credentials

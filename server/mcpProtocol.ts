@@ -1,7 +1,7 @@
 /**
  * MCP Protocol Implementation — Ultra Computer
  *
- * Implements the Model Context Protocol (MCP) specification version 2025-06-18
+ * Implements the Model Context Protocol (MCP) specification version 2025-11-25
  * using JSON-RPC 2.0 as the transport envelope.
  *
  * This module provides BOTH sides of the protocol:
@@ -10,7 +10,7 @@
  *   - MCP CLIENT: Connects to remote MCP servers and proxies their capabilities
  *     back into Ultra Computer's agent runtime.
  *
- * Reference: https://spec.modelcontextprotocol.io/specification/2025-06-18/
+ * Reference: https://modelcontextprotocol.io/specification/2025-11-25/
  */
 
 import { v4 as uuidv4 } from "uuid";
@@ -21,7 +21,7 @@ import { governedFetch } from "./governedFetch.js";
 
 // ─── MCP Protocol Version ─────────────────────────────────────────────────────
 
-const MCP_PROTOCOL_VERSION = "2025-06-18";
+const MCP_PROTOCOL_VERSION = "2025-11-25";
 const SERVER_NAME = "ultra-computer";
 const SERVER_VERSION = "1.0.0";
 
@@ -168,6 +168,8 @@ export interface MCPServerConnection {
   connectedAt: number;
   /** Custom HTTP headers forwarded on every request */
   headers?: Record<string, string>;
+  /** Session identifier assigned by a Streamable HTTP server during initialize. */
+  sessionId?: string;
   /** Running request counter for generating unique IDs */
   _requestCounter: number;
 }
@@ -855,6 +857,8 @@ async function sendRemoteRequest(
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
       "User-Agent": `${SERVER_NAME}/${SERVER_VERSION} MCP-Client`,
+      ...(connection.sessionId ? { "Mcp-Session-Id": connection.sessionId } : {}),
+      ...(method !== "initialize" ? { "MCP-Protocol-Version": MCP_PROTOCOL_VERSION } : {}),
       ...connection.headers,
     },
     body: JSON.stringify(body),
@@ -863,6 +867,9 @@ async function sendRemoteRequest(
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} ${response.statusText} from ${connection.url}`);
   }
+
+  const assignedSessionId = response.headers.get("mcp-session-id");
+  if (assignedSessionId) connection.sessionId = assignedSessionId;
 
   const contentType = response.headers.get("content-type") || "";
 
@@ -875,7 +882,14 @@ async function sendRemoteRequest(
     if (!dataLine) throw new Error("No data event received in SSE stream");
     rpcResponse = JSON.parse(dataLine.replace(/^data:\s*/, "")) as JsonRpcResponse;
   } else {
+    if (!contentType.includes("application/json")) {
+      throw new Error(`Unsupported MCP response content type: ${contentType || "missing"}`);
+    }
     rpcResponse = (await response.json()) as JsonRpcResponse;
+  }
+
+  if (rpcResponse.jsonrpc !== "2.0" || rpcResponse.id !== requestId) {
+    throw new Error("Invalid MCP JSON-RPC response envelope or mismatched request id");
   }
 
   if (rpcResponse.error) {
@@ -904,17 +918,24 @@ async function sendRemoteNotification(
     // No id — this is a notification
   };
 
-  await governedFetch(connection.url, {
+  const response = await governedFetch(connection.url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
       "User-Agent": `${SERVER_NAME}/${SERVER_VERSION} MCP-Client`,
+      ...(connection.sessionId ? { "Mcp-Session-Id": connection.sessionId } : {}),
+      "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
       ...connection.headers,
     },
     body: JSON.stringify(body),
   }, `${connection.id}:notification:${method}`, "network", "network:mcp_call", {
     timeoutMs: 10_000,
   });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} ${response.statusText} from ${connection.url}`);
+  }
+  await response.body?.cancel();
 }
 
 /**
@@ -944,6 +965,15 @@ function getConnection(serverId: string): MCPServerConnection {
  * @returns The populated MCPServerConnection stored in the registry
  */
 export async function connectToServer(config: MCPServerConfig): Promise<MCPServerConnection> {
+  const parsedUrl = new URL(config.url);
+  if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+    throw new Error("MCP server URL must use http or https");
+  }
+  if (config.transport === "sse") {
+    throw new Error(
+      "Legacy MCP SSE transport is not implemented. Configure a Streamable HTTP endpoint instead.",
+    );
+  }
   const id = uuidv4();
 
   // Create a provisional connection entry
@@ -981,6 +1011,12 @@ export async function connectToServer(config: MCPServerConfig): Promise<MCPServe
       serverInfo?: { name: string; version: string };
     };
 
+    if (initResult.protocolVersion !== MCP_PROTOCOL_VERSION) {
+      throw new Error(
+        `Unsupported MCP protocol version '${initResult.protocolVersion ?? "missing"}'; expected ${MCP_PROTOCOL_VERSION}`,
+      );
+    }
+
     conn.capabilities = initResult.capabilities || {};
 
     // Step 2: send initialized notification
@@ -1010,7 +1046,8 @@ export async function connectToServer(config: MCPServerConfig): Promise<MCPServe
     return conn;
   } catch (err) {
     conn.status = "error";
-    serverRegistry.set(id, conn); // persist the error state
+    // Failed handshakes are not usable sessions and must not accumulate in memory.
+    serverRegistry.delete(id);
     throw new Error(
       `Failed to connect to MCP server '${config.name}' at ${config.url}: ${(err as Error).message}`
     );
