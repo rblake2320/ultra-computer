@@ -143,7 +143,8 @@ The suite verifies private launch, first-model role assignment, real local
 inference, graceful no-model guidance, real Windows-compatible CLI execution
 with traversal rejection, database-backed process restart, and both disabled
 and explicitly enabled `ULTRA_EXPERIMENTAL` states. This is local process proof,
-not container-recreation proof or evidence for paid providers.
+not evidence for paid providers. Container-recreation persistence is exercised
+separately by `npm run live:docker`.
 
 Run `npm run doctor` for installation diagnostics. Add `-- --live` only when
 you intend to make real connection probes against every enabled model:
@@ -329,7 +330,7 @@ the command name as blanket live proof.
 
 `npm run verify` is local repository-gate evidence. It must not be reported as production proof for live external providers, connectors, MCP/A2A peers, browser workflows, or deployment environments that were not actually exercised. Use the evidence labels in `docs/VERIFICATION_POLICY.md` for all release reports.
 
-`npm run live:docker` builds and runs a clean Linux production container from a version-pinned Node base image as a non-root runtime user, then exercises selected real HTTP paths. The image installs the Chromium runtime used by the Playwright browser tool. It is Docker live-local proof, not Hyper-V/Azure VM proof and not proof of real third-party provider behavior. Immutable multi-architecture base-image digests remain tracked in PARK-0004. Set `LIVE_DOCKER_CLEAN_IMAGE=true` to remove the local proof image after the run.
+`npm run live:docker` builds and runs a clean Linux production container from a version-pinned Node base image as a non-root runtime user, then exercises selected real HTTP paths. It creates a conversation, queued message and sandbox file on isolated named volumes, destroys and recreates the application container, and requires all three artifacts to survive before testing fail-closed policy behavior. The image installs the Chromium runtime used by the Playwright browser tool. It is Docker live-local proof, not Hyper-V/Azure VM proof and not proof of real third-party provider behavior. Immutable multi-architecture base-image digests remain tracked in PARK-0004. Set `LIVE_DOCKER_CLEAN_IMAGE=true` to remove the local proof image after the run.
 
 Durable execution status is tracked in `docs/DURABLE_EXECUTION_GATE.md` and
 `reports/durable-execution-readiness.md`. BullMQ dispatch, the durable run

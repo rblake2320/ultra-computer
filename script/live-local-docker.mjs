@@ -6,6 +6,9 @@ const image = process.env.LIVE_DOCKER_IMAGE || "ultra-computer-live-gate:local";
 const port = process.env.LIVE_DOCKER_PORT || "5188";
 const apiKey = process.env.LIVE_DOCKER_API_KEY || `live-${randomBytes(24).toString("hex")}`;
 const networkName = `ultra-live-network-${process.pid}`;
+const encryptionKey = randomBytes(32).toString("hex");
+const dataVolume = `ultra-live-data-${process.pid}`;
+const sandboxVolume = `ultra-live-sandbox-${process.pid}`;
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -68,13 +71,13 @@ async function waitForHealth(name) {
   throw new Error(`container did not become healthy: ${last}\n${logs.stdout}\n${logs.stderr}`);
 }
 
-async function startContainer(name, extraEnv = []) {
+async function startContainer(name, { extraEnv = [], volumes = [] } = {}) {
   await docker(["rm", "-f", name], { capture: true }).catch(() => {});
   const env = [
     "-e", `ULTRA_API_KEY=${apiKey}`,
     "-e", "SLACK_SIGNING_SECRET=live-local-slack-secret",
     "-e", "GITHUB_WEBHOOK_SECRET=live-local-github-secret",
-    "-e", `ENCRYPTION_KEY=${randomBytes(32).toString("hex")}`,
+    "-e", `ENCRYPTION_KEY=${encryptionKey}`,
     "-e", "NODE_ENV=production",
     "-e", "PORT=5000",
     "-e", "GRPC_PORT=50051",
@@ -87,6 +90,7 @@ async function startContainer(name, extraEnv = []) {
     "run", "-d", "--name", name,
     "--network", networkName,
     "-p", `127.0.0.1:${port}:5000`,
+    ...volumes.flatMap(({ name: volumeName, target }) => ["-v", `${volumeName}:${target}`]),
     ...env,
     image,
   ], { capture: true });
@@ -119,10 +123,14 @@ async function main() {
   const normal = `ultra-live-${process.pid}`;
   const badPolicy = `ultra-live-bad-policy-${process.pid}`;
   const badAudit = `ultra-live-bad-audit-${process.pid}`;
+  const persistentVolumes = [
+    { name: dataVolume, target: "/app/data" },
+    { name: sandboxVolume, target: "/app/sandbox" },
+  ];
 
   try {
     console.log("Starting production container...");
-    await startContainer(normal);
+    await startContainer(normal, { volumes: persistentVolumes });
 
     let result = await request("/api/models", { auth: false });
     assert(result.response.status === 401, `expected unauthenticated /api/models to return 401, got ${result.response.status}`);
@@ -178,15 +186,46 @@ async function main() {
     );
     console.log("BullMQ queue dispatch proof passed");
 
+    console.log("Testing persistence across app-container destruction and recreation...");
+    await stopContainer(normal);
+    await startContainer(normal, { volumes: persistentVolumes });
+
+    result = await request(`/api/conversations/${convId}`);
+    assert(
+      result.response.status === 200 && JSON.parse(result.body)?.id === convId,
+      `expected conversation to survive container recreation, got ${result.response.status}: ${result.body}`,
+    );
+
+    result = await request(`/api/conversations/${convId}/messages`);
+    let messages = [];
+    try {
+      messages = JSON.parse(result.body);
+    } catch {
+      messages = [];
+    }
+    assert(
+      result.response.status === 200
+        && Array.isArray(messages)
+        && messages.some((message) => message?.content === "queue-dispatch-proof"),
+      `expected message history to survive container recreation, got ${result.response.status}: ${result.body}`,
+    );
+
+    result = await request("/api/sandbox/files/live-policy-proof.txt");
+    assert(
+      result.response.status === 200 && result.body.includes("live-local file policy proof"),
+      `expected sandbox file to survive container recreation, got ${result.response.status}: ${result.body}`,
+    );
+    console.log("Container-recreation persistence proof passed");
+
     console.log("Testing fail-closed missing policy config in production container...");
     await stopContainer(normal);
-    await startContainer(badPolicy, ["ULTRA_POLICY_DIR=/app/missing-policies"]);
+    await startContainer(badPolicy, { extraEnv: ["ULTRA_POLICY_DIR=/app/missing-policies"] });
     result = await request("/api/sandbox/files");
     assert(result.response.status === 403 && /Policy denied/i.test(result.body), `expected missing policy config to fail closed, got ${result.response.status}: ${result.body}`);
 
     console.log("Testing audit write failure reporting in production container...");
     await stopContainer(badPolicy);
-    await startContainer(badAudit, ["ULTRA_POLICY_AUDIT_FILE=/app"]);
+    await startContainer(badAudit, { extraEnv: ["ULTRA_POLICY_AUDIT_FILE=/app"] });
     result = await request("/api/sandbox/files");
     assert(result.response.status === 200, `expected audit failure not to grant/deny by itself for allowed action, got ${result.response.status}: ${result.body}`);
     const logs = await docker(["logs", "--tail", "120", badAudit], { capture: true });
@@ -199,6 +238,9 @@ async function main() {
     await stopContainer(badAudit);
     await stopContainer(redisName);
     await docker(["network", "rm", networkName], { capture: true }).catch(() => {});
+    await docker(["volume", "rm", dataVolume, sandboxVolume], { capture: true }).catch((err) => {
+      console.warn(`volume cleanup skipped: ${err instanceof Error ? err.message : String(err)}`);
+    });
     if (process.env.LIVE_DOCKER_CLEAN_IMAGE === "true") {
       await docker(["image", "rm", image], { capture: true }).catch((err) => {
         console.warn(`image cleanup skipped: ${err instanceof Error ? err.message : String(err)}`);
@@ -207,7 +249,7 @@ async function main() {
   }
 }
 
-main().catch(() => {
-  console.error("live-local Docker gate failed");
+main().catch((err) => {
+  console.error("live-local Docker gate failed:", err instanceof Error ? err.message : String(err));
   process.exit(1);
 });
