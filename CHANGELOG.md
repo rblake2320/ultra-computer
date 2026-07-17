@@ -17,7 +17,8 @@ All notable changes to this project will be documented in this file.
   message and sandbox-file state, destroy the application container, recreate
   it with the same encryption key and named volumes, and assert that all state
   survives. The gate now reports the underlying exception on failure instead
-  of discarding the diagnostic.
+  of discarding the diagnostic, without echoing secret-bearing process
+  arguments.
 - Routed OpenAI-compatible and Anthropic SDK traffic, including image
   generation, through the governed DNS-pinned egress boundary; disabled hidden
   SDK retries so one spend reservation cannot produce extra billable attempts.

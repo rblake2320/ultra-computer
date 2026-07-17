@@ -577,7 +577,8 @@ hold detailed decisions that affect architecture or long-lived behavior.
   data/sandbox volumes. Seed a real conversation, queued message and uploaded
   file; force-remove and recreate the app container; then retrieve and assert
   all three artifacts before cleaning up the test volumes. Preserve the actual
-  exception in the gate's failure output.
+  command failure and stderr in the gate output without logging its
+  secret-bearing argument list.
 - **Why:** Durable deployment behavior is a boundary property. It must be
   exercised across container identity loss, not inferred from in-process
   restart behavior or Compose declarations.

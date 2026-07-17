@@ -24,7 +24,7 @@ function run(command, args, options = {}) {
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) resolve({ stdout, stderr });
-      else reject(new Error(`${command} ${args.join(" ")} exited ${code}\n${stderr || stdout}`));
+      else reject(new Error(`${command} exited ${code}\n${stderr || stdout}`));
     });
   });
 }
