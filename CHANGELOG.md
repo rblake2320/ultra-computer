@@ -24,6 +24,10 @@ All notable changes to this project will be documented in this file.
   check into a material paid request.
 
 ### Security
+- Encrypted complete connector credential configurations at rest, migrated
+  legacy plaintext records on first use, sanitized model create/quick-add
+  responses, and made internal default/orchestrator lookups decrypt credentials
+  consistently without exposing them to clients.
 - Contained file transforms to one canonical sandbox with symlink-aware path
   checks, input/output limits, temporary snapshots and atomic publication.
 - Removed host package installation and host interpreter execution; submitted

@@ -36,6 +36,13 @@ Passing unit tests are not treated as proof that an external integration works.
   Evidence: focused unit tests, real Chromium secret/subresource proof and a
   real Docker isolation/host-injection proof. Overall launch verdict remains
   NO-GO pending the remaining model, credential, connector and durability work.
+- **2026-07-17 — Credential persistence/response boundary closed locally:**
+  Connector configurations now use authenticated encryption at rest with
+  automatic legacy-plaintext migration; model create and quick-add responses
+  are sanitized centrally; default/orchestrator reads decrypt only for server
+  callers. Evidence: focused raw-SQL persistence and response tests plus the
+  TypeScript gate. Overall launch verdict remains NO-GO pending model routing,
+  connector/auth, protocol, durability and false-success repairs.
 
 ## Evidence Collected
 

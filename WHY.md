@@ -341,3 +341,25 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** Focused unit tests, real Chromium private-subresource and secret
   tests, and a real Docker isolation/host-injection test.
 - **Related:** WHY-0011, WHY-0013 and PARK-0016.
+
+### WHY-0016: Credentials are plaintext only inside the owning server process
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Model credentials were encrypted in SQLite but could escape in
+  create and quick-add responses, while connector keys, OAuth client secrets
+  and tokens were durable plaintext JSON. Default-model reads also returned
+  ciphertext to internal adapters instead of usable credentials.
+- **Decision:** Encrypt each connector configuration as one authenticated
+  AES-256-GCM envelope, migrate legacy plaintext on its first server-side read,
+  decrypt role lookups consistently, and sanitize model objects in the service
+  that owns every REST/gRPC response path.
+- **Why:** Secret handling is safest when persistence and response boundaries
+  are centralized. Encrypting the existing text value avoids a schema change
+  while protecting all present and future connector credential fields.
+- **Alternatives:** Redact individual routes or encrypt only known JSON keys.
+  Rejected because new call sites or provider-specific fields would recreate
+  the leak, and partial JSON encryption leaves secret classification brittle.
+- **Evidence:** Raw-SQL persistence tests prove ciphertext at rest, legacy
+  migration, server-only decryption and sanitized create/quick-add responses.
+- **Related:** WHY-0012, WHY-0013 and PARK-0016.

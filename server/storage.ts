@@ -590,6 +590,25 @@ export class SQLiteStorage implements IStorage {
     return input;
   }
 
+  private _decryptConnector(connector: Connector): Connector {
+    const plaintext = decrypt(connector.config);
+    if (!connector.config.startsWith("enc:")) {
+      // Migrate legacy plaintext connector credentials as soon as they are read.
+      // The caller only receives plaintext in memory; the durable record is
+      // immediately replaced with an authenticated ciphertext envelope.
+      db.update(connectors)
+        .set({ config: encrypt(plaintext) })
+        .where(eq(connectors.id, connector.id))
+        .run();
+    }
+    return { ...connector, config: plaintext };
+  }
+
+  private _encryptConnectorInput<T extends Partial<InsertConnector>>(input: T): T {
+    if (input.config !== undefined) input = { ...input, config: encrypt(input.config) };
+    return input;
+  }
+
   getModels(): Model[] {
     return db.select().from(models).orderBy(desc(models.createdAt)).all().map(m => this._decryptModel(m));
   }
@@ -607,8 +626,14 @@ export class SQLiteStorage implements IStorage {
     return m ? this._decryptModel(m) : undefined;
   }
   deleteModel(id: string): void { db.delete(models).where(eq(models.id, id)).run(); }
-  getDefaultModel(): Model | undefined { return db.select().from(models).where(and(eq(models.isDefault, true), eq(models.enabled, true))).get(); }
-  getOrchestratorModel(): Model | undefined { return db.select().from(models).where(and(eq(models.isOrchestrator, true), eq(models.enabled, true))).get(); }
+  getDefaultModel(): Model | undefined {
+    const model = db.select().from(models).where(and(eq(models.isDefault, true), eq(models.enabled, true))).get();
+    return model ? this._decryptModel(model) : undefined;
+  }
+  getOrchestratorModel(): Model | undefined {
+    const model = db.select().from(models).where(and(eq(models.isOrchestrator, true), eq(models.enabled, true))).get();
+    return model ? this._decryptModel(model) : undefined;
+  }
   getModelCatalog(provider?: string): ModelCatalogEntry[] {
     const query = db.select().from(modelCatalog);
     return provider
@@ -707,11 +732,21 @@ export class SQLiteStorage implements IStorage {
     sqlite.prepare("UPDATE skills SET usage_count = usage_count + 1 WHERE id = ?").run(id);
   }
 
-  getConnectors(): Connector[] { return db.select().from(connectors).orderBy(connectors.name).all(); }
-  getConnector(id: string): Connector | undefined { return db.select().from(connectors).where(eq(connectors.id, id)).get(); }
-  createConnector(data: InsertConnector): Connector { return db.insert(connectors).values({ ...data, createdAt: Date.now() }).returning().get(); }
+  getConnectors(): Connector[] {
+    return db.select().from(connectors).orderBy(connectors.name).all().map(connector => this._decryptConnector(connector));
+  }
+  getConnector(id: string): Connector | undefined {
+    const connector = db.select().from(connectors).where(eq(connectors.id, id)).get();
+    return connector ? this._decryptConnector(connector) : undefined;
+  }
+  createConnector(data: InsertConnector): Connector {
+    const encrypted = this._encryptConnectorInput(data);
+    return this._decryptConnector(db.insert(connectors).values({ ...encrypted, createdAt: Date.now() }).returning().get());
+  }
   updateConnector(id: string, data: Partial<InsertConnector>): Connector | undefined {
-    return db.update(connectors).set(data).where(eq(connectors.id, id)).returning().get();
+    const encrypted = this._encryptConnectorInput(data);
+    const connector = db.update(connectors).set(encrypted).where(eq(connectors.id, id)).returning().get();
+    return connector ? this._decryptConnector(connector) : undefined;
   }
   deleteConnector(id: string): void { db.delete(connectors).where(eq(connectors.id, id)).run(); }
 

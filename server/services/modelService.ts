@@ -18,7 +18,7 @@ export type SafeModel = Omit<Model, "apiKey" | "oauthTokens"> & {
   oauthTokens: null;
 };
 
-function sanitize(model: Model): SafeModel {
+export function sanitizeModel(model: Model): SafeModel {
   return {
     ...model,
     apiKey: null,
@@ -28,23 +28,23 @@ function sanitize(model: Model): SafeModel {
 
 export class ModelService {
   list(): SafeModel[] {
-    return storage.getModels().map(sanitize);
+    return storage.getModels().map(sanitizeModel);
   }
 
   get(id: string): SafeModel {
     const model = storage.getModel(id);
     if (!model) throw new Error(`Model ${id} not found`);
-    return sanitize(model);
+    return sanitizeModel(model);
   }
 
-  create(input: InsertModel): Model {
-    return storage.createModel(input);
+  create(input: InsertModel): SafeModel {
+    return sanitizeModel(storage.createModel(input));
   }
 
   update(id: string, input: Partial<InsertModel>): SafeModel {
     const updated = storage.updateModel(id, input);
     if (!updated) throw new Error(`Model ${id} not found`);
-    return sanitize(updated);
+    return sanitizeModel(updated);
   }
 
   delete(id: string): void {
@@ -75,7 +75,11 @@ export class ModelService {
     authMethod: AuthMethod,
     credentials: { apiKey?: string; envVarName?: string; baseUrl?: string },
   ) {
-    return quickAdd(provider, presetModelId, authMethod, credentials);
+    const result = await quickAdd(provider, presetModelId, authMethod, credentials);
+    return {
+      ...result,
+      model: result.model ? sanitizeModel(result.model) : null,
+    };
   }
 
   getProviders() {
