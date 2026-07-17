@@ -636,3 +636,25 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** Local `npm run live:docker`, the first remote `live-docker` job,
   protected-branch context configuration, and the post-merge job must all pass.
 - **Related:** WHY-0008, WHY-0026 and PARK-0012.
+
+### WHY-0029: Process-boundary startup tests use an explicit cross-platform timeout
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** The legacy-database preservation test launches an isolated TSX
+  process so storage module globals cannot contaminate the active test worker.
+  On a post-merge Windows Node 24 coverage run, that real startup completed in
+  6.6 seconds and exceeded Vitest's unrelated five-second default; the same
+  commit passed the PR run and every other platform.
+- **Decision:** Give only this process-boundary test a 15-second timeout while
+  preserving the isolated process, database assertion and non-zero failure.
+- **Why:** Instrumented Windows process startup is materially slower than an
+  in-process unit test. A test-specific bound removes runner-speed flakiness
+  without retries, skipped coverage, weakened assertions or a global timeout.
+- **Alternatives:** Rerun the failed workflow, retry tests automatically, raise
+  the suite-wide timeout, or import storage in-process. Rejected because those
+  choices hide nondeterminism, slow failure everywhere, or reintroduce shared
+  module/database state.
+- **Evidence:** Repeated Windows-equivalent coverage execution, full local
+  verification, protected PR checks and post-merge checks must pass.
+- **Related:** WHY-0024 and WHY-0028.

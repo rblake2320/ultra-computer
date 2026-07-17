@@ -13,6 +13,10 @@ All notable changes to this project will be documented in this file.
   boundary evidence and explicit labels for every unexercised dependency.
 
 ### Fixed
+- Gave the isolated legacy-database startup safety test a 15-second
+  cross-platform bound. Its child TypeScript process exceeded Vitest's generic
+  five-second default once under Windows Node 24 coverage while completing in
+  6.6 seconds; the assertion and failure behavior are unchanged.
 - Extended the live production-container gate to create durable conversation,
   message and sandbox-file state, destroy the application container, recreate
   it with the same encryption key and named volumes, and assert that all state

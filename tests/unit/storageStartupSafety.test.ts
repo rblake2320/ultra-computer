@@ -46,5 +46,5 @@ describe("storage startup safety", () => {
     } finally {
       reopened.close();
     }
-  });
+  }, 15_000); // Windows coverage instrumentation can make the isolated TSX startup exceed Vitest's 5s default.
 });
