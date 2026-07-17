@@ -244,7 +244,7 @@ link so future contributors can tell whether the constraint still applies.
 - **Status:** Parked
 - **Owner:** Engineering
 - **Parked on:** 2026-07-17
-- **Reason:** Statement coverage is 34.82%. It passes the configured threshold
+- **Reason:** Statement coverage is 34.40%. It passes the configured threshold
   but leaves important orchestration, connector, and failure paths thinly
   exercised.
 - **Current risk:** Regressions outside the seven supported E2E workflows may

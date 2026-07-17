@@ -286,14 +286,16 @@ export function registerProtocolRoutes(app: Express) {
 
   /**
    * POST /api/protocols/cli/execute
-   * Execute a shell command. Body: { command, timeout?, workDir?, env? }
+   * Execute one allowlisted command without a shell. Body: { command, timeout?, workDir?, env? }
    */
   app.post("/api/protocols/cli/execute", async (req: Request, res: Response) => {
     const { command, timeout, workDir, env } = req.body ?? {};
-    // Validate workDir is within the sandbox
+    // The production CLI uses one fixed sandbox root. Per-request directories
+    // would reintroduce a tainted process cwd boundary.
     if (workDir !== undefined && typeof workDir === "string") {
-      if (!resolveInside("/tmp/ultra-sandbox", workDir)) {
-        return res.status(400).json({ error: "workDir must be within the sandbox directory (/tmp/ultra-sandbox)" });
+      const sandboxRoot = resolveInside("/tmp/ultra-sandbox", ".");
+      if (resolveInside("/tmp/ultra-sandbox", workDir) !== sandboxRoot) {
+        return res.status(400).json({ error: "workDir is fixed to the sandbox root (/tmp/ultra-sandbox)" });
       }
     }
     if (!command || typeof command !== "string") {

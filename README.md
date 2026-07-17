@@ -161,8 +161,10 @@ Reliability behavior added in this pass:
   a successful-looking answer.
 - Protocol webhooks dispatch through the registered handler and return failure
   when dispatch fails; messaging integrations never simulate delivery.
-- The CLI engine selects the Windows command shell on Windows while retaining
-  sandbox path-containment checks.
+- The CLI engine parses one command into an allowlisted executable and argument
+  array, runs with `shell: false`, and uses a fixed sandbox working directory.
+  Shell operators, substitutions, redirections, compound commands, executable
+  paths, and caller-selected process directories are rejected.
 
 ## Production-Shaped Docker Deployment
 

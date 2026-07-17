@@ -240,3 +240,23 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** The first authenticated E2E workflow proves rejection of an
   invalid key followed by a successful owner unlock and rendered application.
 - **Related:** WHY-0003 and the 2026-07-16 security changelog.
+
+### WHY-0011: CLI execution is structured and shell-free
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** An authenticated request could supply both a shell command
+  string and process working directory. Policy blocklists reduced common abuse
+  but did not remove command injection or tainted-path boundaries.
+- **Decision:** Parse exactly one command, allow only fixed executable names,
+  pass arguments as an array with `shell: false`, use one fixed sandbox root,
+  and reject shell operators, substitutions, redirections, compound commands,
+  executable paths, and caller-selected working directories.
+- **Why:** A denylist cannot make arbitrary shell interpretation safe. Removing
+  the shell makes argument boundaries explicit and auditable while retaining
+  common local inspection, build, and transformation commands.
+- **Alternatives:** Dismiss the CodeQL alerts as intentional or expand the
+  shell blocklist. Rejected because both preserve the vulnerable data flow.
+- **Evidence:** CLI parser/execution unit tests, authenticated E2E execution,
+  full verification, and the GitHub Advanced Security CodeQL rerun.
+- **Related:** WHY-0003 and the 2026-07-16 security changelog.

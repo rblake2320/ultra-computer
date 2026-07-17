@@ -62,6 +62,9 @@
 - Policy decisions are audited to `data/policy/audit.jsonl` with command, URL, path, and metadata redacted before write.
 - Never replace a proven HTML sanitizer with regex-based sanitization. Rendering generated HTML requires a maintained sanitizer, explicit URL policy, attribute escaping, and regression tests.
 - Never add a model by hard-coded name alone. Add or update discovery, capability metadata, lifecycle handling, provider-native compatibility, and tests; discovery alone is not proof that a model works.
+- Never pass request, model, or agent text to a system shell. CLI execution must
+  select a fixed allowlisted executable, pass a structured argument array with
+  `shell: false`, and keep the process working directory server-controlled.
 
 ## Versions
 - Node.js 24 is the container and CI baseline; Node 22 remains supported.

@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-07-16
 
 ### Security
+- Replaced user-controlled shell-string execution with a shell-free,
+  executable-allowlisted command parser and a fixed process working directory;
+  added regression coverage for operators, quoting, executable selection, and
+  working-directory control.
 - Added separator-aware sandbox path containment to block prefix-sibling escapes.
 - Replaced long-lived API keys in EventSource URLs with short-lived,
   path-bound stream tokens.
@@ -130,7 +134,7 @@ All notable changes to this project will be documented in this file.
   discovery is therefore **not verified live** in this session.
 - Slack and Gmail code paths are implemented against their provider APIs, but
   no live Slack or Gmail account was exercised in this session.
-- Current statement coverage is 34.82%. This passes the configured repository
+- Current statement coverage is 34.40%. This passes the configured repository
   threshold but remains below the target for a broadly production-critical
   platform; coverage expansion is tracked in `PARKED.md`.
 - The seven-test Playwright run is verified locally with real Ollama. It proves
