@@ -477,7 +477,9 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
   };
 
   const isEmptySession = !isStreaming && messages.length === 0;
-  const hasNoModels = isEmptySession && configuredModels.filter(m => m.enabled).length === 0;
+  const hasNoModels = isEmptySession && configuredModels.filter(m =>
+    m.enabled && m.connectionStatus === "connected"
+  ).length === 0;
 
   // Compute tool call counts per task for the task graph progress
   const toolCallsPerTask = toolCalls.reduce<Record<string, number>>((acc, tc) => {
@@ -658,7 +660,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
                 </p>
                 {hasNoModels && (
                   <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-xs text-yellow-400 max-w-sm">
-                    No models configured yet. Head to <strong>Models</strong> to add your first LLM.
+                    No connected model is ready yet. Head to <strong>Models</strong>, save credentials, and pass the connection test.
                   </div>
                 )}
                 <div className="mt-6 grid grid-cols-2 gap-2 max-w-md">
@@ -878,7 +880,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
             <div className="max-w-4xl mx-auto mb-2 flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
               <div className="flex items-center gap-2">
                 <XCircle className="w-4 h-4 text-destructive shrink-0" />
-                <span>No model is configured. Connect one and its roles are assigned automatically.</span>
+                <span>No connected model is ready. Pass a live connection test and its roles are assigned automatically.</span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <Button size="sm" onClick={() => setLocation("/models")}>Open Models</Button>

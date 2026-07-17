@@ -102,4 +102,37 @@ describe("credential persistence boundaries", () => {
     expect(raw.api_key).toMatch(/^enc:/);
     expect(raw.api_key).not.toContain("quick-add-secret");
   });
+
+  it("rejects an unroutable role target without clearing the current role", () => {
+    const id = `unroutable-role-${crypto.randomUUID()}`;
+    ids.push(id);
+    modelService.create({
+      id,
+      name: "Unroutable role target",
+      provider: "openai",
+      modelId: "unroutable-role-target",
+      baseUrl: null,
+      apiKey: "stored-but-unverified",
+      enabled: true,
+      capabilities: '["chat"]',
+      contextWindow: 8192,
+      isDefault: false,
+      isOrchestrator: false,
+      speedTier: "medium",
+      notes: null,
+      authMethod: "api_key",
+      oauthTokens: null,
+      envVarName: null,
+      connectionStatus: "unconfigured",
+      connectionError: null,
+      lastTestedAt: null,
+      lastTestLatency: null,
+    });
+    const before = sqlite.prepare("SELECT id FROM models WHERE is_default = 1 ORDER BY id").all();
+
+    expect(() => modelService.update(id, { isDefault: true })).toThrow("connected, credential-ready");
+    const after = sqlite.prepare("SELECT id FROM models WHERE is_default = 1 ORDER BY id").all();
+    expect(after).toEqual(before);
+    expect(storage.getModel(id)?.isDefault).toBe(false);
+  });
 });

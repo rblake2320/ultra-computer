@@ -84,12 +84,22 @@ test("workflow 3: a real local model persists a real assistant response", async 
 test("workflow 3b: no-model chat persists guidance instead of crashing", async () => {
   await stopServer(server);
   server = await startServer(tempDbPath());
+  await api("/api/models", {
+    method: "POST",
+    body: JSON.stringify({
+      name: "Visible but unverified",
+      provider: "ollama",
+      modelId: "not-probed",
+      authMethod: "none",
+      capabilities: ["chat"],
+    }),
+  });
   const conversation = await api<any>("/api/conversations", { method: "POST", body: JSON.stringify({ title: "no-model" }) });
   await api(`/api/conversations/${conversation.id}/messages`, { method: "POST", body: JSON.stringify({ content: "hello" }) });
   await expect.poll(async () => {
     const messages = await api<any[]>(`/api/conversations/${conversation.id}/messages`);
     return messages.find((message) => message.role === "assistant")?.content ?? "";
-  }, { timeout: 30_000 }).toContain("No model is configured");
+  }, { timeout: 30_000 }).toContain("No connected model is ready");
   await stopServer(server);
   server = await startServer(databasePath);
 });

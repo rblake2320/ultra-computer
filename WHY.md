@@ -363,3 +363,25 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** Raw-SQL persistence tests prove ciphertext at rest, legacy
   migration, server-only decryption and sanitized create/quick-add responses.
 - **Related:** WHY-0012, WHY-0013 and PARK-0016.
+
+### WHY-0017: Visible configuration is not model readiness
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Routers and the chat UI treated any enabled database record as a
+  usable model. Failed, disconnected, untested or credentialless records could
+  retain core roles and then produce “No model configured” or provider errors.
+  Role endpoints also cleared the working role before validating the target.
+- **Decision:** Define routability once as enabled plus connected plus currently
+  credential-ready; apply it to every text, worker, memory, speed and image
+  selection path. Change roles transactionally and reconcile them after test
+  failure, disable, disconnect or deletion.
+- **Why:** A model card proves configuration, not availability. Routing only to
+  a live-proven candidate makes readiness and the user-visible state agree,
+  while atomic mutation preserves the last working configuration on failure.
+- **Alternatives:** Retry failed records during chat or trust the enabled flag.
+  Rejected because chat would become an implicit paid probe and both options
+  preserve misleading readiness.
+- **Evidence:** 256 unit tests and eight real Playwright workflows, including a
+  visible but unverified model that is correctly treated as no ready model.
+- **Related:** WHY-0012, WHY-0013 and PARK-0016.

@@ -15,6 +15,7 @@ import { v4 as uuidv4 } from "uuid";
 import fs from "fs";
 import path from "path";
 import { storage } from "./storage.js";
+import { isModelRoutable } from "./modelReadiness.js";
 import { chat, chatStream, selectModelForTask, type ChatMessage, type TaskType } from "./modelRouter.js";
 import { skillMatcher } from "./skillSystem.js";
 import { memoryManager } from "./memoryManager.js";
@@ -153,9 +154,12 @@ export async function runOrchestrator(
     });
 
     // 3. Get orchestrator model + per-area overrides
-    const orchModel = storage.getOrchestratorModel() || storage.getDefaultModel();
+    const configuredModels = storage.getModels();
+    const orchModel = configuredModels.find(model => model.isOrchestrator && isModelRoutable(model))
+      || configuredModels.find(model => model.isDefault && isModelRoutable(model))
+      || configuredModels.find(isModelRoutable);
     if (!orchModel) {
-      const message = "No model is configured yet. Open Models, add a provider, and run a connection test. The first model that connects successfully is assigned automatically.";
+      const message = "No connected model is ready yet. Open Models, save credentials, and run a connection test. The first model that connects successfully is assigned automatically.";
       recordDurableStep({
         workflowId,
         stepId: "orchestrator.no_model",
@@ -183,7 +187,7 @@ export async function runOrchestrator(
       const id = storage.getSetting(settingKey);
       if (!id) return orchModel;
       const m = storage.getModel(id);
-      return (m && m.enabled) ? m : orchModel;
+      return (m && isModelRoutable(m)) ? m : orchModel;
     };
     const decompModel = resolveAreaModel("model_for_decomposition");
     const workerModel = resolveAreaModel("model_for_workers");
@@ -344,14 +348,15 @@ export async function runOrchestrator(
       const resolvedDeps = pt.dependsOn.map(d => taskMap.get(d) || d).filter(Boolean);
       // Per-area override takes priority; otherwise speed router picks
       const workerOverride = storage.getSetting("model_for_workers");
+      const workerOverrideModel = workerOverride ? storage.getModel(workerOverride) : undefined;
       let assignedModelId: string;
-      if (workerOverride && storage.getModel(workerOverride)?.enabled) {
+      if (workerOverride && workerOverrideModel && isModelRoutable(workerOverrideModel)) {
         assignedModelId = workerOverride;
         console.log(`[orchestrator] Task "${pt.title}" → model ${workerOverride}: Per-area worker override.`);
       } else {
         assignedModelId = workerModel.id;
         try {
-          const allModels = storage.getModels();
+          const allModels = storage.getModels().filter(isModelRoutable);
           const complexity = analyzeTaskComplexity(pt.description, pt.taskType);
           const routing = routeToOptimalModel(complexity, allModels);
           assignedModelId = routing.modelId;
@@ -693,13 +698,14 @@ async function runWorkerAgent(
   const toolCallLog: Array<{ callId: string; tool: string; args: Record<string, string>; result: ToolResult }> = [];
 
   // Use modelSpeedRouter to find the optimal model for this task's complexity
-  let model = task.assignedModelId
-    ? (storage.getModel(task.assignedModelId) || selectModelForTask(task.taskType as TaskType))
+  const assignedModel = task.assignedModelId ? storage.getModel(task.assignedModelId) : undefined;
+  let model = assignedModel && isModelRoutable(assignedModel)
+    ? assignedModel
     : selectModelForTask(task.taskType as TaskType);
 
   // Override with speed-router if multiple models available and no explicit assignment
   if (!task.assignedModelId) {
-    const allEnabledModels = storage.getModels().filter(m => m.enabled);
+    const allEnabledModels = storage.getModels().filter(isModelRoutable);
     if (allEnabledModels.length > 1) {
       try {
         const complexity = analyzeTaskComplexity(task.description, task.taskType);

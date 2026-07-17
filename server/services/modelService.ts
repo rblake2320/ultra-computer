@@ -6,11 +6,13 @@ import {
   quickAdd,
   discoverEnvVars,
   getProviderCatalog,
+  reconcileModelRoles,
   type AuthMethod,
 } from "../modelConnections.js";
 import type { Model, InsertModel } from "@shared/schema";
 import { modelCatalogService } from "../models/catalogService.js";
 import type { CatalogSyncCredentials } from "../models/catalogService.js";
+import { isModelRoutable, modelRoutabilityIssue } from "../modelReadiness.js";
 
 /** Safe model — strips sensitive credential fields before returning to clients. */
 export type SafeModel = Omit<Model, "apiKey" | "oauthTokens"> & {
@@ -42,8 +44,23 @@ export class ModelService {
   }
 
   update(id: string, input: Partial<InsertModel>): SafeModel {
-    const updated = storage.updateModel(id, input);
+    const existing = storage.getModel(id);
+    if (!existing) throw new Error(`Model ${id} not found`);
+    const prospective = { ...existing, ...input } as Model;
+    if ((input.isDefault === true || input.isOrchestrator === true) && !isModelRoutable(prospective)) {
+      throw new Error(`Only a connected, credential-ready model can hold a core role: ${modelRoutabilityIssue(prospective)}`);
+    }
+    const { isDefault, isOrchestrator, ...ordinary } = input;
+    let updated = Object.keys(ordinary).length ? storage.updateModel(id, ordinary) : existing;
     if (!updated) throw new Error(`Model ${id} not found`);
+    if (isDefault !== undefined || isOrchestrator !== undefined) {
+      updated = storage.setModelRoles(id, { isDefault, isOrchestrator });
+      if (!updated) throw new Error(`Model ${id} not found`);
+    }
+    if (!isModelRoutable(updated) || isDefault === false || isOrchestrator === false) {
+      reconcileModelRoles();
+      updated = storage.getModel(id) ?? updated;
+    }
     return sanitizeModel(updated);
   }
 
@@ -51,6 +68,7 @@ export class ModelService {
     const existing = storage.getModel(id);
     if (!existing) throw new Error(`Model ${id} not found`);
     storage.deleteModel(id);
+    reconcileModelRoles();
   }
 
   async connect(

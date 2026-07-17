@@ -8,6 +8,7 @@
  */
 
 import type { Model } from "@shared/schema";
+import { isModelRoutable } from "./modelReadiness.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -267,7 +268,7 @@ export function routeToOptimalModel(
   complexity: TaskComplexity,
   availableModels: Model[]
 ): RoutingDecision {
-  const enabledModels = availableModels.filter((m) => m.enabled);
+  const enabledModels = availableModels.filter(isModelRoutable);
 
   if (enabledModels.length === 0) {
     // Return a typed failure result instead of throwing

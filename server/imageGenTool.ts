@@ -14,6 +14,7 @@ import https from "https";
 import http from "http";
 import OpenAI from "openai";
 import { storage } from "./storage.js";
+import { isModelRoutable } from "./modelReadiness.js";
 import type { ToolSchema, ToolResult } from "./tools.js";
 import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 import { redactString } from "./redaction.js";
@@ -118,7 +119,7 @@ async function executeGenerateImage(
 
   // ── Find an image-capable model ───────────────────────────────────────────
 
-  const allModels = storage.getModels().filter((m) => m.enabled);
+  const allModels = storage.getModels().filter(isModelRoutable);
 
   let imageModel = allModels.find((m) => {
     // Match by explicit model ID if caller provided one
@@ -133,8 +134,8 @@ async function executeGenerateImage(
 
   if (!imageModel) {
     const suggestion = args.model
-      ? `No enabled model with ID '${args.model}' and 'image' capability found.`
-      : "No enabled models with 'image' capability found.";
+      ? `No connected model with ID '${args.model}' and 'image' capability found.`
+      : "No connected models with 'image' capability found.";
     return {
       success: false,
       output: "",

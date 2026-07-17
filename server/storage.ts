@@ -437,6 +437,7 @@ export interface IStorage {
   getModel(id: string): Model | undefined;
   createModel(data: InsertModel): Model;
   updateModel(id: string, data: Partial<InsertModel>): Model | undefined;
+  setModelRoles(id: string | null, roles: { isDefault?: boolean; isOrchestrator?: boolean }): Model | undefined;
   deleteModel(id: string): void;
   getDefaultModel(): Model | undefined;
   getOrchestratorModel(): Model | undefined;
@@ -624,6 +625,24 @@ export class SQLiteStorage implements IStorage {
     const encrypted = this._encryptModelInput(data);
     const m = db.update(models).set(encrypted).where(eq(models.id, id)).returning().get();
     return m ? this._decryptModel(m) : undefined;
+  }
+  setModelRoles(id: string | null, roles: { isDefault?: boolean; isOrchestrator?: boolean }): Model | undefined {
+    return sqlite.transaction(() => {
+      if (id && !db.select({ id: models.id }).from(models).where(eq(models.id, id)).get()) {
+        return undefined;
+      }
+      if (roles.isDefault !== undefined) {
+        if (roles.isDefault) sqlite.prepare("UPDATE models SET is_default = 0").run();
+        if (id) sqlite.prepare("UPDATE models SET is_default = ? WHERE id = ?").run(roles.isDefault ? 1 : 0, id);
+        else if (roles.isDefault === false) sqlite.prepare("UPDATE models SET is_default = 0").run();
+      }
+      if (roles.isOrchestrator !== undefined) {
+        if (roles.isOrchestrator) sqlite.prepare("UPDATE models SET is_orchestrator = 0").run();
+        if (id) sqlite.prepare("UPDATE models SET is_orchestrator = ? WHERE id = ?").run(roles.isOrchestrator ? 1 : 0, id);
+        else if (roles.isOrchestrator === false) sqlite.prepare("UPDATE models SET is_orchestrator = 0").run();
+      }
+      return id ? this.getModel(id) : undefined;
+    })();
   }
   deleteModel(id: string): void { db.delete(models).where(eq(models.id, id)).run(); }
   getDefaultModel(): Model | undefined {

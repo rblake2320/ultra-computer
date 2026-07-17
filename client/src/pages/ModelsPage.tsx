@@ -111,7 +111,7 @@ export function ModelsPage() {
   // Manual form state
   const [form, setForm] = useState({
     name: "", provider: "openai", modelId: "", baseUrl: "", apiKey: "",
-    speedTier: "medium", isDefault: false, isOrchestrator: false,
+    speedTier: "medium",
     capabilities: ["chat"], contextWindow: 8192, notes: "",
     authMethod: "api_key", envVarName: "",
   });
@@ -211,7 +211,7 @@ export function ModelsPage() {
 
   const resetForm = () => setForm({
     name: "", provider: "openai", modelId: "", baseUrl: "", apiKey: "",
-    speedTier: "medium", isDefault: false, isOrchestrator: false,
+    speedTier: "medium",
     capabilities: ["chat"], contextWindow: 8192, notes: "",
     authMethod: "api_key", envVarName: "",
   });
@@ -821,17 +821,9 @@ export function ModelsPage() {
                   ))}
                 </div>
               </div>
-              <div className="col-span-2 flex gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={form.isDefault}
-                    onChange={e => setForm(f => ({ ...f, isDefault: e.target.checked }))} className="rounded" />
-                  <span className="text-xs">Set as default model</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={form.isOrchestrator}
-                    onChange={e => setForm(f => ({ ...f, isOrchestrator: e.target.checked }))} className="rounded" />
-                  <span className="text-xs">Use as orchestrator (planning engine)</span>
-                </label>
+              <div className="col-span-2 text-xs text-muted-foreground">
+                Core roles become available only after this model passes a live connection test.
+                The first connected model is assigned automatically.
               </div>
             </div>
             <div className="flex gap-2 mt-4">

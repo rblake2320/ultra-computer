@@ -25,6 +25,7 @@ import {
   type ProviderAdapter,
 } from "./models/index.js";
 import { storage } from "./storage.js";
+import { isModelRoutable } from "./modelReadiness.js";
 import {
   reserveModelRequest,
   settleModelReservation,
@@ -139,7 +140,7 @@ export function selectModelFromCandidates(
   preferredModelId?: string,
   defaultModelId?: string,
 ): Model | null {
-  const enabledModels = models.filter((model) => model.enabled);
+  const enabledModels = models.filter(isModelRoutable);
   const required = TASK_CAPABILITY_MAP[taskType] ?? ["chat"];
 
   if (preferredModelId) {
@@ -327,7 +328,7 @@ export async function chat(
     throw new Error(
       options.modelId
         ? `Configured model '${options.modelId}' is unavailable or incompatible`
-        : `No enabled model supports the required '${taskType}' capabilities`,
+        : `No connected, credential-ready model supports the required '${taskType}' capabilities`,
     );
   }
 
@@ -385,7 +386,7 @@ export async function* chatStream(
     throw new Error(
       options.modelId
         ? `Configured model '${options.modelId}' is unavailable or incompatible`
-        : `No enabled model supports the required '${taskType}' capabilities`,
+        : `No connected, credential-ready model supports the required '${taskType}' capabilities`,
     );
   }
 

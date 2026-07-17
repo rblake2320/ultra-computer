@@ -242,13 +242,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (!name || !provider || !modelId) return res.status(400).json({ error: "name, provider, modelId required" });
     if (typeof name !== "string" || name.length > 500) return res.status(400).json({ error: "name must be a string (max 500 chars)" });
     if (typeof modelId !== "string" || modelId.length > 500) return res.status(400).json({ error: "modelId must be a string (max 500 chars)" });
-
-    // If setting as default, unset others
-    if (isDefault) {
-      storage.getModels().forEach(m => storage.updateModel(m.id, { isDefault: false }));
-    }
-    if (isOrchestrator) {
-      storage.getModels().forEach(m => storage.updateModel(m.id, { isOrchestrator: false }));
+    if (isDefault || isOrchestrator) {
+      return res.status(400).json({ error: "Connect and successfully test a model before assigning default or orchestrator roles" });
     }
 
     let model;
@@ -308,9 +303,6 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       return res.status(e.statusCode ?? 400).json({ error: e.message });
     }
 
-    const { isDefault, isOrchestrator } = input;
-    if (isDefault) storage.getModels().forEach(m => storage.updateModel(m.id, { isDefault: false }));
-    if (isOrchestrator) storage.getModels().forEach(m => storage.updateModel(m.id, { isOrchestrator: false }));
     // Whitelist allowed fields to prevent mass assignment
     const { name, modelId, enabled, speedTier, notes, isDefault: _isDefault, isOrchestrator: _isOrch, contextWindow, capabilities } = input;
     const allowedUpdate: Record<string, any> = {};
@@ -325,7 +317,10 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (capabilities !== undefined) allowedUpdate.capabilities = capabilities;
     try {
       res.json(modelService.update(req.params.id, allowedUpdate));
-    } catch {
+    } catch (error: any) {
+      if (String(error?.message).startsWith("Only a connected")) {
+        return res.status(409).json({ error: error.message });
+      }
       res.status(404).json({ error: "Model not found" });
     }
   });

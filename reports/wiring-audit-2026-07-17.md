@@ -43,6 +43,14 @@ Passing unit tests are not treated as proof that an external integration works.
   callers. Evidence: focused raw-SQL persistence and response tests plus the
   TypeScript gate. Overall launch verdict remains NO-GO pending model routing,
   connector/auth, protocol, durability and false-success repairs.
+- **2026-07-17 — Model readiness/core roles closed locally:** Every model
+  selection path now requires enabled, connected and currently credential-ready
+  state. Role assignment is transactional and reconciles after failure,
+  disable, disconnect or deletion; chat readiness uses the same contract.
+  Evidence: 256 unit tests and eight real Playwright workflows, including an
+  unverified visible-model negative path and real Ollama role assignment/chat.
+  Overall launch verdict remains NO-GO pending connector/auth, protocol,
+  durability and false-success repairs.
 
 ## Evidence Collected
 

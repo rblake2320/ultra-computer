@@ -154,9 +154,13 @@ npm run doctor -- --live
 
 Reliability behavior added in this pass:
 
-- The first model that passes its connection test becomes Default and
-  Orchestrator when those roles are otherwise empty.
-- A no-model conversation persists actionable guidance instead of crashing.
+- Only enabled models with a successful connection status and currently
+  resolvable credentials receive work. The first model that passes its live
+  test becomes Default and Orchestrator when those roles are otherwise empty.
+- Role changes are atomic; failed targets cannot clear a working role, and
+  disconnect/delete/failure reconciles both roles to another ready model.
+- A conversation with only failed or untested model records persists
+  actionable setup guidance instead of attempting a request or crashing.
 - A2A send and stream failures report failed tasks instead of echoing input as
   a successful-looking answer.
 - Protocol webhooks dispatch through the registered handler and return failure

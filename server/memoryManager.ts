@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from "uuid";
 import { storage } from "./storage.js";
 import { chat } from "./modelRouter.js";
 import { advancedMemorySearch, extractEntities, calculateImportance, deduplicateMemories } from "./memoryUpgrades.js";
+import { isModelRoutable } from "./modelReadiness.js";
 
 // Patterns that should never appear in stored memory content.
 // These are prompt-injection payloads that an attacker might try to bake in.
@@ -54,7 +55,12 @@ class MemoryManager {
   // Extract durable facts from a conversation turn and store them
   async extractAndStore(userMessage: string, assistantResponse: string, sessionId: string, overrideModelId?: string): Promise<void> {
     try {
-      const orchModel = (overrideModelId && storage.getModel(overrideModelId)) || storage.getOrchestratorModel() || storage.getDefaultModel();
+      const models = storage.getModels();
+      const override = overrideModelId ? storage.getModel(overrideModelId) : undefined;
+      const orchModel = (override && isModelRoutable(override) ? override : undefined)
+        || models.find(model => model.isOrchestrator && isModelRoutable(model))
+        || models.find(model => model.isDefault && isModelRoutable(model))
+        || models.find(isModelRoutable);
       if (!orchModel) return;
 
       const extraction = await chat([

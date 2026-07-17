@@ -11,6 +11,10 @@ All notable changes to this project will be documented in this file.
   platform wiring was production-proven and records a launch NO-GO.
 
 ### Fixed
+- Required successful connection state and live credentials for all model
+  routing; made core-role changes transactional and reconciled roles after
+  test failure, disable, disconnect or deletion; aligned chat readiness and
+  manual setup copy with the same contract.
 - Unified BullMQ on the authoritative `REDIS_URL` so Redis authentication, TLS
   and database selection reach every queue connection; readiness now follows
   connection loss and recovery, failed clients close cleanly, and Compose

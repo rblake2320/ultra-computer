@@ -21,10 +21,10 @@ function model(overrides: Partial<Model>): Model {
     isOrchestrator: false,
     speedTier: "medium",
     notes: null,
-    authMethod: "env_var",
+    authMethod: "none",
     oauthTokens: null,
-    envVarName: "OPENAI_API_KEY",
-    connectionStatus: "unconfigured",
+    envVarName: null,
+    connectionStatus: "connected",
     connectionError: null,
     lastTestedAt: null,
     lastTestLatency: null,
@@ -99,5 +99,19 @@ describe("model router selection", () => {
   it("uses a chat-only model for analysis when no reasoning model is available", () => {
     const chatModel = model({ capabilities: '["chat"]' });
     expect(selectModelFromCandidates([chatModel], "analyze")?.id).toBe(chatModel.id);
+  });
+
+  it("excludes enabled models that have not passed a connection test", () => {
+    const failed = model({ connectionStatus: "error", connectionError: "probe failed" });
+    const unconfigured = model({ id: "configured-2", connectionStatus: "unconfigured" });
+
+    expect(selectModelFromCandidates([failed, unconfigured], "general")).toBeNull();
+  });
+
+  it("excludes a connected env-var model when its credential is no longer present", () => {
+    const envName = `ULTRA_TEST_MISSING_${crypto.randomUUID().replaceAll("-", "")}`;
+    const missingCredential = model({ authMethod: "env_var", envVarName: envName });
+
+    expect(selectModelFromCandidates([missingCredential], "general")).toBeNull();
   });
 });
