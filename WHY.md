@@ -516,3 +516,24 @@ hold detailed decisions that affect architecture or long-lived behavior.
   `docs/PROTOCOL_STATUS.md`; route tests prove every external A2A path fails
   before discovery or dispatch, and the UI displays the reason.
 - **Related:** PARK-0018 and PARK-0016.
+
+### WHY-0024: Cross-platform and security gates are release behavior
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Windows CI denied an approved Python transform because runner
+  temporary paths can use the `RUNNER~1` short-name form. CodeQL separately
+  identified polynomial trailing-slash regexes and tainted log format strings.
+- **Decision:** Permit the tilde only inside the already constrained local
+  interpreter path grammar, test that exact Windows form, replace the regexes
+  with bounded linear string operations, and use constant log messages with
+  untrusted values passed as structured fields.
+- **Why:** Linux success does not prove Windows policy portability, and
+  syntactically small string operations still belong inside security gates.
+  The fixes preserve fail-closed execution while removing platform ambiguity.
+- **Alternatives:** Loosen the entire command policy or waive remote checks.
+  Rejected because either would weaken the production boundary to hide a CI
+  defect.
+- **Evidence:** Focused CLI/policy/catalog/MCP tests and TypeScript pass. Final
+  evidence is the rerun GitHub Windows matrix and CodeQL PR gate.
+- **Related:** WHY-0005, WHY-0016 and WHY-0020.

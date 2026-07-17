@@ -1029,19 +1029,27 @@ export async function connectToServer(config: MCPServerConfig): Promise<MCPServe
     try {
       conn.tools = await listRemoteTools(id);
     } catch (err) {
-      console.warn(`[mcpProtocol] Could not pre-fetch tools from '${config.name}':`, err);
+      console.warn("[mcpProtocol] Could not pre-fetch tools", {
+        serverName: config.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     try {
       conn.resources = await listRemoteResources(id);
     } catch (err) {
-      console.warn(`[mcpProtocol] Could not pre-fetch resources from '${config.name}':`, err);
+      console.warn("[mcpProtocol] Could not pre-fetch resources", {
+        serverName: config.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
-    console.log(
-      `[mcpProtocol] Connected to MCP server '${config.name}' (${id}) ` +
-        `— ${conn.tools.length} tools, ${conn.resources.length} resources`
-    );
+    console.log("[mcpProtocol] Connected to MCP server", {
+      serverName: config.name,
+      connectionId: id,
+      toolCount: conn.tools.length,
+      resourceCount: conn.resources.length,
+    });
 
     return conn;
   } catch (err) {

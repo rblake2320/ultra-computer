@@ -74,6 +74,10 @@ All notable changes to this project will be documented in this file.
 - Raised the connection probe output allowance from an invalid 10 tokens to a
   bounded 64 tokens, satisfying provider minimums without turning a health
   check into a material paid request.
+- Made the shell policy accept Windows short-name temporary paths used by the
+  approved Python interpreter, replaced provider catalog trailing-slash regexes
+  with linear string handling, and kept untrusted MCP names out of log format
+  strings after cross-platform CI and CodeQL found the gaps.
 
 ### Security
 - Allowed external OAuth and messaging callbacks through owner auth only when

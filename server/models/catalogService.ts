@@ -189,12 +189,18 @@ async function discoverProviderModels(
   provider: string,
   credentials: DiscoveryCredentials,
 ): Promise<ProviderModelDescriptor[]> {
+  const withoutTrailingSlashes = (value: string): string => {
+    let end = value.length;
+    while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
+    return value.slice(0, end);
+  };
+  const baseUrl = withoutTrailingSlashes(credentials.baseUrl);
   let url: string;
   let headers: Record<string, string> = { Accept: "application/json" };
   let parse: (payload: unknown) => ProviderModelDescriptor[];
 
   if (provider === "anthropic") {
-    url = `${credentials.baseUrl.replace(/\/+$/, "")}/v1/models`;
+    url = `${baseUrl}/v1/models`;
     headers = {
       ...headers,
       "anthropic-version": "2023-06-01",
@@ -202,15 +208,15 @@ async function discoverProviderModels(
     };
     parse = parseAnthropicModelList;
   } else if (provider === "google") {
-    url = `${credentials.baseUrl.replace(/\/+$/, "")}/v1beta/models`;
+    url = `${baseUrl}/v1beta/models`;
     headers["x-goog-api-key"] = credentials.apiKey;
     parse = parseGoogleModelList;
   } else if (provider === "ollama") {
-    const base = credentials.baseUrl.replace(/\/v1\/?$/, "").replace(/\/+$/, "");
+    const base = baseUrl.endsWith("/v1") ? baseUrl.slice(0, -3) : baseUrl;
     url = `${base}/api/tags`;
     parse = parseOllamaModelList;
   } else {
-    url = `${credentials.baseUrl.replace(/\/+$/, "")}/models`;
+    url = `${baseUrl}/models`;
     if (credentials.apiKey) headers.Authorization = `Bearer ${credentials.apiKey}`;
     parse = (payload) => parseOpenAIModelList(provider, payload);
   }
