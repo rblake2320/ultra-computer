@@ -75,6 +75,18 @@ Passing unit tests are not treated as proof that an external integration works.
   application path. Evidence: 286 unit tests, focused 24/24 tests and a clean
   TypeScript gate. Overall launch verdict remains NO-GO pending migrations,
   remaining protocols, multimodal/streaming and false-success surfaces.
+- **2026-07-17 — Model-output, egress and false-success seams closed locally:**
+  Paid SDK attempts now traverse governed DNS-pinned transport with hidden
+  retries disabled; images support bounded base64/URL materialization and fail
+  when no artifact saves; fallback output records the actual model; SSE has
+  bounded cursor replay; owner auth fails closed. Experimental Swarm, cron,
+  NIP, Skills and Marketplace no longer simulate execution. The destructive
+  legacy-table startup drop is removed. MCP is aligned to current stable
+  2025-11-25; external A2A is explicitly disabled because current A2A is 1.0
+  and the retained engine is legacy 0.3. Evidence: 313 unit tests plus focused
+  protocol/output/security tests. Overall launch verdict remains NO-GO pending
+  approval-gated migrations, deployment recreation, external account proofs
+  and the final launch audit.
 
 ## Evidence Collected
 
@@ -92,6 +104,10 @@ Passing unit tests are not treated as proof that an external integration works.
 No credential was read, printed or used. No paid model call was made.
 
 ## Wiring Trace Matrix
+
+The matrix below records the audit-time state. Later closures and their exact
+evidence are appended in the remediation log above; an external-service item is
+not considered live-verified merely because its local contract was repaired.
 
 | Surface | Trace | Status | Evidence / failure |
 |---|---|---|---|

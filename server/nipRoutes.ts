@@ -230,7 +230,8 @@ export function registerNIPRoutes(app: Express): void {
       const session = nipEngine.nipEngine.negotiateSession(id);
       res.json(session);
     } catch (err: any) {
-      const status = err.message?.includes("not found") ? 404 : 500;
+      const status = err.message?.includes("not found") ? 404 :
+        err.message?.includes("not implemented") ? 501 : 500;
       res.status(status).json({ error: err.message ?? "Failed to negotiate session" });
     }
   });
@@ -470,6 +471,9 @@ export function registerNIPRoutes(app: Express): void {
     }
     if (allowedScopes.some((s: any) => typeof s !== "string")) {
       return res.status(400).json({ error: "each allowedScope must be a string" });
+    }
+    if (allowedScopes.some((s: string) => s.trim() === "*")) {
+      return res.status(400).json({ error: "Wildcard scopes are not supported; list explicit least-privilege scopes" });
     }
 
     if (maxConcurrentSessions !== undefined) {

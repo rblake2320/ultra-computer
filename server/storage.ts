@@ -309,8 +309,6 @@ sqlite.exec(`
     updated_at INTEGER NOT NULL
   );
 
-  DROP TABLE IF EXISTS swarms;
-
   CREATE TABLE IF NOT EXISTS swarm_sessions (
     id TEXT PRIMARY KEY,
     conversation_id TEXT,

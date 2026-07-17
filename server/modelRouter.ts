@@ -72,11 +72,14 @@ export interface RouterOptions {
 // small so a connectivity check cannot become a meaningful billable request.
 export const CONNECTION_TEST_MAX_OUTPUT_TOKENS = 64;
 
-export function connectionTestRequest(model: Pick<Model, "modelId">): ModelRequest {
+export function connectionTestRequest(
+  model: Pick<Model, "provider" | "modelId" | "capabilities">,
+): ModelRequest {
   return {
     model: model.modelId,
     messages: [{ role: "user", content: "Reply with exactly: pong" }],
     maxOutputTokens: CONNECTION_TEST_MAX_OUTPUT_TOKENS,
+    reasoningEffort: resolveReasoningEffort(model),
   };
 }
 
@@ -109,7 +112,7 @@ const TASK_CAPABILITY_MAP: Readonly<Record<TaskType, readonly ModelCapability[]>
   speed: ["chat"],
 };
 
-function modelCapabilities(model: Model): string[] {
+function modelCapabilities(model: Pick<Model, "capabilities">): string[] {
   try {
     const parsed = JSON.parse(model.capabilities || "[]");
     return Array.isArray(parsed)
@@ -240,11 +243,7 @@ function toModelRequest(
       content: message.content,
     })),
     maxOutputTokens: options.maxTokens ?? 4096,
-    reasoningEffort:
-      options.reasoningEffort ??
-      (model.provider === "openai" && /^gpt-5\.6(?:-|$)/.test(model.modelId)
-        ? "medium"
-        : undefined),
+    reasoningEffort: resolveReasoningEffort(model, options.reasoningEffort),
     // Do not force sampling parameters. New reasoning models often reject them.
     temperature: options.temperature,
     tools: options.tools?.map((tool) => ({
@@ -253,6 +252,18 @@ function toModelRequest(
       inputSchema: tool.parameters,
     })),
   };
+}
+
+export function resolveReasoningEffort(
+  model: Pick<Model, "provider" | "modelId" | "capabilities">,
+  requested?: ModelRequest["reasoningEffort"],
+): ModelRequest["reasoningEffort"] {
+  if (requested !== undefined) return requested;
+  if (model.provider !== "openai") return undefined;
+  const capabilities = modelCapabilities(model);
+  return capabilities.includes("reasoning") || /^gpt-5\.6(?:-|$)/.test(model.modelId)
+    ? "medium"
+    : undefined;
 }
 
 function toolCallBlocks(toolCalls: readonly ModelToolCall[]): string {

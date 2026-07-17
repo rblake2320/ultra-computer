@@ -39,6 +39,17 @@ export function registerProtocolRoutes(app: Express) {
   // A2A PROTOCOL — Agent-to-Agent
   // ───────────────────────────────────────────────────────────────────────────
 
+  const sendA2AUnavailable = (_req: Request, res: Response) => res.status(501).json({
+    error: a2aProtocol.A2A_EXTERNAL_STATUS.reason,
+    code: "A2A_V1_NOT_IMPLEMENTED",
+    ...a2aProtocol.A2A_EXTERNAL_STATUS,
+  });
+
+  // A2A v1 is a breaking protocol migration from the retained v0.3 engine.
+  // Fail closed at every external route instead of advertising false support.
+  app.use("/api/protocols/a2a", sendA2AUnavailable);
+  app.get("/.well-known/agent-card.json", sendA2AUnavailable);
+
   /**
    * GET /api/protocols/a2a/card
    * Returns the Ultra Computer Agent Card JSON.
@@ -588,20 +599,18 @@ export function registerProtocolRoutes(app: Express) {
    */
   app.get("/api/protocols/dashboard", async (_req: Request, res: Response) => {
     const results = await Promise.allSettled([
-      Promise.resolve(a2aProtocol.getAgentCard()).catch(() => null),
-      Promise.resolve(a2aProtocol.listRegisteredAgents()).catch(() => []),
       Promise.resolve(mcpProtocol.listConnectedServers()).catch(() => []),
       Promise.resolve(cliToolEngine.getInstalledTools()).catch(() => []),
     ]);
 
-    const [agentCardResult, remoteAgentsResult, mcpServersResult, cliToolsResult] = results;
+    const [mcpServersResult, cliToolsResult] = results;
 
     res.json({
       protocols: {
         a2a: {
-          available: agentCardResult.status === "fulfilled" && agentCardResult.value !== undefined,
-          agentCard: agentCardResult.status === "fulfilled" ? agentCardResult.value : null,
-          remoteAgents: remoteAgentsResult.status === "fulfilled" ? (remoteAgentsResult.value ?? []) : [],
+          ...a2aProtocol.A2A_EXTERNAL_STATUS,
+          agentCard: null,
+          remoteAgents: [],
         },
         mcp: {
           available: mcpServersResult.status === "fulfilled" && mcpServersResult.value !== undefined,

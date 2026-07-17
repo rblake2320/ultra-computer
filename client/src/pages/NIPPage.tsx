@@ -455,57 +455,23 @@ function NewSessionForm({ onSuccess }: { onSuccess: () => void }) {
 
   const createMut = useMutation({
     mutationFn: async (data: typeof form) => {
-      const now = Date.now();
-      const instructorOrgId = data.instructorOrgId || `org-instructor-${now}`;
-      const executorOrgId = data.executorOrgId || `org-executor-${now}`;
-      // Use "public" as the tier for trusted-party registration since the access tier
-      // enum on the party endpoint is the same as on the session.
-      const partyTier = (["public","verified","corporate","private"].includes(data.accessTier)
-        ? data.accessTier : "public") as string;
-
-      // Auto-register and approve both organizations as trusted parties
-      async function ensureTrustedParty(orgId: string, orgName: string, tier: string) {
-        const parties: any[] = await apiRequest("GET", "/api/nip/trusted-parties");
-        let party = parties.find((p: any) => p.organizationId === orgId);
-        if (!party) {
-          party = await apiRequest("POST", "/api/nip/trusted-parties", {
-            organizationId: orgId,
-            organizationName: orgName,
-            accessTier: tier,
-            allowedScopes: ["*"],
-            maxConcurrentSessions: 10,
-          });
-        }
-        if (!party.approved) {
-          party = await apiRequest("POST", `/api/nip/trusted-parties/${party.id}/approve`, {
-            approvedBy: "system-auto",
-          });
-        }
-        return party;
-      }
-
-      await Promise.all([
-        ensureTrustedParty(instructorOrgId, data.instructorOrgName || instructorOrgId, partyTier),
-        ensureTrustedParty(executorOrgId, data.executorOrgName || executorOrgId, partyTier),
-      ]);
-
-      const session = await apiRequest("POST", "/api/nip/sessions", {
+      return apiRequest("POST", "/api/nip/sessions", {
         instructorProfile: {
-          agentId: data.instructorAgentId || `instructor-${now}`,
+          agentId: data.instructorAgentId,
           agentName: data.instructorAgentName,
-          organizationId: instructorOrgId,
-          organizationName: data.instructorOrgName || instructorOrgId,
-          modelProvider: data.instructorProvider || "local",
-          modelId: data.instructorModelId || "unknown",
+          organizationId: data.instructorOrgId,
+          organizationName: data.instructorOrgName,
+          modelProvider: data.instructorProvider,
+          modelId: data.instructorModelId,
           modelTier: data.instructorModelTier || "standard",
         },
         executorProfile: {
-          agentId: data.executorAgentId || `executor-${now}`,
+          agentId: data.executorAgentId,
           agentName: data.executorAgentName,
-          organizationId: executorOrgId,
-          organizationName: data.executorOrgName || executorOrgId,
-          modelProvider: data.executorProvider || "local",
-          modelId: data.executorModelId || "unknown",
+          organizationId: data.executorOrgId,
+          organizationName: data.executorOrgName,
+          modelProvider: data.executorProvider,
+          modelId: data.executorModelId,
           modelTier: data.executorModelTier || "standard",
         },
         taskScope: {
@@ -517,11 +483,14 @@ function NewSessionForm({ onSuccess }: { onSuccess: () => void }) {
         },
         accessTier: data.accessTier,
       });
-      // Auto-negotiate after creation
-      await apiRequest("POST", `/api/nip/sessions/${session.id}/negotiate`);
-      return session;
     },
-    onSuccess: () => { toast({ title: "Session created and negotiation started" }); onSuccess(); },
+    onSuccess: () => {
+      toast({
+        title: "Local session record created",
+        description: "No peer negotiation or agent execution was started.",
+      });
+      onSuccess();
+    },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
@@ -615,7 +584,7 @@ function NewSessionForm({ onSuccess }: { onSuccess: () => void }) {
         <Select value={form.accessTier} onValueChange={v => setForm(f => ({ ...f, accessTier: v as AccessTier }))}>
           <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="public">Public — any agent can connect</SelectItem>
+            <SelectItem value="public">Public tier — approved/scoped parties only</SelectItem>
             <SelectItem value="verified">Verified — requires identity verification</SelectItem>
             <SelectItem value="corporate">Corporate — registered corporations only</SelectItem>
             <SelectItem value="private">Private — invitation only</SelectItem>
@@ -625,9 +594,11 @@ function NewSessionForm({ onSuccess }: { onSuccess: () => void }) {
       <Button
         className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
         onClick={() => createMut.mutate(form)}
-        disabled={createMut.isPending || !form.objective || !form.instructorAgentName || !form.executorAgentName}
+        disabled={createMut.isPending || !form.objective ||
+          !form.instructorAgentId || !form.instructorAgentName || !form.instructorOrgId || !form.instructorOrgName || !form.instructorProvider || !form.instructorModelId ||
+          !form.executorAgentId || !form.executorAgentName || !form.executorOrgId || !form.executorOrgName || !form.executorProvider || !form.executorModelId}
       >
-        {createMut.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating…</> : <>Create & Negotiate</>}
+        {createMut.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating…</> : <>Create Local Record</>}
       </Button>
     </div>
   );
@@ -1236,7 +1207,7 @@ function AccessControlTab() {
   });
 
   const approveMut = useMutation({
-    mutationFn: (id: string) => apiRequest("POST", `/api/nip/trusted-parties/${id}/approve`),
+    mutationFn: (id: string) => apiRequest("POST", `/api/nip/trusted-parties/${id}/approve`, { approvedBy: "local-owner" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/nip/trusted-parties"] }); toast({ title: "Party approved" }); },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -1254,7 +1225,7 @@ function AccessControlTab() {
   });
 
   const tierDescriptions: Record<AccessTier, string> = {
-    public: "Any agent can connect — not recommended for production use.",
+    public: "Lowest policy tier; explicit trusted-party approval and scopes are still required.",
     verified: "Requires identity verification before connecting.",
     corporate: "Only registered corporate entities are permitted.",
     private: "Invitation-only access, maximum control.",
@@ -1441,10 +1412,10 @@ export function NIPPage() {
             <Zap className="w-5 h-5 text-indigo-400" />
             NLP Instruction Protocol
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">AI-to-AI bidirectional instruction management and safety monitoring</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Experimental local protocol records and safety-policy evaluation; peer negotiation and agent execution are not implemented</p>
         </div>
         <Badge variant="outline" className="border-indigo-500/40 text-indigo-400 text-xs">
-          <Activity className="w-3 h-3 mr-1.5 animate-pulse" /> NIP v1
+          <Activity className="w-3 h-3 mr-1.5" /> Experimental · Local only
         </Badge>
       </div>
 

@@ -30,8 +30,8 @@ Ultra Computer is a complete agent orchestration system that manages AI model ro
 | **Browser Automation** | Playwright-based browser tool for web interactions |
 | **Marketplace** | Community skill marketplace with quality scoring pipeline |
 | **Autonomy Suite** | Self-healing watchdog, task checkpointing, cron scheduler, circuit breakers |
-| **Protocol Hub** | A2A, MCP, and CLI protocol adapters for agent interoperability |
-| **Messaging Hub** | Omni-channel messaging (Slack, Gmail, Webhooks) with delivery queues |
+| **Protocol Hub** | MCP 2025-11-25 Streamable HTTP and contained CLI adapters; external A2A is disabled until v1 support is real |
+| **Messaging Hub** | Restart-persistent Slack, Gmail, and signed Webhook configuration, inbound routing, and delivery queues |
 | **NIP Engine** | AI-to-AI bidirectional NLP instruction protocol with safety monitoring |
 | **Identity System** | Tamper-proof cryptographic identity with verification tiers and trust scoring |
 
@@ -161,6 +161,8 @@ Reliability behavior added in this pass:
   disconnect/delete/failure reconciles both roles to another ready model.
 - A conversation with only failed or untested model records persists
   actionable setup guidance instead of attempting a request or crashing.
+- OpenAI reasoning models, including `gpt-5.6-sol`, use medium reasoning effort
+  unless an internal caller explicitly selects another supported effort.
 - A2A send and stream failures report failed tasks instead of echoing input as
   a successful-looking answer.
 - Protocol webhooks dispatch through the registered handler and return failure
@@ -336,6 +338,12 @@ optional `temporal-proof` profile proves only a self-contained three-activity
 sample; normal messages do not use it, so it is not application crash-resume
 evidence. Start that isolated proof environment with
 `docker compose --profile temporal-proof up -d`.
+
+Protocol compatibility is recorded in `docs/PROTOCOL_STATUS.md`. MCP uses the
+current stable 2025-11-25 Streamable HTTP contract. A2A external routes return
+HTTP 501 because the current A2A specification is 1.0 while the retained legacy
+engine is 0.3; Ultra Computer does not advertise the obsolete engine as
+interoperable.
 
 ---
 

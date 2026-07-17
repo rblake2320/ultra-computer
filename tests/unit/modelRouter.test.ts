@@ -3,6 +3,7 @@ import type { Model } from "@shared/schema";
 import {
   CONNECTION_TEST_MAX_OUTPUT_TOKENS,
   connectionTestRequest,
+  resolveReasoningEffort,
   selectModelFromCandidates,
 } from "../../server/modelRouter.js";
 
@@ -35,14 +36,33 @@ function model(overrides: Partial<Model>): Model {
 
 describe("model router selection", () => {
   it("keeps connection probes above provider minimums while tightly bounded", () => {
-    const request = connectionTestRequest({ modelId: "future-openai-model" });
+    const request = connectionTestRequest({
+      provider: "openai",
+      modelId: "gpt-5.6-sol",
+      capabilities: '["chat","reasoning"]',
+    });
 
     expect(request).toMatchObject({
-      model: "future-openai-model",
+      model: "gpt-5.6-sol",
       maxOutputTokens: CONNECTION_TEST_MAX_OUTPUT_TOKENS,
+      reasoningEffort: "medium",
     });
     expect(request.maxOutputTokens).toBeGreaterThanOrEqual(16);
     expect(request.maxOutputTokens).toBeLessThanOrEqual(64);
+  });
+
+  it("maps OpenAI reasoning models to medium unless the session explicitly overrides it", () => {
+    const currentReasoningModel = model({
+      modelId: "gpt-5.6-sol",
+      capabilities: '["chat","reasoning"]',
+    });
+
+    expect(resolveReasoningEffort(currentReasoningModel)).toBe("medium");
+    expect(resolveReasoningEffort(currentReasoningModel, "high")).toBe("high");
+    expect(resolveReasoningEffort({
+      ...currentReasoningModel,
+      provider: "anthropic",
+    })).toBeUndefined();
   });
 
   it("treats configured IDs as authoritative before upstream model IDs", () => {

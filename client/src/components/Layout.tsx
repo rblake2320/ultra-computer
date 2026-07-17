@@ -11,7 +11,7 @@ import {
   ChevronLeft, ChevronRight, Trash2, BookOpen,
   Container, Library, Settings, FolderOpen, BarChart3, Globe, Store, Activity,
   MessageSquare, Zap, Shield, Database, FileText, Bug,
-  MoreHorizontal, Pencil, Archive, Check, X as XIcon,
+  MoreHorizontal, Pencil, Check, X as XIcon,
 } from "lucide-react";
 import { Input } from "./ui/input";
 import { MobileSidebar, MobileMenuButton } from "./MobileSidebar";
@@ -220,12 +220,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
                         >
                           <Pencil className="w-3 h-3 text-muted-foreground" /> Rename
                         </button>
-                        <button
-                          className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-muted transition-colors text-left text-muted-foreground"
-                          onClick={() => { setOpenMenuId(null); toast({ title: "Archive coming soon" }); }}
-                        >
-                          <Archive className="w-3 h-3" /> Archive
-                        </button>
                         <div className="border-t border-border my-1" />
                         <button
                           className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-destructive/10 text-destructive transition-colors text-left"
@@ -381,12 +375,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
                               onClick={() => { setOpenMenuId(null); startRename(conv); }}
                             >
                               <Pencil className="w-3 h-3 text-muted-foreground" /> Rename
-                            </button>
-                            <button
-                              className="flex items-center gap-2 w-full px-3 py-1.5 hover:bg-muted transition-colors text-left text-muted-foreground"
-                              onClick={() => { setOpenMenuId(null); toast({ title: "Archive coming soon" }); }}
-                            >
-                              <Archive className="w-3 h-3" /> Archive
                             </button>
                             <div className="border-t border-border my-1" />
                             <button

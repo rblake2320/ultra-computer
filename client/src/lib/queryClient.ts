@@ -67,13 +67,21 @@ export function connectEventSource(
   let closed = false;
   let source: EventSource | null = null;
   let reconnectTimer: number | undefined;
+  let lastEventId = "";
 
   const connect = async () => {
     try {
-      const url = await getSSEUrl(path);
+      const authenticatedUrl = await getSSEUrl(path);
       if (closed) return;
+      const separator = authenticatedUrl.includes("?") ? "&" : "?";
+      const url = lastEventId
+        ? `${authenticatedUrl}${separator}lastEventId=${encodeURIComponent(lastEventId)}`
+        : authenticatedUrl;
       source = new EventSource(url);
-      source.onmessage = handlers.onMessage;
+      source.onmessage = (event) => {
+        if (event.lastEventId) lastEventId = event.lastEventId;
+        handlers.onMessage(event);
+      };
       source.onopen = () => handlers.onOpen?.();
       source.onerror = () => {
         source?.close();

@@ -134,10 +134,19 @@ export function registerSwarmRoutes(app: Express): void {
 
   app.post("/api/swarm/sessions/:id/run", async (req: Request, res: Response) => {
     try {
-      const results = await swarmEngine.runSwarm((req.params.id as string));
+      const swarmId = req.params.id as string;
+      const results = await swarmEngine.runSwarm(swarmId);
       const resultObj: Record<string, string> = {};
       for (const [k, v] of results) resultObj[k] = v;
-      res.json({ ok: true, taskCount: results.size, results: resultObj });
+      const session = swarmEngine.getSwarm(swarmId);
+      const ok = session?.status === "completed";
+      res.status(ok ? 200 : 422).json({
+        ok,
+        status: session?.status || "failed",
+        error: ok ? undefined : session?.error || "One or more swarm tasks failed",
+        taskCount: results.size,
+        results: resultObj,
+      });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

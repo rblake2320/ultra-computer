@@ -1,6 +1,6 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { once } from "node:events";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   AnthropicAdapter,
   collectNormalizedEvents,
@@ -18,6 +18,11 @@ interface CapturedRequest {
 }
 
 const servers: http.Server[] = [];
+const previousLocalEgressAllowlist = process.env.ULTRA_LOCAL_EGRESS_ALLOWLIST;
+
+beforeEach(() => {
+  process.env.ULTRA_LOCAL_EGRESS_ALLOWLIST = "127.0.0.1";
+});
 
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
@@ -78,6 +83,11 @@ afterEach(async () => {
     server.close();
     await once(server, "close");
   }));
+  if (previousLocalEgressAllowlist === undefined) {
+    delete process.env.ULTRA_LOCAL_EGRESS_ALLOWLIST;
+  } else {
+    process.env.ULTRA_LOCAL_EGRESS_ALLOWLIST = previousLocalEgressAllowlist;
+  }
 });
 
 describe("provider adapter protocol contracts", () => {

@@ -112,6 +112,7 @@ interface AgentStreamEntry {
   content: string;
   status: "running" | "complete";
   modelId?: string;
+  attemptId?: string;
   firstTokenAt?: number;
   completedAt?: number;
   tokenCount?: number;
@@ -223,14 +224,19 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
         const agentRunId: string = event.agentRunId || "default";
         const taskId: string = event.taskId || "";
         const modelId: string | undefined = event.modelId;
+        const attemptId: string | undefined = event.attemptId;
 
         setAgentStreams(prev => {
           const next = new Map(prev);
           const existing = next.get(agentRunId);
           if (existing) {
+            const isNewAttempt = Boolean(attemptId && existing.attemptId !== attemptId);
             next.set(agentRunId, {
               ...existing,
-              content: existing.content + event.token,
+              content: isNewAttempt ? event.token : existing.content + event.token,
+              modelId: modelId ?? existing.modelId,
+              attemptId: attemptId ?? existing.attemptId,
+              firstTokenAt: isNewAttempt ? Date.now() : existing.firstTokenAt,
             });
           } else {
             next.set(agentRunId, {
@@ -238,6 +244,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
               content: event.token,
               status: "running",
               modelId,
+              attemptId,
               firstTokenAt: Date.now(),
               toolCallCount: 0,
             });
@@ -265,6 +272,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
             next.set(agentRunId, {
               ...existing,
               status: "complete",
+              modelId: event.modelId ?? existing.modelId,
               completedAt: Date.now(),
               tokenCount: event.tokenCount ?? existing.tokenCount,
             });
@@ -349,10 +357,13 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
       `/api/conversations/${conversationId}/stream`,
       {
         onMessage: (e) => {
-        try {
-          const event = JSON.parse(e.data);
-          handleEventRef.current(event);
-        } catch {}
+          try {
+            const event = JSON.parse(e.data);
+            handleEventRef.current(event);
+          } catch {
+            setSseError(true);
+            setStatusMsg("The server sent an invalid real-time event. Reconnecting…");
+          }
         },
         onError: () => setSseError(true),
         onOpen: () => setSseError(false),

@@ -299,3 +299,57 @@ link so future contributors can tell whether the constraint still applies.
   each repaired seam.
 - **Related:** WHY-0013. This item must not be interpreted as approval to
   launch while work is deferred.
+
+### PARK-0017: Versioned database migrations and transactional messaging outbox
+
+- **Status:** Human review required — launch blocking
+- **Owner:** Data/runtime engineering and product operations
+- **Parked on:** 2026-07-17
+- **Reason:** A real migration executor and outbox alter production schema,
+  startup, backup, recovery and message-delivery behavior. The repository's
+  hard constraints require explicit owner approval before those changes.
+- **Current risk:** Older databases are not proven upgradeable, and an outbound
+  provider acceptance followed by a process crash can leave delivery state
+  ambiguous. The prior unconditional legacy-table drop is removed, but that
+  alone is not migration safety.
+- **Reactivate when:** The owner approves
+  `docs/DATABASE_MIGRATION_PLAN.md`, including supported historical versions,
+  backup/rollback policy, downtime and the outbox scope.
+- **Next decision:** Implement the ordered transactional runner and fixture
+  matrix, then the outbox schema with provider-specific idempotency evidence.
+- **Related:** WHY-0019, PARK-0016 and
+  `docs/DATABASE_MIGRATION_PLAN.md`.
+
+### PARK-0018: Current A2A 1.0 interoperability
+
+- **Status:** Parked — external routes disabled
+- **Owner:** Protocol engineering and security
+- **Parked on:** 2026-07-17
+- **Reason:** The repository's retained engine and the current stable
+  JavaScript SDK model A2A 0.3, while the released specification is 1.0. Local
+  legacy tests cannot establish current interoperability.
+- **Current risk:** Ultra Computer has no external A2A capability. This is
+  represented truthfully as HTTP 501 and an unavailable dashboard state, so it
+  is not a launch blocker for the supported core/MCP product surface.
+- **Reactivate when:** A stable reviewed A2A 1.0 implementation is available and
+  the official compatibility kit plus a controlled external-peer test can run.
+- **Next decision:** Prefer the official stable SDK when it supports 1.0; then
+  meet every gate in `docs/PROTOCOL_STATUS.md` before re-enabling UI/routes.
+- **Related:** WHY-0023 and PARK-0016.
+
+### PARK-0019: Durable multi-process SSE replay
+
+- **Status:** Parked
+- **Owner:** Runtime engineering
+- **Parked on:** 2026-07-17
+- **Reason:** Current event IDs and the bounded 500-event/100-conversation replay
+  buffer close ordinary same-process reconnect loss without a schema change.
+  Restart or multi-replica replay needs a durable event store and retention
+  policy.
+- **Current risk:** A reconnect after process restart or against another replica
+  refetches persisted messages but cannot replay transient progress events.
+- **Reactivate when:** The versioned migration plan is approved or a managed
+  event-log backend is selected.
+- **Next decision:** Store redacted events with cursors, ownership, retention and
+  replay bounds; prove restart and cross-replica recovery.
+- **Related:** WHY-0019 and PARK-0017.

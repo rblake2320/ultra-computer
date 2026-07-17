@@ -11,6 +11,30 @@ All notable changes to this project will be documented in this file.
   platform wiring was production-proven and records a launch NO-GO.
 
 ### Fixed
+- Routed OpenAI-compatible and Anthropic SDK traffic, including image
+  generation, through the governed DNS-pinned egress boundary; disabled hidden
+  SDK retries so one spend reservation cannot produce extra billable attempts.
+  Custom Google base URLs now fail closed until its SDK transport can use the
+  same boundary.
+- Added bounded event IDs and cursor replay to conversation SSE, renewed stream
+  authorization on reconnect, separated fallback attempts in the UI, and
+  persisted the actual model used rather than the originally selected model.
+- Accepted and validated provider base64 or URL image results, enforced content
+  signatures and size/time/redirect bounds, wrote artifacts atomically, and
+  fail when no returned image can be saved.
+- Made OpenAI reasoning-capable models default to medium reasoning effort while
+  preserving explicit internal overrides.
+- Removed the startup `DROP TABLE IF EXISTS swarms` statement and added a real
+  legacy-database fixture proving startup preserves the table and its data.
+- Made owner access fail closed on HTTP errors or malformed success payloads;
+  removed the visible Archive action that had no implementation.
+- Disabled external A2A routes with an explicit current-version explanation
+  instead of advertising obsolete 0.3 interoperability against the current
+  1.0 specification.
+- Made experimental surfaces truthful: Swarm failures propagate, unsupported
+  cron types return 501, NIP no longer fabricates negotiation or wildcard
+  trust, Skills copy rather than claim execution, and Marketplace is labeled
+  local/unsigned with new instructions disabled for review.
 - Made the durable run claim the admission gate for orchestrator side effects,
   so duplicate HTTP/BullMQ/inbound delivery cannot repeat a completed or
   already-running model/tool execution.
@@ -59,6 +83,8 @@ All notable changes to this project will be documented in this file.
 - Corrected the Temporal readiness claim: the historical three-activity proof
   is an isolated sample, normal application messages do not dispatch through
   Temporal, and the sample stack now requires the `temporal-proof` profile.
+- Added current protocol status and an approval-gated database migration/outbox
+  plan, including historical upgrade, backup, rollback and crash-window proof.
 - Encrypted complete connector credential configurations at rest, migrated
   legacy plaintext records on first use, sanitized model create/quick-add
   responses, and made internal default/orchestrator lookups decrypt credentials

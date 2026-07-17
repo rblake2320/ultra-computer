@@ -620,8 +620,6 @@ export class NIPEngine extends EventEmitter {
             `[NIP] Instructor identity "${identity.crypto.fingerprint}" is not active (status: ${identity.status}).`
           );
         }
-        // Record session activity on the identity
-        try { _identityEngine.recordActivity(identity.crypto.cryptoId, "session_completed"); } catch {}
       }
       // Note: if identity not found, we allow the session — identity is optional for backwards compat
     }
@@ -697,18 +695,13 @@ export class NIPEngine extends EventEmitter {
   }
 
   /**
-   * Conducts the capability negotiation phase for a session.
-   *
-   * The engine generates a capability query from the instructor side and a
-   * capability response from the executor side, injecting both as `system`-
-   * authored messages so the conversation has an accurate record. Then it
-   * performs instructor-side model-tier assessment and writes an adaptation
-   * note about how it will calibrate instruction complexity. Finally it
-   * transitions the session to `active` state.
+   * Refuses automatic capability negotiation until an authenticated peer
+   * transport and executor adapter exist. Earlier code fabricated both sides
+   * from caller-supplied profile metadata, which was not agent execution.
    *
    * @param sessionId - ID of a session in `negotiating` state.
-   * @returns The updated NIPSession now in `active` state.
-   * @throws If session not found or not in `negotiating` state.
+   * @throws If session not found, not in `negotiating` state, or negotiation
+   *         execution remains unsupported.
    */
   negotiateSession(sessionId: string): NIPSession {
     const session = this._requireSession(sessionId);
@@ -719,94 +712,10 @@ export class NIPEngine extends EventEmitter {
       );
     }
 
-    const { instructorProfile, executorProfile, taskScope } = session;
-
-    // --- Capability Query (instructor → executor) ---
-    const capQueryContent =
-      `Hello ${executorProfile.agentName}. Before we begin, I need to confirm your capabilities ` +
-      `for this session. Our task is: "${taskScope.objective}". ` +
-      `Please confirm: (1) which of these tools you support: ` +
-      `${taskScope.allowedActions.join(", ")}; ` +
-      `(2) your context window size; ` +
-      `(3) any domain specialisations relevant to this task; ` +
-      `(4) preferred interaction style (detailed step-by-step, high-level only, etc.).`;
-
-    this._appendMessage(session, {
-      role: "instructor",
-      type: "capability_query",
-      content: capQueryContent,
-      metadata: { confidenceScore: 1.0 },
-    });
-
-    // --- Capability Response (executor → instructor) ---
-    const instrTools = instructorProfile.supportedTools ?? [];
-    const execTools = executorProfile.supportedTools ?? [];
-    const toolOverlap = instrTools.filter((t) => execTools.includes(t));
-    const relevantSpecializations = (executorProfile.specializations ?? []).join(", ") || "general purpose";
-    const capResponseContent =
-      `Understood, ${instructorProfile.agentName}. Here is my capability summary for this session. ` +
-      `Supported tools (overlap with requested): ${toolOverlap.length > 0 ? toolOverlap.join(", ") : "none from the requested list, but I can adapt"}. ` +
-      `Full tool list: ${execTools.join(", ") || "none declared"}. ` +
-      `Context window: ${(executorProfile.maxContextWindow ?? 0).toLocaleString() || "unspecified"} tokens. ` +
-      `Model: ${executorProfile.modelProvider}/${executorProfile.modelId} (${executorProfile.modelTier} tier). ` +
-      `Specialisations: ${relevantSpecializations}. ` +
-      `Languages: ${(executorProfile.languages ?? []).join(", ") || "English"}. ` +
-      `Trust score: ${executorProfile.trustScore ?? "unset"}/100. ` +
-      `I prefer receiving instructions with clear success criteria and explicit scope boundaries. ` +
-      `I will ask questions when requirements are ambiguous. Ready to proceed.`;
-
-    this._appendMessage(session, {
-      role: "executor",
-      type: "capability_response",
-      content: capResponseContent,
-      metadata: { confidenceScore: 1.0 },
-    });
-
-    // --- Instructor Adaptation Assessment ---
-    const adaptationNote = this._buildAdaptationNote(instructorProfile, executorProfile);
-
-    const scopeAgreementContent =
-      `Thank you. Capability exchange complete. ` +
-      `Session scope agreed: "${taskScope.objective}". ` +
-      `Allowed actions: ${taskScope.allowedActions.join(", ")}. ` +
-      `Forbidden actions: ${taskScope.forbiddenActions.join(", ")}. ` +
-      `Max duration: ${Math.round(taskScope.maxDuration / 60000)} minutes. ` +
-      `Max messages: ${taskScope.maxMessages}. ` +
-      (taskScope.requiredApprovals.length > 0
-        ? `Actions requiring human approval: ${taskScope.requiredApprovals.join(", ")}. `
-        : "") +
-      adaptationNote +
-      ` Proceeding to active task execution now.`;
-
-    this._appendMessage(session, {
-      role: "instructor",
-      type: "task_boundary",
-      content: scopeAgreementContent,
-      metadata: {
-        adaptationNotes: adaptationNote,
-        confidenceScore: 1.0,
-      },
-    });
-
-    // --- Executor Acknowledgment ---
-    this._appendMessage(session, {
-      role: "executor",
-      type: "acknowledgment",
-      content:
-        `Scope agreement acknowledged. I understand the task, constraints, and approval requirements. ` +
-        `Monitor agent is active and all messages will be screened. ` +
-        `Ready to receive the first instruction.`,
-      metadata: { confidenceScore: 1.0 },
-    });
-
-    // --- Transition to Active ---
-    session.state = "active";
-    session.updatedAt = Date.now();
-
-    console.log(`[NIP] Session ${sessionId} negotiation complete → active`);
-    this.emit("session:negotiated", session);
-    this.emit("session:active", session);
-    return session;
+    throw new Error(
+      `[NIP] Automatic negotiation is not implemented for session ${sessionId}. ` +
+      "Ultra Computer has no authenticated peer transport or executor adapter for NIP, so it will not fabricate either agent's response."
+    );
   }
 
   /**
@@ -1507,8 +1416,9 @@ export class NIPEngine extends EventEmitter {
       };
     }
 
-    // Empty allowedScopes OR wildcard "*" means unrestricted
-    if (party.allowedScopes.length > 0 && !party.allowedScopes.includes("*")) {
+    // Approved parties retain explicit least-privilege scopes. Wildcards are
+    // deliberately not treated as unrestricted access.
+    if (party.allowedScopes.length > 0) {
       const lowerScope = requestedScope.toLowerCase();
       const scopeWords = lowerScope.split(/[\s,_\-/|]+/);
 

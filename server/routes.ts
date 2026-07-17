@@ -9,7 +9,12 @@ import { modelService } from "./services/modelService.js";
 import { knowledgeService } from "./services/knowledgeService.js";
 import { validate } from "./validateRequest.js";
 import { insertConversationSchema, insertModelSchema } from "@shared/schema";
-import { runOrchestrator, subscribeToConversation, unsubscribeFromConversation } from "./orchestrator.js";
+import {
+  replayConversationEvents,
+  runOrchestrator,
+  subscribeToConversation,
+  unsubscribeFromConversation,
+} from "./orchestrator.js";
 import { testModelConnection } from "./modelRouter.js";
 import { connectModel, disconnectModel, testConnection, quickAdd, discoverEnvVars, getProviderCatalog, PROVIDER_REGISTRY } from "./modelConnections.js";
 import { seedConnectors, connectWithApiKey, callMCPTool, validateConnectorKey, validateMCPConnection, getConnectorDef, BUILT_IN_CONNECTORS } from "./connectorRegistry.js";
@@ -43,6 +48,8 @@ import { registerSwarmRoutes } from "./swarmRoutes.js";
 import { swarmEngine } from "./swarmEngine.js";
 import { warmBrowserPool } from "./browserTool.js";
 import { getSpendStatus, HARD_MAX_SPEND_USD } from "./spendGuard.js";
+import { experimentalFeaturesEnabled } from "./experimentalFeatures.js";
+import { prepareSkillScriptCopy } from "./skillScriptActions.js";
 
 const sseConnectionsPerIp = new Map<string, number>();
 const MAX_SSE_PER_IP = 5;
@@ -149,7 +156,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   registerMessagingRoutes(app);
   registerCacheRoutes(app);
 
-  const experimental = process.env.ULTRA_EXPERIMENTAL === "1";
+  const experimental = experimentalFeaturesEnabled();
   app.get("/api/app-config", (_req, res) => res.json({ experimental }));
 
   if (experimental) {
@@ -164,7 +171,10 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     startCheckpointHeartbeats();
     startScheduler(async (job) => {
       if (job.taskType === "health_check") return JSON.stringify(getHealthStatus());
-      return `Job ${job.name} executed`;
+      throw new Error(
+        `Cron task type "${job.taskType}" is not implemented. ` +
+        "Only health_check jobs execute in this release."
+      );
     });
     startLearningLoop();
     startAutoImproveLoop();
@@ -558,8 +568,9 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       unsubscribeFromConversation(convId, send);
     };
 
-    const send = (event: any) => {
+    const send = (event: any, eventId?: number) => {
       try {
+        if (eventId !== undefined) res.write(`id: ${eventId}\n`);
         res.write(`data: ${JSON.stringify(event)}\n\n`);
         eventCount++;
         if (eventCount >= SSE_MAX_EVENTS) {
@@ -575,6 +586,14 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     };
 
     subscribeToConversation(convId, send);
+    const replayAfterRaw = req.get("last-event-id") ?? req.query.lastEventId;
+    const replayAfter = typeof replayAfterRaw === "string" ? Number(replayAfterRaw) : Number.NaN;
+    if (Number.isSafeInteger(replayAfter) && replayAfter >= 0) {
+      for (const buffered of replayConversationEvents(convId, replayAfter)) {
+        send(buffered.event, buffered.id);
+        if (eventCount >= SSE_MAX_EVENTS) break;
+      }
+    }
 
     // Keep-alive ping
     const ping = setInterval(() => {
@@ -1085,9 +1104,10 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   app.post("/api/skill-scripts/:id/run", (req, res) => {
     const script = storage.getSkillScript(req.params.id);
     if (!script) return res.status(404).json({ error: "Not found" });
-    storage.incrementSkillScriptUsage(script.id);
-    // Return the script content — the frontend will insert it into a chat as a tool call
-    res.json({ content: script.content, language: script.language, name: script.name });
+    // This endpoint historically claimed to run a script while only returning
+    // its text. Preserve the response fields for existing clients, but make the
+    // operation explicit and do not increment execution usage.
+    res.json(prepareSkillScriptCopy(script));
   });
 
   // ─── Sandbox / Docker ──────────────────────────────────────────────────────

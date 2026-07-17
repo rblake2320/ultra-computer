@@ -459,3 +459,60 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** Focused connector/MCP/messaging tests, complete TypeScript and
   unit gates, plus restart restoration and duplicate-inbound contract tests.
 - **Related:** WHY-0016, WHY-0018, PARK-0007 and PARK-0016.
+
+### WHY-0021: Provider SDKs do not own egress or hidden retry policy
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** SDK calls could resolve and connect to caller-configured base
+  URLs outside the governed DNS/TLS/policy boundary. Default SDK retries could
+  also issue more paid requests than the spend guard reserved.
+- **Decision:** Inject the governed, DNS-pinned fetch implementation into
+  OpenAI-compatible and Anthropic SDK clients, including image generation, and
+  set SDK retries to zero. Reject custom Google base URLs until that client can
+  use the same transport.
+- **Why:** Network validation and cost admission must wrap the actual socket and
+  every attempt, not a URL string checked before an independent SDK request.
+- **Alternatives:** Pre-validate the hostname or trust HTTPS. Rejected because
+  both retain DNS-rebinding, redirect and hidden-retry gaps.
+- **Evidence:** Provider contract tests traverse a real local HTTP boundary
+  only when explicitly allowlisted; blocked-local, body preservation, image
+  materialization, TypeScript and complete unit gates pass.
+- **Related:** WHY-0009, WHY-0015 and PARK-0013.
+
+### WHY-0022: Experimental means guarded and truthful, never simulated
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Experimental Swarm, cron, NIP, Skills and Marketplace operations
+  could report completion after errors, canned exchanges, metadata writes or a
+  copy-only action.
+- **Decision:** Propagate execution failures; return 501 for missing adapters;
+  reject fabricated negotiation/wildcard trust; label copy-only and local-only
+  operations; and keep unsigned installed instructions disabled for review.
+- **Why:** An experimental gate limits exposure but does not make false success
+  acceptable. The status must still describe the work actually performed.
+- **Alternatives:** Preserve optimistic flows with warning text. Rejected
+  because automation and operators act on status fields, not disclaimers.
+- **Evidence:** Focused truth tests exercise six real failure/label boundaries;
+  the full unit suite and experimental-route browser gate pass.
+- **Related:** WHY-0013 and PARK-0016.
+
+### WHY-0023: Unsupported current protocols fail closed
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** The retained A2A code models the legacy 0.3 JSON-RPC contract,
+  while the current released specification is 1.0. Local conformance tests
+  against 0.3 would still produce a false interoperability claim.
+- **Decision:** Return HTTP 501 from all external A2A routes and advertise the
+  exact version gap. Keep MCP on the current stable 2025-11-25 contract.
+- **Why:** Explicit unavailability is safer than protocol drift that appears to
+  connect and then corrupts tasks, authentication or message semantics.
+- **Alternatives:** Ship the legacy contract or depend on the stable JavaScript
+  SDK, which currently targets 0.3. Rejected because neither implements current
+  A2A 1.0.
+- **Evidence:** Official protocol sources are linked in
+  `docs/PROTOCOL_STATUS.md`; route tests prove every external A2A path fails
+  before discovery or dispatch, and the UI displays the reason.
+- **Related:** PARK-0018 and PARK-0016.

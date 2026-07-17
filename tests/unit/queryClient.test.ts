@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiRequest } from "../../client/src/lib/queryClient";
+import { apiRequest, connectEventSource } from "../../client/src/lib/queryClient";
 
 function installBrowserGlobals(): void {
   vi.stubGlobal("window", {
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
     sessionStorage: {
       getItem: vi.fn(() => null),
       setItem: vi.fn(),
@@ -47,5 +49,36 @@ describe("apiRequest response contract", () => {
 
     await expect(apiRequest("POST", "/api/connectors/example/connect", {}))
       .rejects.toThrow("Connector credentials were rejected");
+  });
+
+  it("carries the last SSE event ID into a manually renewed authenticated stream", async () => {
+    vi.useFakeTimers();
+    installBrowserGlobals();
+    const sources: FakeEventSource[] = [];
+    class FakeEventSource {
+      onmessage: ((event: MessageEvent<string>) => void) | null = null;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      close = vi.fn();
+
+      constructor(readonly url: string) {
+        sources.push(this);
+      }
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+
+    const disconnect = connectEventSource("/api/conversations/one/stream", {
+      onMessage: vi.fn(),
+    });
+    await vi.runAllTicks();
+    expect(sources[0].url).toBe("/api/conversations/one/stream");
+
+    sources[0].onmessage?.({ data: "{}", lastEventId: "42" } as MessageEvent<string>);
+    sources[0].onerror?.();
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(sources[1].url).toBe("/api/conversations/one/stream?lastEventId=42");
+    disconnect();
+    vi.useRealTimers();
   });
 });

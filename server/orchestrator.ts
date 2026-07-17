@@ -37,6 +37,7 @@ import {
 import type { Task } from "@shared/schema";
 import { filterOutput } from "./outputFilter.js";
 import { sanitizeToolArgsForExposure } from "./redaction.js";
+import { isSwarmPrompt, swarmPromptAllowed } from "./experimentalFeatures.js";
 
 // IPC directory for filesystem-based inter-agent communication
 const IPC_DIR = path.join(process.cwd(), "ipc");
@@ -47,8 +48,12 @@ try {
 }
 
 // SSE event emitter — wires to Express SSE endpoints
-type SSECallback = (event: OrchestratorEvent) => void;
+type SSECallback = (event: OrchestratorEvent, eventId?: number) => void;
 const sseListeners = new Map<string, SSECallback[]>();
+const sseEventIds = new Map<string, number>();
+const sseEventHistory = new Map<string, Array<{ id: number; event: OrchestratorEvent }>>();
+const SSE_REPLAY_EVENTS = 500;
+const SSE_REPLAY_CONVERSATIONS = 100;
 
 export function subscribeToConversation(conversationId: string, cb: SSECallback) {
   if (!sseListeners.has(conversationId)) sseListeners.set(conversationId, []);
@@ -64,15 +69,43 @@ export function unsubscribeFromConversation(conversationId: string, cb: SSECallb
   }
 }
 function emit(conversationId: string, event: OrchestratorEvent) {
-  for (const cb of sseListeners.get(conversationId) || []) cb(event);
+  const eventId = (sseEventIds.get(conversationId) ?? 0) + 1;
+  sseEventIds.set(conversationId, eventId);
+  const history = sseEventHistory.get(conversationId) ?? [];
+  history.push({ id: eventId, event });
+  if (history.length > SSE_REPLAY_EVENTS) history.splice(0, history.length - SSE_REPLAY_EVENTS);
+  sseEventHistory.delete(conversationId);
+  sseEventHistory.set(conversationId, history);
+  while (sseEventHistory.size > SSE_REPLAY_CONVERSATIONS) {
+    const oldestConversationId = sseEventHistory.keys().next().value as string | undefined;
+    if (!oldestConversationId) break;
+    sseEventHistory.delete(oldestConversationId);
+    sseEventIds.delete(oldestConversationId);
+  }
+  for (const cb of sseListeners.get(conversationId) || []) cb(event, eventId);
+}
+
+export function replayConversationEvents(
+  conversationId: string,
+  afterEventId: number,
+): Array<{ id: number; event: OrchestratorEvent }> {
+  if (!Number.isSafeInteger(afterEventId) || afterEventId < 0) return [];
+  return (sseEventHistory.get(conversationId) ?? [])
+    .filter(({ id }) => id > afterEventId)
+    .map(({ id, event }) => ({ id, event }));
+}
+
+/** Public for protocol bridges and focused delivery tests. */
+export function publishConversationEvent(conversationId: string, event: OrchestratorEvent): void {
+  emit(conversationId, event);
 }
 
 export type OrchestratorEvent =
   | { type: "status"; status: string; message?: string }
   | { type: "plan"; tasks: PlanTask[] }
   | { type: "task_update"; task: Task }
-  | { type: "agent_token"; taskId: string; token: string; agentRunId: string }
-  | { type: "agent_complete"; taskId: string; result: string; agentRunId: string; tokenCount?: number }
+  | { type: "agent_token"; taskId: string; token: string; agentRunId: string; modelId: string; attemptId: string }
+  | { type: "agent_complete"; taskId: string; result: string; agentRunId: string; modelId?: string; tokenCount?: number }
   | { type: "tool_call"; taskId: string; agentRunId: string; toolName: string; args: Record<string, string>; callId: string }
   | { type: "tool_result"; taskId: string; agentRunId: string; toolName: string; result: ToolResult; callId: string }
   | { type: "message"; role: string; content: string; messageId: string }
@@ -201,9 +234,16 @@ export async function runOrchestrator(
     const synthModel = resolveAreaModel("model_for_synthesis");
     const memModel = resolveAreaModel("model_for_memory");
 
-    // 4. Check for swarm mode — triggered by "swarm:" prefix or swarm-related keywords
-    const isSwarmMode = userMessage.toLowerCase().startsWith("swarm:") ||
-      (userMessage.toLowerCase().includes("use swarm") && userMessage.toLowerCase().includes("agents"));
+    // 4. Check for swarm mode — explicit prompt activation must obey the same
+    // experimental gate as the HTTP routes and navigation.
+    const requestedSwarmMode = isSwarmPrompt(userMessage);
+    const isSwarmMode = swarmPromptAllowed(userMessage);
+
+    if (requestedSwarmMode && !isSwarmMode) {
+      throw new Error(
+        "Swarm execution is experimental and disabled. Set ULTRA_EXPERIMENTAL=1, restart Ultra Computer, and retry."
+      );
+    }
 
     if (isSwarmMode) {
       console.log(`[orchestrator] Swarm mode detected for conversation ${conversationId}`);
@@ -268,6 +308,10 @@ export async function runOrchestrator(
 
       // Run the swarm (auto-assigns tasks via Contract Net Protocol, runs deadlock detection)
       const swarmResults = await swarmEngine.runSwarm(swarmId);
+      const finishedSwarm = swarmEngine.getSwarm(swarmId);
+      if (finishedSwarm?.status !== "completed") {
+        throw new Error(finishedSwarm?.error || "Swarm execution failed before all tasks completed");
+      }
 
       // Synthesize results from all completed tasks
       const allResults = Array.from(swarmResults.values()).filter(Boolean);
@@ -773,6 +817,7 @@ async function runWorkerAgent(
   // Accumulate token usage across all LLM iterations
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
+  let actualModelId = model.id;
   const MAX_TOOL_ITERATIONS = getMaxToolIterations();
 
   while (iteration < MAX_TOOL_ITERATIONS) {
@@ -797,6 +842,7 @@ async function runWorkerAgent(
       const streamResult = await withRetryAndFallback(
         async (mid) => {
           let resp = "";
+          const attemptId = uuidv4();
           // Pass tools natively so the model uses structured tool calling
           const nativeTools = getAllToolSchemas().map((t) => ({
             name: t.name,
@@ -810,7 +856,14 @@ async function runWorkerAgent(
             tools: nativeTools,
           })) {
             resp += token;
-            emit(conversationId, { type: "agent_token", taskId: task.id, token, agentRunId });
+            emit(conversationId, {
+              type: "agent_token",
+              taskId: task.id,
+              token,
+              agentRunId,
+              modelId: mid,
+              attemptId,
+            });
           }
           return resp;
         },
@@ -818,6 +871,7 @@ async function runWorkerAgent(
       );
       llmResponse = streamResult.result;
       usedModelId = streamResult.usedModelId;
+      actualModelId = usedModelId;
       // Estimate token usage for this iteration (approx 4 chars per token)
       const promptChars = workingMessages.reduce((s, m) => s + m.content.length, 0);
       totalPromptTokens += Math.ceil(promptChars / 4);
@@ -935,6 +989,7 @@ async function runWorkerAgent(
     output: finalOutput,
     toolCalls: toolCallLog,
     status: "complete",
+    modelId: actualModelId,
     completedAt: Date.now(),
   })).catch(err => console.error("[orchestrator] IPC write error:", err));
 
@@ -949,6 +1004,7 @@ async function runWorkerAgent(
     output: finalOutput,
     toolCalls: JSON.stringify(toolCallLog),
     status: "complete",
+    modelId: actualModelId,
     completedAt: Date.now(),
     tokenUsage: tokenUsageJson,
   });
@@ -962,7 +1018,7 @@ async function runWorkerAgent(
     taskType: task.taskType ?? "general",
     taskDescription: task.description,
     skillsUsed: [],
-    modelUsed: model.id,
+    modelUsed: actualModelId,
     outcome,
     durationMs: Date.now() - agentRunStart,
     retryCount: 0,
@@ -976,6 +1032,7 @@ async function runWorkerAgent(
     taskId: task.id,
     result: finalOutput,
     agentRunId,
+    modelId: actualModelId,
     tokenCount: totalTokens,
   });
 
@@ -1133,9 +1190,17 @@ ${skillNames.length > 0 ? `- Skills active: ${skillNames.join(", ")}` : ""}`,
     const synthResult = await withRetryAndFallback(
       async (mid) => {
         let resp = "";
+        const attemptId = uuidv4();
         for await (const token of chatStream(msgs, { modelId: mid, taskType: "write", maxTokens: 65536 })) {
           resp += token;
-          emit(conversationId, { type: "agent_token", taskId: "synthesis", token, agentRunId: "synthesis" });
+          emit(conversationId, {
+            type: "agent_token",
+            taskId: "synthesis",
+            token,
+            agentRunId: "synthesis",
+            modelId: mid,
+            attemptId,
+          });
         }
         return resp;
       },

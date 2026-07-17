@@ -453,19 +453,25 @@ class SwarmEngine {
     const session = this.swarms.get(id);
     if (!session) throw new Error(`Swarm ${id} not found`);
 
-    session.status = "completed";
+    const hasFailedTasks = Array.from(session.tasks.values()).some(task => task.status === "failed");
+    const failed = hasFailedTasks || Boolean(session.error) || session.circuitBroken;
+    session.status = failed ? "failed" : "completed";
     session.completedAt = Date.now();
     this.cleanupTimers(session);
 
     for (const agent of session.agents.values()) {
       if (agent.status === "working" || agent.status === "waiting") {
-        agent.status = "completed";
+        agent.status = failed ? "failed" : "completed";
         this.persistAgent(session.config.id, agent);
       }
     }
 
     this.logSwarmOutcome(session);
-    this.emitEvent(id, "swarm_completed", {});
+    this.emitEvent(
+      id,
+      failed ? "swarm_error" : "swarm_completed",
+      failed ? { reason: session.error || "One or more swarm tasks failed" } : {},
+    );
     this.persistSession(session);
     return session;
   }
@@ -1492,6 +1498,8 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
     ];
 
     let finalOutput = "";
+    let failureReason: string | null = null;
+    let producedFinalResponse = false;
     let iteration = 0;
     const maxIter = session.config.safety.maxAgentIterations;
     let totalPrompt = 0;
@@ -1501,7 +1509,10 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
       iteration++;
 
       const iterSafety = this.checkSafetyCaps(session);
-      if (!iterSafety.safe) { finalOutput = `[Safety: ${iterSafety.reason}]`; break; }
+      if (!iterSafety.safe) {
+        failureReason = `Safety cap: ${iterSafety.reason}`;
+        break;
+      }
 
       let llmResponse = "";
       try {
@@ -1524,7 +1535,7 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
         totalCompletion += completionTokens;
         this.addTokenUsage(session, agent, promptTokens, completionTokens);
       } catch (err: any) {
-        finalOutput = `[LLM error: ${err.message}]`;
+        failureReason = `LLM request failed: ${err.message}`;
         break;
       }
 
@@ -1539,6 +1550,8 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
 
       if (toolCalls.length === 0) {
         finalOutput = llmResponse.replace(/<blackboard_write>[\s\S]*?<\/blackboard_write>/g, "").trim();
+        producedFinalResponse = finalOutput.length > 0;
+        if (!producedFinalResponse) failureReason = "Model returned an empty final response";
         break;
       }
 
@@ -1558,15 +1571,15 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
       agent.messagesProcessed += 2;
     }
 
-    if (!finalOutput) {
-      finalOutput = messages.filter(m => m.role === "assistant").pop()?.content || "[Max iterations reached]";
+    if (!failureReason && !producedFinalResponse) {
+      failureReason = `Agent reached the maximum of ${maxIter} iterations without a final response`;
     }
 
     agent.lastActiveAt = Date.now();
     this.persistAgent(swarmId, agent);
 
     // Self-learning
-    const outcome = (finalOutput.includes("[LLM error") || finalOutput.includes("[Safety")) ? "failure" : "success";
+    const outcome = failureReason ? "failure" : "success";
     logExecution({
       conversationId: swarmId,
       taskType: "general",
@@ -1580,6 +1593,8 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
       outputTokenEstimate: totalCompletion,
       toolCallCount: iteration - 1,
     });
+
+    if (failureReason) throw new Error(failureReason);
 
     return finalOutput;
   }
@@ -1747,11 +1762,16 @@ ${kbResult.contextBlock ? `\n${kbResult.contextBlock}` : ""}`;
     if (!session || session.status !== "running") return;
     const allDone = Array.from(session.tasks.values()).every(t => t.status === "completed" || t.status === "failed");
     if (allDone) {
-      session.status = "completed";
+      const failed = Array.from(session.tasks.values()).some(t => t.status === "failed");
+      session.status = failed ? "failed" : "completed";
       session.completedAt = Date.now();
       this.cleanupTimers(session);
       this.logSwarmOutcome(session);
-      this.emitEvent(swarmId, "swarm_completed", {});
+      this.emitEvent(
+        swarmId,
+        failed ? "swarm_error" : "swarm_completed",
+        failed ? { reason: "One or more swarm tasks failed" } : {},
+      );
       this.persistSession(session);
     }
   }

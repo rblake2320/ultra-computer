@@ -263,7 +263,7 @@ export function registerMessagingRoutes(app: Express): void {
       broadcastSseEvent({
         type: "channel_status_change",
         channelId: id,
-        status: "connected",
+        status: result.ok ? "connected" : "error",
         ts: Date.now(),
       });
 
