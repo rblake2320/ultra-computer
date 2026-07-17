@@ -9,6 +9,8 @@ All notable changes to this project will be documented in this file.
   exact live-test exclusions, symptom-to-root-cause traces and an ordered
   repair plan. The audit supersedes the unsupported claim that all visible
   platform wiring was production-proven and records a launch NO-GO.
+- Added a standing project rule that wiring claims require UI-to-service
+  boundary evidence and explicit labels for every unexercised dependency.
 
 ### Fixed
 - Routed OpenAI-compatible and Anthropic SDK traffic, including image

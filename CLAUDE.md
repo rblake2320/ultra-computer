@@ -9,3 +9,6 @@
 - Never replace a maintained HTML sanitizer with regex-based sanitization.
 - Never add a model by hard-coded name alone; require discovery, capability and
   lifecycle metadata, provider-native compatibility, and regression tests.
+- Never claim a feature is wired from static presence or a mocked test. Trace
+  the UI action through its server boundary and label every unexercised external
+  dependency explicitly.
