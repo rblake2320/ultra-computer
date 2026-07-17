@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - 2026-07-16
 
+### Audited
+- Added a complete UI-to-external-boundary wiring audit with evidence labels,
+  exact live-test exclusions, symptom-to-root-cause traces and an ordered
+  repair plan. The audit supersedes the unsupported claim that all visible
+  platform wiring was production-proven and records a launch NO-GO.
+
 ### Fixed
 - Made provider setup explicit: entered API keys now show a visible
   **Save & connect** action on each model, explain encrypted persistence and

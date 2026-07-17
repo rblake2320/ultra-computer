@@ -280,3 +280,22 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** Browser reproduction, unit no-credential coverage, explicit UI
   E2E coverage, a bounded connection-probe minimum regression, and the release
   verification gate.
+
+### WHY-0013: Wiring claims require boundary proof and explicit exclusions
+
+- **Status:** Accepted
+- **Date:** 2026-07-17
+- **Problem:** Green core tests and the presence of routes/adapters were
+  previously summarized as if every visible capability had been wired and
+  inspected. Contract tracing later found broken and orphaned boundaries.
+- **Decision:** A wiring claim must trace the user action through its real
+  client, API, service, persistence and external boundary. Evidence is labeled
+  live, local, unit-only, static-only, not verified or blocked. Every excluded
+  live check records why it was excluded.
+- **Why:** This makes a failure traceable and prevents unit mocks, static code
+  presence or unrelated sample workflows from becoming launch proof.
+- **Alternatives:** Report only passing test totals or maintain separate
+  component notes. Rejected because neither exposes missing seams or explains
+  why a feature that appears configured cannot operate.
+- **Evidence:** `reports/wiring-audit-2026-07-17.md`.
+- **Related:** PARK-0014 and the 2026-07-17 documentation changelog.
