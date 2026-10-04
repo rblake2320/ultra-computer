@@ -19,3 +19,9 @@ it('refuses injected remembered instructions and cross-session deduplication',as
   await memoryManager.extractAndStore('Remember that my preference is brief replies.','ok','s2');
   expect(storage.getMemories(200)).toHaveLength(2);
 });
+it('rejects oversized directives before parsing and preserves punctuation and spacing in explicit facts',async()=>{
+ await memoryManager.extractAndStore('Remember'+' '.repeat(100000)+'x','ok','s');
+ expect(storage.getMemories(200)).toHaveLength(0);
+ await memoryManager.extractAndStore('Please remember: I prefer  brief replies.','ok','s');
+ expect(storage.getMemories(200)[0].content).toBe('I prefer  brief replies.');
+});

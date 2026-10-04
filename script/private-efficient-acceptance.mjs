@@ -27,7 +27,7 @@ try {
  for(const [language,code] of Object.entries(languages)){
   const r=await api('/api/protocols/code/interpret',{language,code});
   record('openshell-'+language,r.exitCode===0&&r.stdout.trim()==='4',{exitCode:r.exitCode,correctOutput:r.stdout.trim()==='4'});
-  if(language==='python3'){const received=r.artifacts.find(p=>path.basename(p)==='received.txt');const resolved=received&&path.resolve(received);const prefix=path.resolve(root,'sandbox')+path.sep;
+  if(language==='python3'){const received=r.artifacts.find(p=>path.basename(p)==='received.txt');const resolved=received&&fs.realpathSync(received);const prefix=fs.realpathSync(path.join(root,'sandbox'))+path.sep;
    record('interpreter-receiving-file',!!resolved&&resolved.startsWith(prefix)&&fs.readFileSync(resolved,'utf8')==='42',{fileReceived:true,content:'42'});
   }
  }

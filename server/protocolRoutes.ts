@@ -559,7 +559,7 @@ export function registerProtocolRoutes(app: Express) {
       res.json(result);
     } catch (err: any) {
       const message = err instanceof Error ? err.message : "Code interpreter failed";
-      res.status(/requires the isolated Docker sandbox/i.test(message) ? 503 : 500).json({ error: message });
+      res.status(/requires (?:the isolated Docker sandbox|an available isolated sandbox)/i.test(message) ? 503 : 500).json({ error: message });
     }
   });
 

@@ -53,9 +53,22 @@ class MemoryManager {
   // Store only explicit owner-authored memory. No hidden model call and no
   // assistant-generated claims are promoted into durable user facts.
   async extractAndStore(userMessage: string, _assistantResponse: string, sessionId: string, _overrideModelId?: string): Promise<number> {
-    const match = /^(?:please\s+)?(?:remember(?:\s+that)?|save\s+this\s+(?:to|in)\s+memory)\s*[:,-]?\s+([\s\S]+)$/i.exec(userMessage.trim());
-    if (!match || !sessionId) return 0;
-    const content = match[1].trim();
+    if (!sessionId || userMessage.length>2200) return 0;
+    const word=(value:string,expected:string):string|null=>{
+      if (value.slice(0,expected.length).toLowerCase()!==expected || (value.length>expected.length && !/[\s:,-]/.test(value[expected.length]))) return null;
+      return value.slice(expected.length).trimStart();
+    };
+    let remaining=userMessage.trim(); remaining=word(remaining,'please')??remaining;
+    let directive=word(remaining,'remember');
+    if (directive!==null) directive=word(directive,'that')??directive;
+    else {
+      const saved=word(remaining,'save');const thisWord=saved===null?null:word(saved,'this');
+      const inMemory=thisWord===null?null:(word(thisWord,'to')??word(thisWord,'in'));
+      directive=inMemory===null?null:word(inMemory,'memory');
+    }
+    if (directive===null) return 0;
+    if ([':',',','-'].includes(directive[0]))directive=directive.slice(1).trimStart();
+    const content=directive.trim();
     if (!isSafeMemoryContent(content)) return 0;
     const existing = storage.getMemories(200).filter(m => m.sessionId === sessionId);
     if (existing.some(m => m.content === content)) return 0;

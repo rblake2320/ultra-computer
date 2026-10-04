@@ -23,11 +23,12 @@ async function api(route,body){const r=await fetch(base+route,{method:body===und
 try {
  proxy=http.createServer(async(req,res)=>{
   try {
+   if(req.method!=='POST' || req.url!=='/v1/chat/completions'){res.writeHead(404);res.end();return;}
    const chunks=[];for await(const c of req)chunks.push(c);const bytes=Buffer.concat(chunks);
    const body=bytes.length?JSON.parse(bytes.toString('utf8')):{};
    const measure=req.url.includes('chat/completions')?{maxOutput:body.max_tokens,reasoningEffort:body.reasoning_effort||null,tools:body.tools?.length||0,inputBytes:Buffer.byteLength(JSON.stringify(body.messages||[])),started:Date.now()}:null;
    if(measure)calls.push(measure);
-   const upstream=await fetch('http://127.0.0.1:11434'+req.url,{method:req.method,headers:{'Content-Type':'application/json'},body:bytes.length?bytes:undefined,signal:AbortSignal.timeout(180000)});
+   const upstream=await fetch('http://127.0.0.1:11434/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:bytes.length?bytes:undefined,signal:AbortSignal.timeout(180000)});
    res.writeHead(upstream.status,{'Content-Type':upstream.headers.get('content-type')||'application/json'});
    let output='';for await(const c of upstream.body){res.write(c);if(output.length<4194304)output+=Buffer.from(c).toString('utf8');}res.end();
    if(measure){measure.durationMs=Date.now()-measure.started;delete measure.started;measure.httpStatus=upstream.status;
