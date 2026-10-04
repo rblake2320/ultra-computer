@@ -429,6 +429,14 @@ interoperable.
 
 ## Policy-Governed Tool Execution
 
+For the private native installation, ask "Give me a full system health report."
+Chat uses a policy-audited read-only host snapshot with sampled CPU, RAM, NVIDIA
+GPU/VRAM, local disk space, the top 12 processes by resident RAM and loaded local
+Ollama models. Standalone requests use zero model calls. Missing readings are
+labelled Unavailable; container installations label their runtime scope. This
+does not grant arbitrary host shell or environment access. Run
+`npm run verify:host-health` to check the installed receiving path (ADR-0007).
+
 Agent effectiveness layers such as memory, skills, MCP, A2A, browser automation, and shell tools are constrained by the policy control plane. Policies are JSON files under `policies/` and every file uses deny-by-default semantics:
 
 | Policy | Scope |

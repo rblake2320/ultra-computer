@@ -120,6 +120,7 @@ interface AgentStreamEntry {
 }
 
 const TOOL_ICONS: Record<string, typeof Terminal> = {
+  host_health: Cpu,
   bash: Terminal,
   write_file: FileText,
   read_file: FileText,

@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-10-04
 
 ### Fixed
+- Add governed read-only host diagnostics for CPU/RAM/GPU/disk/process/Ollama
+  readings. Standalone health requests return measured snapshots without model
+  calls; sandbox listings cannot satisfy a host-health receipt requirement.
 - Give CI one owned Ollama process and retain model connection errors and browser
   failure context instead of accepting another daemon's health response.
 - Keep name-only follow-ups on the brief answer path; make sandbox descriptions

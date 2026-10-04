@@ -1,5 +1,14 @@
 # Durable Execution Readiness Report
 
+> **2026-10-04 host-health update:** Standalone diagnostics use the normal
+> admission ledger, governed tool receipt, persisted task/run and SSE completion
+> path while consuming zero model calls. They require no connected model.
+> A unit receiving regression checks this path; `verify:host-health` checks the
+> actual installed queue, timestamp, OS/model readings, receipt and call count.
+> This introduces no automatic replay or stronger crash-resume guarantee.
+> See ADR-0007 and WHY-0044; installed receipts are retained by the command in
+> `data/private-health-receipt.json` with Worked/Failed per scenario.
+
 > **2026-10-04 efficiency update — VERIFIED LOCALLY:** Installed local Gemma 4
 > arithmetic completed with one provider attempt; actual HTTP measurements for
 > two synthetic prompts dropped from six calls/12,401 provider-reported tokens
