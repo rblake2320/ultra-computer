@@ -1,3 +1,5 @@
+// Private ownership must be acquired before stateful module initialization.
+import { privateStateRelease as releasePrivateState } from "./privateStateLock.js";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -25,10 +27,8 @@ import { stopWatchdog } from "./processWatchdog.js";
 import { buildRuntimeHealth, type RuntimeCheckState } from "./runtimeHealth.js";
 import { shutdownRuntime } from "./lifecycle.js";
 import { recoverInterruptedExecutions } from "./orchestrator.js";
-import { acquirePrivateStateLock } from "./privateStateLock.js";
 
 assertProductionEnvironment();
-const releasePrivateState = acquirePrivateStateLock();
 recoverInterruptedExecutions();
 const app = express();
 const httpServer = createServer(app);

@@ -11,3 +11,6 @@ export function acquirePrivateStateLock(): (() => void) | null {
   catch { lock.close(); throw new Error("Private state is in use by another app or backup operation. Stop that operation before starting."); }
   return () => { lock.exec("ROLLBACK"); lock.close(); };
 }
+
+// The entrypoint imports this before modules that initialize canonical state.
+export const privateStateRelease = acquirePrivateStateLock();
