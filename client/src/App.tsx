@@ -69,7 +69,7 @@ export default function App() {
             </Route>
             <Route path="/chat/:id">
               {(params) => (
-                <PageShell><ChatPage conversationId={params.id} /></PageShell>
+                <PageShell><ChatPage key={params.id} conversationId={params.id} /></PageShell>
               )}
             </Route>
             <Route path="/models">

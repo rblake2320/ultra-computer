@@ -879,3 +879,23 @@ bash isolation and permissions remain the constraint; broad example MCP host
 access is not activated. The regression fails against the missing tool, and the
 owner acceptance checks actual installed chat, OS readings, loaded models and
 zero model calls. See ADR-0007 and `npm run verify:host-health`.
+
+### 0045 — Resolve the executable before an integrity-check entry guard
+
+The installed D: junction entry returned exit zero without running verification,
+while its physical-path twin performed the check. Node resolves import URLs to
+the physical path but preserves the supplied argv path. Compare real paths and
+require a manifest in the explicit artifact-check CLI. Internal Git-install
+callers retain their existing optional-manifest contract. privateReleaseCli
+fails before the change and checks missing/invalid/valid/tampered manifests
+through an actual junction or POSIX directory alias, not a path-string mock.
+
+### 0046 — Bind chat activity to the displayed conversation
+
+Installed browser navigation replaced messages but retained the previous
+conversation's task, tool and agent state; a prime-number run appeared beside
+a new zero-call health snapshot. Key the chat component by conversation ID so
+each session receives fresh local state and the old SSE subscription is closed.
+The original browser receipt records oldTaskVisible/oldToolVisible in an empty
+new session. Core workflow 3c checks the actual System report shortcut, its
+zero-call result and absence of stale task/tool controls after New Session.
