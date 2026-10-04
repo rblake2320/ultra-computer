@@ -761,3 +761,12 @@ The test now creates that pagination fixture in one transaction, preserving
 all 101 rows and the admission/terminal-state assertions. The separate
 cross-connection test still checks durable admission. This changes fixture
 setup rather than extending deadlines or relaxing product guarantees.
+### 0035 — Verify Temporal completion by its exact workflow identity
+
+CI observed a completed three-activity workflow in event history while an
+immediate visibility search returned zero rows. The old idempotency test
+queried that search and fetched each result only once. The revised live test
+retains the known completed workflow ID, fetches its result twice through
+separate handles, and checks both activity history and the execution counter
+for duplication. It tests the stated guarantee directly and does not depend
+on visibility indexing catching up.
