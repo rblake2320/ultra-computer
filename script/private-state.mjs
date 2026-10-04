@@ -39,7 +39,9 @@ function physicalDestination(directory) {
   const missing = [];
   while (!fs.existsSync(existing)) {
     missing.unshift(path.basename(existing));
-    existing = path.dirname(existing);
+    const parent = path.dirname(existing);
+    if (parent === existing) throw new Error("Backup destination has no accessible parent directory");
+    existing = parent;
   }
   return path.resolve(fs.realpathSync(existing), ...missing);
 }
