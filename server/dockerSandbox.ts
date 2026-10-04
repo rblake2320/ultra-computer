@@ -33,6 +33,11 @@ export function sandboxContainerFilters(owner = sandboxOwner, processId: string 
   return ["--filter", "label=ultra-computer=sandbox", "--filter", `label=ultra-owner=${owner}`,
     ...(processId ? ["--filter", `label=ultra-process=${processId}`] : [])];
 }
+export function sandboxUserArgs(platform: string = process.platform, uid = process.getuid?.(), gid = process.getgid?.()): string[] {
+  if (platform === "win32") return [];
+  if (!Number.isInteger(uid) || !Number.isInteger(gid) || uid! < 0 || gid! < 0) throw new Error("Cannot determine sandbox file owner");
+  return ["--user", `${uid}:${gid}`];
+}
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -292,6 +297,9 @@ export class DockerSandbox {
         "--label", "ultra-computer=sandbox",
         "--label", `ultra-owner=${sandboxOwner}`,
         "--label", `ultra-process=${sandboxProcess}`,
+        // POSIX mode-0600 generated scripts belong to the host app user.
+        // Capabilities stay dropped; run as that owner rather than loosening permissions.
+        ...sandboxUserArgs(),
         // Resource limits
         "--cpus", this.config.cpuLimit,
         "--memory", this.config.memoryLimit,

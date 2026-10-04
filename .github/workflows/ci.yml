@@ -81,6 +81,16 @@ jobs:
       - name: Capture Ollama log
         if: failure()
         run: cat /tmp/ollama.log
+      - name: Retain private installation and recovery diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: private-install-diagnostics
+          path: |
+            data/install-verification.log
+            data/private-acceptance-*/receipt.json
+            data/private-acceptance-*/*.log
+          if-no-files-found: warn
 
   verify:
     strategy:

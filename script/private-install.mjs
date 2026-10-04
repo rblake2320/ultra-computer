@@ -74,7 +74,7 @@ async function verify(config) {
     const interpreterResults = {};
     for (const [language, code] of Object.entries(languages)) {
       const interpreted = await request("/api/protocols/code/interpret", { code, language });
-      if (interpreted.exitCode !== 0 || interpreted.stdout.trim() !== "4") throw new Error(`${language} interpreter failed its installation check`);
+      if (interpreted.exitCode !== 0 || interpreted.stdout.trim() !== "4") throw new Error(`${language} interpreter failed its installation check (exit ${interpreted.exitCode}; ${String(interpreted.stderr || "unexpected stdout").trim().slice(0, 500)})`);
       interpreterResults[language] = { status: "Worked", output: interpreted.stdout.trim() };
     }
     fs.writeFileSync(path.join(data, "install-receipt.json"), JSON.stringify({ checkedAt: new Date().toISOString(), node: process.version, health: "Worked", auth: "Worked", models: "Worked", interpreters: interpreterResults }, null, 2), { mode: 0o600 });

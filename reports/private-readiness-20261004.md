@@ -16,6 +16,7 @@ replay of uncertain tool effects remains PARK-0021.
 | Gemma received native tools it cannot use; verbose worker prompt yielded acknowledgements. | Provider capability was confused with installed-model capability; basic semantic output was not required. | Ollama model metadata, concise question path, real arithmetic and installed native-tool tests. |
 | Code interpreter failed in the standard app container and its UI implied host fallback. | Base Ubuntu image lacked advertised language executables; no exact installer gate exercised them. | Built sandbox image; fail-closed availability; real isolated Python, Node, TypeScript and Bash installation checks. |
 | Global Docker cleanup could kill another installation's containers. | Cleanup tested removal, not foreign-container survival. | Owner/process labels and private startup ownership lock; ownership regression plus real own-orphan/foreign-container check. |
+| Linux interpreter could not read its generated mode-0600 file: container root had no DAC override after cap-drop, while the host file belonged to a non-root UID. | Windows bind mounts did not expose POSIX ownership; the new clean Linux installer gate caught it. | Retain mode/cap-drop and match container UID/GID to the POSIX host owner; ownership regression and real root-denial/owner-success Docker repro plus Linux CI. |
 | Backup covered SQLite alone; optional environment/cache inflated portable state. | No operator-level receiving recovery test existed. | Offline app lock + drained queue/outbox; manifest checksums; real refusal/tamper/restore/key/artifact checks; reinstallable Laya cache excluded. |
 | Installer browser download and SBOM could hang on unrelated cache/network work. | Setup assumed missing browsers; SBOM queried online optional dependency metadata. | Real cached browser launch before bounded download; bounded offline locked-tree SBOM; exact installer and full verification gate. |
 
@@ -25,7 +26,8 @@ replay of uncertain tool effects remains PARK-0021.
   found zero npm advisories, built the app/image, generated persistent protected
   keys, started dedicated Redis and verified owner authentication/model APIs
   and four real interpreters returning `4`. Repeating setup preserved identity.
-- `npm run verify`: typecheck, 346 unit tests in 50 files, coverage thresholds,
+- `npm run verify`: typecheck, 346 unit tests in 50 files before the additional
+  POSIX ownership regression, coverage thresholds,
   production build, zero-advisory audit, SBOM and authenticated production smoke.
   Coverage: statements 29.73%, branches 24.01%, functions 31.78%.
 - `npm run test:e2e`: 9/9, zero skips, 50.9 seconds. Real local model connection,
@@ -66,6 +68,9 @@ Receipts and bounded logs are retained in the review workspace. The committed
 installation/runtime commands regenerate receiving receipts under `data/`.
 Private installation and real message recovery now run in the existing core-e2e
 CI job in addition to required cross-platform, Docker, service and security jobs.
+The initial remote run passed all existing gates but caught the Linux private
+interpreter ownership defect. Its correction preserves private file modes and
+sandbox capability limits; failure artifacts now retain runtime diagnostics.
 
 ## Workload boundary and operational contract
 
