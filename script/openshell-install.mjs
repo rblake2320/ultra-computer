@@ -35,7 +35,12 @@ try {
  fs.mkdirSync(path.join(dir,'tls'),{recursive:true,mode:0o700});
  run('docker',['cp','ultra-computer-openshell-gateway-1:/var/lib/ultra-computer-openshell/tls/.',path.join(dir,'tls')]);
  run('icacls',[dir,'/inheritance:r','/grant:r',`${user}:(OI)(CI)F`]);
- cli(['gateway','add','https://127.0.0.1:5671','--local','--name','ultra-computer']);
+ const gateways=JSON.parse(cli(['gateway','list','--output','json']));
+ if(!Array.isArray(gateways))throw new Error('Unexpected OpenShell gateway registry');
+ const existing=gateways.find(g=>g.name==='ultra-computer');
+ if(existing) {
+  if(existing.endpoint!=='https://127.0.0.1:5671'||existing.type!=='local'||existing.auth!=='mtls')throw new Error('Existing ultra-computer gateway differs from this authenticated local installation');
+ } else cli(['gateway','add','https://127.0.0.1:5671','--local','--name','ultra-computer']);
  // Readiness requires authenticated gRPC, not just an HTTP health page.
  let ready=false;
  for(let i=0;i<10;i++){try{cli(['--gateway','ultra-computer','sandbox','list','-o','json']);ready=true;break;}catch{await new Promise(r=>setTimeout(r,1000));}}
