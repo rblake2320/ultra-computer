@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+# Local embeddings use the bundled CPU provider; CUDA is an optional opt-in.
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

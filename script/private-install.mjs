@@ -13,7 +13,11 @@ const npmCli = process.env.npm_execpath || path.join(path.dirname(process.execPa
 function run(file, args, env = process.env, timeout = 600000) {
   execFileSync(file, args, { cwd: root, env, stdio: "inherit", windowsHide: true, timeout });
 }
-function npm(args) { run(process.execPath, [npmCli, ...args]); }
+function npm(args) {
+  run(process.execPath, [npmCli, ...args], {
+    ...process.env, ONNXRUNTIME_NODE_INSTALL: process.env.ONNXRUNTIME_NODE_INSTALL || "skip",
+  });
+}
 function protect(file, directory = false) {
   if (process.platform === "win32") {
     const user = execFileSync("whoami", [], { encoding: "utf8", windowsHide: true }).trim();
@@ -92,6 +96,7 @@ try {
   if (mode === "setup") {
     if (!fs.existsSync(npmCli)) throw new Error("npm CLI is missing; reinstall Node.js with npm.");
     npm(["ci"]);
+    run(process.execPath, ["script/verify-onnx-cpu.mjs"]);
     npm(["run", "audit"]);
     // A working cached browser needs no download. This also avoids waiting on
     // an unrelated Playwright installer's shared cache lock on Windows.

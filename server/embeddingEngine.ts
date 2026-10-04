@@ -2,7 +2,7 @@
  * In-process semantic embedding engine.
  *
  * Model: all-MiniLM-L6-v2 — 384 dimensions, ~23 MB download (cached after first use).
- * Runs on CPU via @huggingface/transformers WASM backend. No external API call.
+ * Runs on CPU via @huggingface/transformers native ONNX backend. No external API call.
  *
  * Startup: pipeline loads lazily on first call. Skill seeding and `matchSkills()`
  * both await `embedText()` — the pipeline is a singleton so the model only loads once.

@@ -21,6 +21,7 @@ replay of uncertain tool effects remains PARK-0021.
 | A custom backup destination inside source/public assets could expose private archived state. | The initial guard excluded live state only, leaving arbitrary checkout paths. | Require archive directories outside the checkout before loading configuration; both backup and restore public-path negative regressions. |
 | A refused second startup still initialized SQLite before checking the private lease. | The ownership check ran in the entrypoint body after stateful ES imports. | Acquire ownership in the first imported bootstrap module; source-process regression and built-process red/green check require no canonical state creation while the backup lease is held. |
 | Installer browser download and SBOM could hang on unrelated cache/network work. | Setup assumed missing browsers; SBOM queried online optional dependency metadata. | Real cached browser launch before bounded download; bounded offline locked-tree SBOM; exact installer and full verification gate. |
+| Linux npm installation failed when optional CUDA binaries timed out on NuGet, although the app uses CPU embeddings. | Other platform runs had working feed access; native inference was not independently checked. | CPU install profile in the private installer, both Docker dependency stages and CI/security; real offline MatMul inference verifies every expected output on the bundled native CPU provider. |
 
 ## Worked — local receiving evidence
 
@@ -34,6 +35,10 @@ replay of uncertain tool effects remains PARK-0021.
   After the POSIX ownership correction, the full unit retest passed 347/347
   across the same 50 files. The unchanged private file modes and capability
   restrictions were exercised by the root-denial/owner-success receiving test.
+  Final archive/lease/native-inference additions passed 352 tests in 53 files.
+  A clean Linux dependency installation with the optional runtime download
+  proxy blocked succeeded; subsequent CPU MatMul inference with Docker network
+  disabled returned all nine expected values.
 - `npm run test:e2e`: 9/9, zero skips, 50.9 seconds. Real local model connection,
   `2+2=4`, `3+3=6`, no re-executed historical task, credential persistence UX,
   connector/upload UI, no-model guidance, governed file access and restart history.

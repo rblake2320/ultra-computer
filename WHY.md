@@ -680,3 +680,20 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** Repeated Windows-equivalent coverage execution, full local
   verification, protected PR checks and post-merge checks must pass.
 - **Related:** WHY-0024 and WHY-0028.
+## WHY-0031 — CPU installation must not require an optional GPU feed
+
+- **Problem:** The final Linux Node 22 CI installation failed in
+  `onnxruntime-node` while downloading CUDA libraries from NuGet
+  (`ETIMEDOUT`), before any application test ran.
+- **Root cause:** The locked dependency automatically downloads CUDA on Linux
+  x64 even though the supported embedding path uses its bundled CPU provider.
+- **Decision:** Set the documented `ONNXRUNTIME_NODE_INSTALL=skip` profile for
+  the private installer, both Docker dependency stages and all CI/security
+  npm installations. The installer allows an explicit environment override.
+- **Escape and control:** Windows needs no CUDA download and earlier Linux
+  runs had feed access. Add real, offline native CPU inference using a pinned,
+  MIT-licensed upstream MatMul fixture to every unit matrix and private setup;
+  require all nine expected values. Retain the original failed receiving log.
+- **Residual:** CPU installation still needs npm registry access. Deliberate
+  Linux GPU installation requires compatible hardware/libraries and explicit
+  configuration; the private release does not require that path.

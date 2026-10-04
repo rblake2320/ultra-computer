@@ -31,6 +31,11 @@ It prints the local URL. Unlock with `data/owner-access.key`. HTTP, gRPC and
 Redis bind to loopback. Repeated setup retains configuration and keys. Stop
 the app before repeating setup or running `npm run verify:private`.
 
+The bundled CPU embedding runtime is the default. Installation skips optional
+Linux CUDA binaries; real native CPU inference is checked without a model
+download. Set `ONNXRUNTIME_NODE_INSTALL=cuda12` before reinstalling dependencies
+only if you deliberately configure a compatible Linux GPU execution path.
+
 Install Ollama separately, pull a model, then add it on Models using
 `http://127.0.0.1:11434/v1` and **Save and connect**. `gemma3:270m` is the small
 model used for arithmetic acceptance; choose a model with advertised tool
