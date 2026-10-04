@@ -56,6 +56,7 @@
     "setup:openshell": "node script/openshell-install.mjs",
     "test:efficiency": "node script/efficient-execution-acceptance.mjs",
     "verify:efficient-owner": "node script/private-efficient-acceptance.mjs",
+    "verify:host-health": "node script/private-health-acceptance.mjs",
     "test:openshell": "tsx script/openshell-acceptance.ts"
   },
   "dependencies": {

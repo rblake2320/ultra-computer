@@ -120,6 +120,7 @@ interface AgentStreamEntry {
 }
 
 const TOOL_ICONS: Record<string, typeof Terminal> = {
+  host_health: Cpu,
   bash: Terminal,
   write_file: FileText,
   read_file: FileText,
@@ -993,7 +994,7 @@ export function ChatPage({ conversationId }: { conversationId: string }) {
             <SandboxIndicator />
             <span className="text-muted-foreground/40">|</span>
             <p className="text-xs text-muted-foreground">
-              7 tools: bash · write_file · read_file · list_files · fetch_url · calculator · search_files
+              Sandbox · files · web · math · read-only host health
             </p>
             {tasks.filter(t => t.status === "running").length > 0 && (
               <Badge variant="secondary" className="text-[10px] gap-1 ml-auto">
@@ -1248,9 +1249,9 @@ function SaveToLibraryButton({ toolCall, conversationId }: { toolCall: ToolCallE
   );
 }
 
-// Sandbox status indicator — shell execution fails closed without Docker.
+// Display the active sandbox engine returned by the runtime.
 function SandboxIndicator() {
-  const { data } = useQuery<{ dockerAvailable: boolean; enabled: boolean; activeContainers: number }>({
+  const { data } = useQuery<{ engine?: string; dockerAvailable: boolean; enabled: boolean; activeContainers: number }>({
     queryKey: ["/api/sandbox/status"],
     refetchInterval: 15000,
   });
@@ -1262,7 +1263,7 @@ function SandboxIndicator() {
       {isActive ? (
         <>
           <Container className="w-3 h-3 text-green-500" />
-          <span className="text-green-600 dark:text-green-400 font-medium">Docker</span>
+          <span className="text-green-600 dark:text-green-400 font-medium">{data?.engine || 'Sandbox'}</span>
           {(data?.activeContainers ?? 0) > 0 && (
             <span className="text-muted-foreground/60">({data?.activeContainers})</span>
           )}

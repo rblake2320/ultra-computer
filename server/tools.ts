@@ -22,6 +22,7 @@ import { evaluatePolicy, writePolicyAudit } from "./policyEngine.js";
 import { redactString, sanitizeToolArgsForExposure } from "./redaction.js";
 import { isPrivateHost } from "./networkSecurity.js";
 import { governedFetch } from "./governedFetch.js";
+import {getHostHealth} from './hostHealth.js';
 
 // Lazy import to avoid circular dependency (mcpProtocol imports from tools)
 let _mcpModule: typeof import("./mcpProtocol.js") | null = null;
@@ -57,6 +58,11 @@ export interface ToolResult {
 }
 
 export const TOOL_SCHEMAS: ToolSchema[] = [
+  {
+    name: 'host_health',
+    description: 'Read a current health snapshot of the machine running Ultra Computer, outside the bash sandbox: sampled CPU utilization, physical RAM, NVIDIA GPU/VRAM, fixed disks, top processes by resident RAM, and locally loaded Ollama models. Read-only; takes no arguments. Missing metrics are explicitly Unavailable. Use for host health rather than ls or sandbox commands.',
+    parameters: {type: 'object', properties: {}, required: []},
+  },
   // Browser tools (Playwright-based headless browser)
   ...BROWSER_TOOL_SCHEMAS,
   // Image generation tool
@@ -256,6 +262,10 @@ export async function executeTool(name: string, args: Record<string, string>, se
     }
 
     switch (name) {
+      case 'host_health': {
+        if (!args || Object.keys(args).length) return {success: false, output: '', error: 'host_health takes no arguments', durationMs: Date.now()-start};
+        return {success: true, output: JSON.stringify(await getHostHealth()), durationMs: Date.now()-start};
+      }
       case "bash": return await executeBash(args.command, start, sessionId);
       case "write_file": return executeWriteFile(args.filename, args.content, start);
       case "read_file": return executeReadFile(args.filename, start);

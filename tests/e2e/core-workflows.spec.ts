@@ -162,6 +162,25 @@ test("workflow 3b: no-model chat persists guidance instead of crashing", async (
   server = await startServer(databasePath);
 });
 
+test("workflow 3c: system report uses zero model calls and session changes clear old activity", async ({page}) => {
+  const conversation=await api<any>('/api/conversations',{method:'POST',body:JSON.stringify({title:'Health navigation receiving test'})});
+  await page.goto('/#/chat/'+conversation.id);
+  await page.getByRole('button',{name:'💻 System report',exact:true}).click();
+  await page.getByTestId('button-send').click();
+  await expect.poll(async () => {
+    const history=await api<any[]>(`/api/conversations/${conversation.id}/messages`);
+    return history.find(m=>m.role==='assistant');
+  }, {timeout:30000}).toMatchObject({content:expect.stringContaining('System health snapshot')});
+  const history=await api<any[]>(`/api/conversations/${conversation.id}/messages`);
+  expect(JSON.parse(history.find(m=>m.role==='assistant').metadata).modelBudget.calls).toBe(0);
+  await expect(page.getByRole('button',{name:/^host_health /})).toBeVisible();
+  await page.getByRole('button',{name:'New Session',exact:true}).click();
+  await expect.poll(() => page.url()).not.toContain(conversation.id);
+  await expect(page.getByRole('button',{name:'Hide task graph',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Hide tool activity panel',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:/^host_health /})).toHaveCount(0);
+});
+
 test("workflow 4: tool execution is real and traversal is rejected", async () => {
   const execution = await api<any>("/api/protocols/cli/execute", {
     method: "POST",

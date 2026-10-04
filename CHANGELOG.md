@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-10-04
 
 ### Fixed
+- Clear task/tool/agent activity on chat session changes so another session's
+  results and token counts are not shown alongside a fresh health report.
+- Run artifact verification through Windows junction/POSIX aliases and reject
+  missing manifests in the explicit integrity-check command.
+- Add governed read-only host diagnostics for CPU/RAM/GPU/disk/process/Ollama
+  readings. Standalone health requests return measured snapshots without model
+  calls; sandbox listings cannot satisfy a host-health receipt requirement.
 - Give CI one owned Ollama process and retain model connection errors and browser
   failure context instead of accepting another daemon's health response.
 - Keep name-only follow-ups on the brief answer path; make sandbox descriptions

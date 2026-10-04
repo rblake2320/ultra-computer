@@ -4,6 +4,13 @@
   "defaultEffect": "deny",
   "rules": [
     {
+      "id": "tool-host-health-read-only",
+      "effect": "allow",
+      "tools": ["host_health"],
+      "actions": ["tool:execute"],
+      "reason": "Owner host diagnostics use a fixed read-only snapshot with no agent-selected commands, paths, URLs or environment access."
+    },
+    {
       "id": "tool-local-safe",
       "effect": "allow",
       "tools": ["calculator", "read_file", "write_file", "list_files", "search_files"],

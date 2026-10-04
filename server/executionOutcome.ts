@@ -1,3 +1,5 @@
+import {needsHostHealthEvidence} from './hostHealth.js';
+
 export class ExecutionFailure extends Error {
   readonly retryable = false;
   constructor(readonly code: string, message: string) {
@@ -7,6 +9,7 @@ export class ExecutionFailure extends Error {
 }
 
 export function requiresActionEvidence(request: string): boolean {
+  if (needsHostHealthEvidence(request)) return true;
   if (/\b(?:latest|current|today|installed)\b[\s\S]{0,60}\b(?:models?|versions?|releases?|prices?)\b|\b(?:models?|versions?|releases?|prices?)\b[\s\S]{0,60}\b(?:latest|current|today|installed)\b/i.test(request)) return true;
   if (/^(?:how\s+(?:do|can|should)\s+I|what\s+(?:is|are)|explain\b)/i.test(request.trim())) return false;
   return /\b(?:use|call|run|execute)\s+(?:the\s+)?(?:[a-z_]+\s+tool|bash|python|node|calculator)\b|\b(?:save|write|create|delete|modify|install|pull|download|fetch|search|research|check)\b[\s\S]{0,120}\b(?:file|files|script|models?|installed|latest|web|url|https?:|\.txt|\.json|\.py|\.ts)\b/i.test(request);
@@ -20,6 +23,9 @@ export function isTextOnlyRequest(request:string):boolean {
 export function requireActionEvidence(request: string, calls: readonly {tool: string; result: {success: boolean}}[]): void {
   if (!requiresActionEvidence(request)) return;
   const explicit = /\b(?:use|call)\s+(?:the\s+)?([a-z_]+)\s+tool\b/i.exec(request)?.[1];
+  if (needsHostHealthEvidence(request) && !calls.some(c => c.tool === 'host_health' && c.result.success)) {
+    throw new ExecutionFailure('missing_host_health_evidence', 'Host resource claims require a successful host_health snapshot. A sandbox directory listing is not host diagnostics.');
+  }
   if (!calls.some(c => c.result.success && (!explicit || c.tool === explicit))) {
     throw new ExecutionFailure('missing_action_evidence', 'The requested action produced no successful tool receipt. No action was verified. Select a connected model with tool support and retry.');
   }

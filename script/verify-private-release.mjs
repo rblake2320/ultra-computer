@@ -1,11 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import {fileURLToPath} from 'node:url';
 import { root } from "./private-runtime.mjs";
 
-export function verifyReleasePayload() {
+export function verifyReleasePayload(required = false) {
   const filename = path.join(root, "release-manifest.json");
-  if (!fs.existsSync(filename)) return; // Git installations have their own source history.
+  if (!fs.existsSync(filename)) {
+    if (required) throw new Error('No release manifest exists. Install or package a release before checking artifact integrity.');
+    return; // Git installations have their own source history.
+  }
   const manifest = JSON.parse(fs.readFileSync(filename, "utf8"));
   if (manifest.version !== 1 || !/^[a-f0-9]{40}$/.test(manifest.sourceCommit) || !Array.isArray(manifest.files) || !manifest.files.length) throw new Error("Invalid release manifest");
   const paths = new Set();
@@ -22,6 +26,6 @@ export function verifyReleasePayload() {
   }
   console.log(`Worked: release source and SBOM match ${manifest.sourceCommit}.`);
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === path.join(root, "script/verify-private-release.mjs")) {
-  try { verifyReleasePayload(); } catch (error) { console.error(error.message); process.exitCode = 1; }
+if (process.argv[1] && fs.existsSync(process.argv[1]) && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
+  try { verifyReleasePayload(true); } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

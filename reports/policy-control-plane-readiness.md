@@ -1,5 +1,15 @@
 # Policy Control Plane Operational Readiness Gate
 
+> **2026-10-04 host diagnostics update:** A new exact tool grant names only
+> `host_health`; it accepts no agent arguments, paths, URLs, environment names or
+> host commands. Fixed read-only probes have time/output bounds; missing data is
+> Unavailable. Broad example MCP host tools remain unconnected. Host resource
+> questions require this receipt, so a sandbox `ls` cannot satisfy the action
+> guard. hostHealth/hostHealthWiring regressions check these controls;
+> `verify:host-health` exercises installed owner auth and receiving metrics.
+> See ADR-0007 and WHY-0044. This adds no host shell, tenant or process-mutation
+> permission and does not grant workload networking.
+
 > **2026-10-04 OpenShell receiving update — VERIFIED LOCALLY:** The installed
 > private app at commit 5154134 authenticated to NVIDIA OpenShell over mTLS.
 > Python, Node, TypeScript and Bash returned 4; a Python-produced file arrived

@@ -43,6 +43,7 @@ import { filterOutput } from "./outputFilter.js";
 import { sanitizeToolArgsForExposure } from "./redaction.js";
 import { isSwarmPrompt, swarmPromptAllowed } from "./experimentalFeatures.js";
 import { ExecutionFailure, requireFinalAnswer, requireActionEvidence, requiresActionEvidence, isTextOnlyRequest } from "./executionOutcome.js";
+import {isHostHealthRequest, formatHostHealth, type HostHealthSnapshot} from './hostHealth.js';
 
 // IPC directory for filesystem-based inter-agent communication
 const IPC_DIR = path.join(process.cwd(), "ipc");
@@ -199,6 +200,10 @@ async function runOrchestratorWithinBudget(conversationId:string,userMessage:str
   emit(conversationId, { type: "status", status: "planning", message: "Analyzing your request..." });
 
   try {
+    if (isHostHealthRequest(userMessage)) {
+      await runHostHealthConversation(conversationId, userMessage, workflowId);
+      return `completed:${workflowId}`;
+    }
     // 1. Recall relevant memory
     recordDurableStep({ workflowId, stepId: "memory.recall", status: "started", idempotencyKey: `${workflowId}:memory.recall` });
     const memories = memoryManager.recallForPrompt(userMessage, 5, conversationId);
@@ -529,6 +534,38 @@ async function runOrchestratorWithinBudget(conversationId:string,userMessage:str
 }
 
 // ─── Step 1: DAG Decomposition ────────────────────────────────────────────────
+async function runHostHealthConversation(conversationId: string, request: string, workflowId: string): Promise<void> {
+  const taskId = uuidv4(), agentRunId = uuidv4(), callId = uuidv4();
+  const stepId = `tool.${callId}.host_health`;
+  const task = storage.createTask({id: taskId, conversationId, title: 'Read system health', description: request, taskType: 'general', status: 'running', startedAt: Date.now()});
+  storage.createAgentRun({id: agentRunId, taskId, conversationId, level: 1, modelId: 'system:host-health', systemPrompt: 'Read-only deterministic diagnostics; no model invoked.', inputContext: request, status: 'running'});
+  storage.updateConversation(conversationId, {status: 'running'});
+  emit(conversationId, {type: 'task_update', task});
+  emit(conversationId, {type: 'tool_call', taskId, agentRunId, toolName: 'host_health', args: {}, callId});
+  recordDurableStep({workflowId, stepId, status: 'started', idempotencyKey: `${workflowId}:${stepId}`});
+  const result = await executeTool('host_health', {}, workflowId);
+  const calls = [{callId, tool: 'host_health', args: {}, result}];
+  recordDurableStep({workflowId, stepId, status: result.success ? 'completed' : 'failed', idempotencyKey: `${workflowId}:${stepId}`, error: result.error, details: {taskId, agentRunId, tool: 'host_health'}});
+  emit(conversationId, {type: 'tool_result', taskId, agentRunId, toolName: 'host_health', result, callId});
+  storage.updateAgentRun(agentRunId, {toolCalls: JSON.stringify(calls)});
+  if (!result.success) {
+    storage.updateTask(taskId, {status: 'failed', error: result.error, completedAt: Date.now()});
+    storage.updateAgentRun(agentRunId, {status: 'failed', output: result.error, completedAt: Date.now()});
+    throw new ExecutionFailure('host_health_failed', result.error || 'Host health snapshot failed.');
+  }
+  const content = formatHostHealth(JSON.parse(result.output) as HostHealthSnapshot);
+  storage.updateAgentRun(agentRunId, {status: 'complete', output: content, tokenUsage: JSON.stringify({prompt: 0, completion: 0, total: 0}), completedAt: Date.now()});
+  storage.updateTask(taskId, {status: 'complete', result: content, completedAt: Date.now()});
+  const messageId = uuidv4();
+  storage.createMessage({id: messageId, conversationId, role: 'assistant', content, metadata: JSON.stringify({mode: 'host-health', modelBudget: currentModelRunBudget(), snapshotAt: JSON.parse(result.output).capturedAt})});
+  emit(conversationId, {type: 'task_update', task: storage.getTask(taskId)!});
+  emit(conversationId, {type: 'agent_complete', taskId, agentRunId, result: content, tokenCount: 0});
+  emit(conversationId, {type: 'message', role: 'assistant', content, messageId});
+  storage.updateConversation(conversationId, {status: 'idle'});
+  markDurableRunStatus(workflowId, 'completed');
+  emit(conversationId, {type: 'done', summary: 'System health snapshot collected; no model calls.'});
+}
+
 async function decomposeIntoDAG(
   userMessage: string,
   memories: string,
@@ -1169,6 +1206,7 @@ Task title: ${task.title}
 
 ## Instructions
 - Use tools for actions, files and factual lookups. For a simple question, answer directly.
+- Use host_health for live host CPU, RAM, GPU, disk, process and Ollama readings. Bash and file tools observe the isolated workspace; never infer host health from its listing.
 - You have native tool calling. Call tools by using the function calling interface directly.
 - After receiving tool results, provide a concise final answer. Preserve the user's requested format and length.
 - Do NOT ask clarifying questions. Execute the task fully.
