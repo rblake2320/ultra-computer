@@ -64,10 +64,13 @@ try {
     imported.pragma("wal_checkpoint(TRUNCATE)");
   } finally { imported.close(); }
   const before = path.join(data, `before-legacy-import-${randomBytes(6).toString("hex")}.db`);
-  fs.renameSync(destination, before);
-  try { fs.renameSync(temporary, destination); } catch (error) { fs.renameSync(before, destination); throw error; }
+  fs.copyFileSync(destination, before, fs.constants.COPYFILE_EXCL);
+  const backupFd = fs.openSync(before, "r+"); try { fs.fsyncSync(backupFd); } finally { fs.closeSync(backupFd); }
+  // One atomic replacement keeps a canonical database present even if the
+  // importer is killed. The original empty target also remains recoverable.
+  fs.renameSync(temporary, destination);
   const receipt = { status: "Worked", checkedAt: new Date().toISOString(), retainedRows: counts, interruptedConversations, credentialsReencrypted: true, connectionsRequireRetest: true, previousDatabasePreserved: true };
   fs.writeFileSync(path.join(data, "legacy-import-receipt.json"), JSON.stringify(receipt, null, 2), { mode: 0o600 });
   console.log(JSON.stringify(receipt));
-} catch { console.error("Legacy import failed safely. Check the source schema/key and ensure the destination app is stopped and empty. Existing source and destination databases are retained."); process.exitCode = 1; }
+} catch (error) { console.error(`Legacy import failed safely (${error.code || "import-error"}): ${String(error.message || "Unknown failure").slice(0, 500)}. Existing source and destination databases are retained.`); process.exitCode = 1; }
 finally { sourceDb?.close(); lease?.close(); }
