@@ -39,9 +39,13 @@ interface ProviderInfo {
   supportedAuth: string[];
   defaultAuth: string;
   apiKeyUrl?: string;
+  apiKeyPrefix?: string;
   envVarNames: string[];
   models: ProviderPreset[];
   hasBaseUrl: boolean;
+  catalogSyncedAt: number | null;
+  catalogBaseUrl: string | null;
+  publicCatalog: boolean;
 }
 
 interface EnvVarInfo {
@@ -123,7 +127,7 @@ export function ModelsPage() {
       qc.invalidateQueries({ queryKey: ["/api/models"] });
       setActiveTab("connected");
       resetForm();
-      toast({ title: "Model added" });
+      toast({ title: "Model saved", description: "Test its connection before selecting it for chat." });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -138,14 +142,14 @@ export function ModelsPage() {
       if (data.connection?.ok) {
         toast({ title: "Model connected", description: `${data.model.name} is ready` });
       } else {
-        toast({ title: "Model added", description: data.connection?.error || "Test the connection manually", variant: "destructive" });
+        toast({ title: "Model saved; connection failed", description: data.connection?.error || "Test the connection manually", variant: "destructive" });
       }
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const syncCatalogMutation = useMutation({
-    mutationFn: (data: { provider: string; apiKey?: string; baseUrl?: string }) =>
+    mutationFn: (data: { provider: string; apiKey?: string; baseUrl?: string; authMethod: string; envVarName?: string }) =>
       apiRequest("POST", "/api/model-catalog/sync", data),
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["/api/models/providers"] });
@@ -174,6 +178,8 @@ export function ModelsPage() {
     onSuccess: (data: any, vars: any) => {
       qc.invalidateQueries({ queryKey: ["/api/models"] });
       setConnectingId(null);
+      setQaApiKey("");
+      if (data.ok) { setSelectedProvider(null); setActiveTab("connected"); resetQuickAdd(); }
       if (data.ok) toast({ title: "Connected" });
       else toast({ title: "Connection failed", description: data.error, variant: "destructive" });
     },
@@ -233,6 +239,12 @@ export function ModelsPage() {
   const currentProviderInfo = providers.find(p => p.id === qaProvider);
   const formProviderInfo = providers.find(p => p.id === form.provider);
   const detectedEnvVars = envVars.filter(ev => ev.isSet);
+  const qaKey = qaApiKey.trim();
+  const qaCredentialError = qaAuth === "api_key" && qaKey && currentProviderInfo?.apiKeyPrefix && !qaKey.startsWith(currentProviderInfo.apiKeyPrefix)
+    ? `Use a ${currentProviderInfo.name} provider API key starting with ${currentProviderInfo.apiKeyPrefix}. The app owner key is separate.`
+    : null;
+  const qaCredentialsReady = qaAuth === "none" || (qaAuth === "api_key" && Boolean(qaKey) && !qaCredentialError)
+    || (qaAuth === "env_var" && Boolean(envVars.find(ev => ev.envVar === qaEnvVar && ev.isSet)));
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Render
@@ -278,7 +290,7 @@ export function ModelsPage() {
                 {ev.envVar}
               </code>
             ))}
-            — use env var auth to auto-connect
+            — select a variable, then test the connection
           </span>
         </div>
       )}
@@ -288,7 +300,7 @@ export function ModelsPage() {
         <div className="px-4 pt-3">
           <TabsList className="grid w-full grid-cols-3 h-8">
             <TabsTrigger value="connected" className="text-xs" data-testid="tab-connected">
-              Connected ({models.length})
+              Saved ({models.length}) · {models.filter(m => m.connectionStatus === "connected" && m.enabled).length} connected
             </TabsTrigger>
             <TabsTrigger value="add" className="text-xs" data-testid="tab-add">
               Add Model
@@ -395,14 +407,14 @@ export function ModelsPage() {
                         {/* Reconnect UI for disconnected/error models */}
                         {connectingId === model.id && (
                           <div className="mt-2 flex items-center gap-2">
-                            <Input
+                            {authMethod !== "none" && <Input
                               type="password"
                               placeholder={authMethod === "env_var" ? "ENV_VAR_NAME" : "API key"}
                               className="h-7 text-xs flex-1 max-w-[280px]"
                               onChange={e => setQaApiKey(e.target.value)}
                               value={qaApiKey}
                               data-testid="input-reconnect-key"
-                            />
+                            />}
                             <Button size="sm" className="h-7 text-xs gap-1"
                               onClick={() => {
                                 connectModelMutation.mutate({
@@ -415,7 +427,7 @@ export function ModelsPage() {
                               }}
                               data-testid="button-reconnect-save"
                             >
-                              <Check className="w-3 h-3" /> Save
+                              <Check className="w-3 h-3" /> {authMethod === "none" ? "Test & connect" : "Save & connect"}
                             </Button>
                             <Button size="sm" variant="ghost" className="h-7 text-xs"
                               onClick={() => { setConnectingId(null); setQaApiKey(""); }}>
@@ -440,12 +452,14 @@ export function ModelsPage() {
                         )}
                         {!model.isDefault && (
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setDefault.mutate(model.id)}
+                            disabled={status !== "connected" || !model.enabled}
                             title="Set as default" data-testid={`button-default-${model.id}`}>
                             <Star className="w-3.5 h-3.5" />
                           </Button>
                         )}
                         {!model.isOrchestrator && (
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setOrchestrator.mutate(model.id)}
+                            disabled={status !== "connected" || !model.enabled}
                             title="Use as orchestrator" data-testid={`button-orch-${model.id}`}>
                             <Brain className="w-3.5 h-3.5" />
                           </Button>
@@ -475,13 +489,13 @@ export function ModelsPage() {
             <>
               <p className="text-xs text-muted-foreground mb-3">Choose a provider to add models from:</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {providers.filter(p => p.models.length > 0).map(prov => {
+                {providers.filter(p => p.models.length > 0 || p.catalogSyncedAt).map(prov => {
                   const existingCount = models.filter(m => m.provider === prov.id).length;
                   const detectedEnv = envVars.find(ev => ev.provider === prov.id && ev.isSet);
                   return (
                     <button
                       key={prov.id}
-                      onClick={() => { setSelectedProvider(prov.id); setQaProvider(prov.id); setQaAuth(prov.defaultAuth); }}
+                      onClick={() => { resetQuickAdd(); syncCatalogMutation.reset(); setSelectedProvider(prov.id); setQaProvider(prov.id); setQaAuth(prov.defaultAuth); setQaBaseUrl(prov.catalogBaseUrl || ""); }}
                       className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:border-primary/50 hover:bg-card/80 transition-all text-left group"
                       data-testid={`provider-${prov.id}`}
                     >
@@ -508,7 +522,7 @@ export function ModelsPage() {
                 })}
 
                 {/* Custom / OpenAI-compat cards */}
-                {providers.filter(p => p.models.length === 0).map(prov => (
+                {providers.filter(p => p.models.length === 0 && !p.catalogSyncedAt).map(prov => (
                   <button
                     key={prov.id}
                     onClick={() => { setSelectedProvider(null); setActiveTab("manual"); setForm(f => ({ ...f, provider: prov.id })); }}
@@ -543,13 +557,16 @@ export function ModelsPage() {
                   size="sm"
                   variant="outline"
                   className="h-7 gap-1 text-xs"
-                  disabled={!qaProvider || syncCatalogMutation.isPending}
+                  disabled={!qaProvider || (!qaCredentialsReady && !currentProviderInfo?.publicCatalog) || syncCatalogMutation.isPending}
                   onClick={() => syncCatalogMutation.mutate({
                     provider: qaProvider,
-                    apiKey: qaAuth === "api_key" && qaApiKey ? qaApiKey : undefined,
+                    authMethod: qaAuth,
+                    apiKey: qaAuth === "api_key" ? qaKey : undefined,
+                    envVarName: qaAuth === "env_var" ? qaEnvVar : undefined,
                     baseUrl: qaBaseUrl || undefined,
                   })}
-                  title="Fetch the provider's current model list using the credential entered below or a saved server credential. Discovered models remain unverified until tested."
+                  title="Fetch current models using the selected connection method. Sync does not save credentials or mark models connected."
+                  data-testid="button-sync-model-catalog"
                 >
                   <RefreshCw className={`w-3 h-3 ${syncCatalogMutation.isPending ? "animate-spin" : ""}`} />
                   Sync current models
@@ -609,7 +626,7 @@ export function ModelsPage() {
                           type="password"
                           value={qaApiKey}
                           onChange={e => setQaApiKey(e.target.value)}
-                          placeholder={`Enter ${currentProviderInfo?.name} API key${currentProviderInfo?.apiKeyUrl ? " (sk-...)" : ""}`}
+                          placeholder={`Enter ${currentProviderInfo?.name} provider API key`}
                           className="h-8 text-sm flex-1"
                           data-testid="input-qa-api-key"
                         />
@@ -631,7 +648,7 @@ export function ModelsPage() {
                             const info = envVars.find(ev => ev.envVar === name);
                             return (
                               <SelectItem key={name} value={name}>
-                                {name} {info?.isSet ? `(${info.masked})` : "(not set)"}
+                                {name} {info?.isSet ? "(set; test required)" : "(not set)"}
                               </SelectItem>
                             );
                           })}
@@ -657,15 +674,30 @@ export function ModelsPage() {
               </div>
 
               {/* Model presets */}
+              {qaCredentialError && <p className="text-xs text-red-400 mb-3" role="alert">{qaCredentialError}</p>}
+              {syncCatalogMutation.isError && <p className="text-xs text-red-400 mb-3" role="alert">{syncCatalogMutation.error.message}</p>}
+              <p className="text-xs text-muted-foreground mb-3">
+                {currentProviderInfo?.catalogSyncedAt
+                  ? `Live catalog synchronized ${new Date(currentProviderInfo.catalogSyncedAt).toLocaleString()}. Each model still needs a connection test.`
+                  : "Suggested models. Sync current models to see what this account or local server actually provides."}
+              </p>
+              {currentProviderInfo?.models.length === 0 && <p className="text-xs text-muted-foreground mb-3">The provider returned no available models. Check the selected credential and server, then sync again.</p>}
               <p className="text-xs text-muted-foreground mb-2">Select a model to save its connection:</p>
               <div className="space-y-1.5">
                 {currentProviderInfo?.models.map(preset => {
-                  const alreadyAdded = models.some(m => m.provider === qaProvider && m.modelId === preset.modelId);
+                  const existingModel = models.find(m => m.provider === qaProvider && m.modelId === preset.modelId);
+                  const alreadyAdded = existingModel?.connectionStatus === "connected";
                   return (
                     <button
                       key={preset.modelId}
                       onClick={() => {
                         if (alreadyAdded) return;
+                        if (existingModel) {
+                          connectModelMutation.mutate({ id: existingModel.id, authMethod: qaAuth,
+                            apiKey: qaAuth === "api_key" ? qaKey : undefined,
+                            envVarName: qaAuth === "env_var" ? qaEnvVar : undefined, baseUrl: qaBaseUrl || undefined });
+                          return;
+                        }
                         quickAddMutation.mutate({
                           provider: qaProvider,
                           presetModelId: preset.modelId,
@@ -675,8 +707,7 @@ export function ModelsPage() {
                           baseUrl: qaBaseUrl || undefined,
                         });
                       }}
-                      disabled={alreadyAdded || quickAddMutation.isPending ||
-                        (qaAuth === "api_key" && !qaApiKey && currentProviderInfo?.id !== "ollama")}
+                      disabled={alreadyAdded || quickAddMutation.isPending || connectModelMutation.isPending || !qaCredentialsReady}
                       className={`w-full flex items-center gap-3 p-2.5 rounded-lg border text-left transition-all ${
                         alreadyAdded
                           ? "border-border/50 bg-card/30 opacity-50 cursor-not-allowed"

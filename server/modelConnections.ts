@@ -64,11 +64,9 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     apiKeyUrl: "https://platform.openai.com/api-keys",
     envVarNames: ["OPENAI_API_KEY"],
     models: [
-      { name: "GPT-5.6 Sol", modelId: "gpt-5.6-sol", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1050000, description: "Frontier GPT-5.6 model for complex professional work", recommended: true },
-      { name: "GPT-5.6 Terra", modelId: "gpt-5.6-terra", speedTier: "medium", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1050000, description: "GPT-5.6 model balancing intelligence and cost" },
-      { name: "GPT-5.6 Luna", modelId: "gpt-5.6-luna", speedTier: "fast", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1050000, description: "GPT-5.6 model optimized for cost-sensitive workloads" },
-      { name: "o4-mini", modelId: "o4-mini", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 200000, description: "Advanced reasoning" },
-      { name: "o3", modelId: "o3", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 200000, description: "Powerful reasoning model" },
+      { name: "GPT-6.1 Sol", modelId: "gpt-6.1-sol", speedTier: "powerful", capabilities: ["chat", "code", "vision", "reasoning", "tools", "structured-output", "streaming"], contextWindow: 1050000, description: "Current OpenAI workhorse. Native Responses API; sync and test account access.", recommended: true },
+      { name: "GPT-6 Astra", modelId: "gpt-6-astra", speedTier: "powerful", capabilities: ["chat", "code", "vision", "reasoning", "tools", "structured-output", "streaming"], contextWindow: 1050000, description: "Current OpenAI frontier model for demanding work. Requires a valid provider key." },
+      { name: "GPT-6 Luna", modelId: "gpt-6-luna", speedTier: "fast", capabilities: ["chat", "code", "vision", "reasoning", "tools", "structured-output", "streaming"], contextWindow: 1050000, description: "Current efficient OpenAI model. Connection probes disable optional reasoning." },
     ],
   },
 
@@ -82,9 +80,10 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     apiKeyUrl: "https://console.anthropic.com/settings/keys",
     envVarNames: ["ANTHROPIC_API_KEY"],
     models: [
-      { name: "Claude Opus 4.6", modelId: "claude-opus-4-6-20260205", speedTier: "powerful", capabilities: ["chat", "code", "analyze", "vision"], contextWindow: 1000000, description: "Most capable Claude, 1M context", recommended: true },
-      { name: "Claude Sonnet 4.6", modelId: "claude-sonnet-4-6-20260217", speedTier: "medium", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Balanced intelligence, 1M context" },
-      { name: "Claude Haiku 3.5", modelId: "claude-3-5-haiku-20241022", speedTier: "fast", capabilities: ["chat", "code"], contextWindow: 200000, description: "Fastest Claude" },
+      { name: "Claude Sonnet 5.5", modelId: "claude-sonnet-5-5", speedTier: "medium", capabilities: ["chat", "code", "vision", "reasoning", "tools", "structured-output", "streaming"], contextWindow: 1000000, description: "Current balanced Claude. Native Messages API; sync and test account access.", recommended: true },
+      { name: "Claude Opus 5.5", modelId: "claude-opus-5-5", speedTier: "powerful", capabilities: ["chat", "code", "vision", "reasoning", "tools", "structured-output", "streaming"], contextWindow: 1000000, description: "Current Claude for long-running coding and knowledge work." },
+      { name: "Claude Fable 5.1", modelId: "claude-fable-5-1", speedTier: "powerful", capabilities: ["chat", "code", "vision", "reasoning", "tools", "structured-output", "streaming"], contextWindow: 1000000, description: "Current Claude for demanding reasoning and agent work." },
+      { name: "Claude Haiku 4.5", modelId: "claude-haiku-4-5", speedTier: "fast", capabilities: ["chat", "code", "vision", "tools", "streaming"], contextWindow: 200000, description: "Fast Claude; approaching its minimum retirement commitment in October 2026. Sync availability." },
     ],
   },
 
@@ -97,11 +96,9 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     apiKeyUrl: "https://aistudio.google.com/apikey",
     envVarNames: ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
     models: [
-      { name: "Gemini 3.1 Pro", modelId: "gemini-3.1-pro-preview", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1000000, description: "Most advanced reasoning, 1M context", recommended: true },
-      { name: "Gemini 3 Flash", modelId: "gemini-3-flash-preview", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Most powerful agentic/coding model" },
-      { name: "Gemini 3.1 Flash-Lite", modelId: "gemini-3.1-flash-lite-preview", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Cheapest & fastest, high volume" },
-      { name: "Gemini 2.5 Flash", modelId: "gemini-2.5-flash", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Best price-performance with thinking" },
-      { name: "Gemini 2.5 Pro", modelId: "gemini-2.5-pro", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1000000, description: "Advanced reasoning, stable" },
+      { name: "Gemini 3.8 Flash", modelId: "gemini-3.8-flash", speedTier: "medium", capabilities: ["chat", "code", "vision", "reasoning", "tools", "structured-output", "streaming"], contextWindow: 1048576, description: "Current stable Flash, released September 2026. Native Google generateContent.", recommended: true },
+      { name: "Gemini 3.5 Flash-Lite", modelId: "gemini-3.5-flash-lite", speedTier: "fast", capabilities: ["chat", "code", "vision", "tools", "structured-output", "streaming"], contextWindow: 1048576, description: "Current stable Flash-Lite for efficient tasks and document parsing." },
+      { name: "Gemini 3.1 Pro", modelId: "gemini-3.1-pro-preview", speedTier: "powerful", capabilities: ["chat", "code", "vision", "reasoning", "tools", "structured-output", "streaming"], contextWindow: 1048576, description: "Preview Pro. Sync account availability before connecting." },
     ],
   },
 
@@ -213,8 +210,10 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     defaultBaseUrl: "http://localhost:11434/v1",
     envVarNames: [],
     models: [
+      { name: "Gemma 4", modelId: "gemma4:latest", speedTier: "medium", capabilities: ["chat", "code", "vision", "reasoning"], contextWindow: 131072, description: "Current local Gemma. Sync installed tags, then test native capabilities.", recommended: true },
+      { name: "Qwen 3.8 27B", modelId: "qwen3.8:27b", speedTier: "powerful", capabilities: ["chat", "code", "vision", "reasoning"], contextWindow: 1000000, description: "Current local Qwen. Requires enough host memory; sync and test the installed tag." },
       { name: "Qwen 3.6 27B", modelId: "qwen3.6:27b", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "Qwen 3.6 27B — local reasoning + tool use (brain)" },
-      { name: "Llama 4 Scout", modelId: "llama4:scout", speedTier: "powerful", capabilities: ["chat", "code", "vision"], contextWindow: 131072, description: "MoE 17B active, multimodal", recommended: true },
+      { name: "Llama 4 Scout", modelId: "llama4:scout", speedTier: "powerful", capabilities: ["chat", "code", "vision"], contextWindow: 131072, description: "MoE 17B active, multimodal" },
       { name: "Qwen 3 32B", modelId: "qwen3:32b", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 131072, description: "Dense 32B, dual-mode reasoning" },
       { name: "Llama 3.3 70B", modelId: "llama3.3:70b", speedTier: "powerful", capabilities: ["chat", "code"], contextWindow: 128000, description: "Meta Llama 3.3 local" },
       { name: "Gemma 3 27B", modelId: "gemma3:27b", speedTier: "medium", capabilities: ["chat", "code", "vision"], contextWindow: 128000, description: "Google Gemma 3 local" },
@@ -233,9 +232,9 @@ export const PROVIDER_REGISTRY: Record<string, ProviderAuthConfig> = {
     envVarNames: ["OPENROUTER_API_KEY"],
     defaultBaseUrl: "https://openrouter.ai/api/v1",
     models: [
-      { name: "Claude Sonnet 4.6 (via OR)", modelId: "anthropic/claude-sonnet-4.6", speedTier: "medium", capabilities: ["chat", "code", "vision"], contextWindow: 1000000, description: "Anthropic Claude 4.6 via OpenRouter", recommended: true },
-      { name: "GPT-5.6 Sol (via OR)", modelId: "openai/gpt-5.6-sol", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1050000, description: "OpenAI GPT-5.6 Sol via OpenRouter" },
-      { name: "Gemini 3.1 Pro (via OR)", modelId: "google/gemini-3.1-pro-preview", speedTier: "powerful", capabilities: ["chat", "code", "vision", "analyze"], contextWindow: 1000000, description: "Google Gemini 3.1 Pro via OpenRouter" },
+      { name: "Claude Sonnet 5.5 (via OR)", modelId: "anthropic/claude-sonnet-5.5", speedTier: "medium", capabilities: ["chat", "code", "vision", "reasoning", "tools"], contextWindow: 1000000, description: "Current Claude via OpenRouter. Sync account availability and verify budget pricing before generation." },
+      { name: "GPT-6.1 Sol (via OR)", modelId: "openai/gpt-6.1-sol", speedTier: "powerful", capabilities: ["chat", "code", "vision", "reasoning", "tools"], contextWindow: 1050000, description: "Current OpenAI Sol via OpenRouter. Native OpenAI setup is recommended for its Responses API." },
+      { name: "Gemini 3.8 Flash (via OR)", modelId: "google/gemini-3.8-flash", speedTier: "medium", capabilities: ["chat", "code", "vision", "reasoning", "tools"], contextWindow: 1048576, description: "Current Gemini via OpenRouter. Sync account availability and verify budget pricing before generation." },
       { name: "Llama 4 Maverick (via OR)", modelId: "meta-llama/llama-4-maverick", speedTier: "fast", capabilities: ["chat", "code", "vision"], contextWindow: 1048000, description: "Meta Llama 4 MoE via OpenRouter" },
       { name: "DeepSeek V3 (via OR)", modelId: "deepseek/deepseek-chat-v3-0324", speedTier: "fast", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "DeepSeek V3 — cheapest cloud brain ($0.14/$0.28 per M)", recommended: true },
       { name: "DeepSeek R1 (via OR)", modelId: "deepseek/deepseek-r1", speedTier: "powerful", capabilities: ["chat", "code", "analyze"], contextWindow: 128000, description: "DeepSeek reasoning via OpenRouter" },
@@ -502,6 +501,15 @@ export interface ResolvedCredentials {
   expiresAt?: number; // for OAuth tokens
 }
 
+export function assertProviderApiKey(apiKey: string): void {
+  if (apiKey && apiKey === process.env.ULTRA_API_KEY) {
+    throw new TypeError("The application owner key is not a provider credential. Enter the provider's API key.");
+  }
+  if (apiKey && apiKey === process.env.ENCRYPTION_KEY) {
+    throw new TypeError("The application encryption key is not a provider credential. Enter the provider's API key.");
+  }
+}
+
 /**
  * Resolve the active credentials for a model, regardless of auth method.
  * This is the single entry point the model router uses to get credentials.
@@ -512,15 +520,15 @@ export function resolveCredentials(model: Model): ResolvedCredentials {
   switch (method) {
     case "api_key":
       return {
-        apiKey: model.apiKey || "",
+        apiKey: model.apiKey?.trim() || "",
         baseUrl: model.baseUrl || getProviderBaseUrl(model.provider),
         method: "api_key",
-        isValid: !!(model.apiKey && model.apiKey.length > 0),
+        isValid: !!model.apiKey?.trim(),
       };
 
     case "env_var": {
       const envName = model.envVarName || "";
-      const resolved = envName ? process.env[envName] || "" : "";
+      const resolved = envName ? process.env[envName]?.trim() || "" : "";
       return {
         apiKey: resolved,
         baseUrl: model.baseUrl || getProviderBaseUrl(model.provider),
@@ -697,14 +705,19 @@ export async function connectModel(
   const model = storage.getModel(modelId);
   if (!model) return { ok: false, error: "Model not found" };
 
+  try {
+    const key = authMethod === "none" ? "" : authMethod === "env_var" ? process.env[credentials.envVarName?.trim() ?? model.envVarName ?? ""]?.trim() ?? "" : credentials.apiKey?.trim() ?? model.apiKey?.trim() ?? "";
+    assertProviderApiKey(key);
+  } catch (error) { return { ok: false, error: (error as Error).message }; }
+
   // Update the model's auth config
   const updates: Record<string, any> = { authMethod };
 
   if (authMethod === "api_key" && credentials.apiKey) {
-    updates.apiKey = credentials.apiKey;
+    updates.apiKey = credentials.apiKey.trim();
   }
   if (authMethod === "env_var" && credentials.envVarName) {
-    updates.envVarName = credentials.envVarName;
+    updates.envVarName = credentials.envVarName.trim();
   }
   if (credentials.baseUrl !== undefined) {
     updates.baseUrl = credentials.baseUrl;
@@ -775,6 +788,13 @@ export async function testConnection(modelId: string): Promise<{ ok: boolean; er
   if (!model) return { ok: false, error: "Model not found" };
 
   const creds = resolveCredentials(model);
+  try { assertProviderApiKey(creds.apiKey); }
+  catch (error) {
+    const message = (error as Error).message;
+    storage.updateModel(modelId, { connectionStatus: "error", connectionError: message });
+    reconcileModelRoles();
+    return { ok: false, error: message };
+  }
   if (!creds.isValid) {
     const error = `No valid credentials — auth method: ${creds.method}`;
     storage.updateModel(modelId, {
@@ -835,8 +855,11 @@ export function createFromPreset(
   const providerConfig = PROVIDER_REGISTRY[provider];
   if (!providerConfig) return null;
 
-  const preset = providerConfig.models.find(m => m.modelId === presetModelId);
+  const catalog = getProviderCatalog().find(p => p.id === provider);
+  const preset = catalog?.models.find(m => m.modelId === presetModelId);
   if (!preset) return null;
+
+  assertProviderApiKey(credentials.apiKey?.trim() ?? "");
 
   const id = crypto.randomUUID();
 
@@ -845,7 +868,7 @@ export function createFromPreset(
     name: preset.name,
     provider,
     modelId: preset.modelId,
-    baseUrl: credentials.baseUrl || providerConfig.defaultBaseUrl || null,
+    baseUrl: credentials.baseUrl || catalog?.catalogBaseUrl || providerConfig.defaultBaseUrl || null,
     apiKey: credentials.apiKey || null,
     enabled: true,
     capabilities: JSON.stringify(preset.capabilities),
@@ -880,7 +903,7 @@ export async function quickAdd(
   if (!model) return { model: null, connection: { ok: false, error: "Invalid provider or preset" } };
 
   const connection = await connectModel(model.id, authMethod, credentials);
-  return { model, connection };
+  return { model: storage.getModel(model.id) ?? model, connection };
 }
 
 
@@ -922,14 +945,23 @@ export function getProviderCatalog(): Array<{
   supportedAuth: AuthMethod[];
   defaultAuth: AuthMethod;
   apiKeyUrl?: string;
+  apiKeyPrefix?: string;
   envVarNames: string[];
   models: ProviderModelPreset[];
   hasBaseUrl: boolean;
+  catalogSyncedAt: number | null;
+  catalogBaseUrl: string | null;
+  publicCatalog: boolean;
 }> {
   return Object.values(PROVIDER_REGISTRY).map((p) => {
-    const presets = new Map(p.models.map((model) => [model.modelId, model]));
-    for (const entry of storage.getModelCatalog(p.id)) {
-      if (entry.lifecycle === "retired" || presets.has(entry.modelId)) continue;
+    let sync: { syncedAt?: number; baseUrl?: string } = {};
+    try { sync = JSON.parse(storage.getSetting(`model_catalog_sync:${p.id}`) ?? "{}"); } catch { /* Older installs can have no sync record. */ }
+    const entries = storage.getModelCatalog(p.id);
+    const authoritative = Boolean(sync.syncedAt) || entries.some(e => e.source === "provider");
+    const presets = new Map((authoritative ? [] : p.models).map((model) => [model.modelId, model]));
+    for (const entry of entries) {
+      if (entry.lifecycle === "retired" || entry.lifecycle === "deprecated") continue;
+      const preset = p.models.find(m => m.modelId === entry.modelId);
       let capabilities: string[] = [];
       try {
         const parsed = JSON.parse(entry.capabilities);
@@ -940,11 +972,12 @@ export function getProviderCatalog(): Array<{
         capabilities = [];
       }
       presets.set(entry.modelId, {
-        name: entry.displayName,
+        name: preset?.name ?? entry.displayName,
         modelId: entry.modelId,
-        speedTier: "medium",
-        capabilities,
-        contextWindow: entry.contextWindow ?? 0,
+        speedTier: preset?.speedTier ?? "medium",
+        capabilities: capabilities.length ? capabilities : preset?.capabilities ?? [],
+        contextWindow: entry.contextWindow ?? preset?.contextWindow ?? 0,
+        recommended: preset?.recommended,
         description:
           `Discovered from ${p.name}; compatibility is ${entry.compatibility}. ` +
           "Run an explicit connection test before selecting it.",
@@ -957,9 +990,13 @@ export function getProviderCatalog(): Array<{
       supportedAuth: p.supportedAuth,
       defaultAuth: p.defaultAuth,
       apiKeyUrl: p.apiKeyUrl,
+      apiKeyPrefix: p.apiKeyPrefix,
       envVarNames: p.envVarNames,
       models: [...presets.values()],
       hasBaseUrl: !!p.defaultBaseUrl || p.id === "openai_compat" || p.id === "custom" || p.id === "ollama",
+      catalogSyncedAt: sync.syncedAt ?? null,
+      catalogBaseUrl: sync.baseUrl ?? null,
+      publicCatalog: p.id === "openrouter",
     };
   });
 }

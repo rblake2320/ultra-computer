@@ -30,6 +30,19 @@ interface PriceRule extends TokenPrice {
  * a price cannot enforce a hard external-currency ceiling.
  */
 const TOKEN_PRICES: readonly PriceRule[] = [
+  // Conservative Standard-rate bounds checked 2026-10-04. OpenAI includes
+  // cache writes, long-context scaling and regional premiums. Anthropic includes
+  // the adapter's five-minute cache writes. These are budget bounds, not invoices.
+  { provider: "openai", model: /^gpt-6\.1-sol$/i, inputUsdPerMillion: 5.5, outputUsdPerMillion: 16.5 },
+  { provider: "openai", model: /^gpt-6-astra$/i, inputUsdPerMillion: 27.5, outputUsdPerMillion: 82.5 },
+  { provider: "openai", model: /^gpt-6-luna$/i, inputUsdPerMillion: 0.275, outputUsdPerMillion: 0.825 },
+  { provider: "anthropic", model: /^claude-fable-5-1$/i, inputUsdPerMillion: 12.5, outputUsdPerMillion: 50 },
+  { provider: "anthropic", model: /^claude-opus-5-5$/i, inputUsdPerMillion: 5, outputUsdPerMillion: 20 },
+  { provider: "anthropic", model: /^claude-sonnet-5-5$/i, inputUsdPerMillion: 2.5, outputUsdPerMillion: 10 },
+  { provider: "anthropic", model: /^claude-haiku-4-5(?:-20251001)?$/i, inputUsdPerMillion: 1.25, outputUsdPerMillion: 5 },
+  // Standard Gemini 3.8 rates conservatively cover its temporary introductory discount.
+  { provider: "google", model: /^gemini-3\.8-flash$/i, inputUsdPerMillion: 1.5, outputUsdPerMillion: 7.5 },
+  { provider: "google", model: /^gemini-3\.5-flash-lite$/i, inputUsdPerMillion: 0.3, outputUsdPerMillion: 2.5 },
   { provider: "openai", model: /^gpt-5\.6-(?:sol|terra|luna)(?:-|$)/i, inputUsdPerMillion: 5, outputUsdPerMillion: 30 },
   { provider: "openai", model: /^o3(?:-|$)/i, inputUsdPerMillion: 10, outputUsdPerMillion: 40 },
   { provider: "openai", model: /^o4-mini(?:-|$)/i, inputUsdPerMillion: 1.1, outputUsdPerMillion: 4.4 },

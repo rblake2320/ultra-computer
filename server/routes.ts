@@ -6,6 +6,7 @@ import { z } from "zod";
 import { storage } from "./storage.js";
 import { conversationService } from "./services/conversationService.js";
 import { modelService } from "./services/modelService.js";
+import { CatalogSyncError } from "./models/catalogService.js";
 import { knowledgeService } from "./services/knowledgeService.js";
 import { validate } from "./validateRequest.js";
 import { insertConversationSchema, insertModelSchema } from "@shared/schema";
@@ -240,13 +241,17 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     if (!provider) return res.status(400).json({ error: "provider is required" });
     const apiKey = typeof req.body?.apiKey === "string" ? req.body.apiKey.trim() : undefined;
     const baseUrl = typeof req.body?.baseUrl === "string" ? req.body.baseUrl.trim() : undefined;
+    const envVarName = typeof req.body?.envVarName === "string" ? req.body.envVarName.trim() : undefined;
+    const authMethod = req.body?.authMethod;
+    if (authMethod !== undefined && !["api_key", "env_var", "none"].includes(authMethod)) return res.status(400).json({ error: "Invalid catalog auth method" });
+    if (envVarName && envVarName.length > 128) return res.status(400).json({ error: "envVarName is too long" });
     if (apiKey && apiKey.length > 4096) return res.status(400).json({ error: "apiKey is too long" });
     if (baseUrl && baseUrl.length > 2048) return res.status(400).json({ error: "baseUrl is too long" });
     try {
-      res.json(await modelService.syncCatalog(provider, { apiKey, baseUrl }));
+      res.json(await modelService.syncCatalog(provider, { apiKey, baseUrl, authMethod, envVarName }));
     } catch (error: any) {
       const message = error instanceof Error ? error.message : "Model catalog sync failed";
-      const status = /Unknown provider|No configured credentials/.test(message) ? 400 : 502;
+      const status = error instanceof CatalogSyncError ? error.status : /Unknown provider|No configured credentials/.test(message) ? 400 : 502;
       res.status(status).json({ error: message });
     }
   });

@@ -54,11 +54,14 @@ export function normalizeProviderError(
     : status
       ? `http_${status}`
       : `${provider}_request_failed`;
-  const message = error instanceof Error
+  const rawMessage = error instanceof Error
     ? error.message
     : typeof candidate?.message === "string"
       ? candidate.message
       : `${provider} request failed`;
+  const message = status === 401 || status === 403
+    ? `${provider} rejected the provider credential (HTTP ${status}). Update the provider API key or selected environment variable on Models.`
+    : rawMessage;
   const providerRequestId = typeof candidate?.request_id === "string"
     ? candidate.request_id
     : candidate?.headers?.get?.("request-id") ??

@@ -127,8 +127,9 @@ function baseParams(request: ModelRequest): MessageCreateParamsNonStreaming {
     messages: parts.messages,
     system: parts.system,
   };
-  if (request.temperature !== undefined) params.temperature = request.temperature;
-  if (request.topP !== undefined) params.top_p = request.topP;
+  const fixedSampling = /^claude-(?:fable|opus|sonnet)-5(?:-|$)/.test(request.model);
+  if (!fixedSampling && request.temperature !== undefined) params.temperature = request.temperature;
+  if (!fixedSampling && request.topP !== undefined) params.top_p = request.topP;
   if (request.stop?.length) params.stop_sequences = [...request.stop];
   if (request.tools?.length) {
     params.tools = tools(request);
@@ -141,6 +142,9 @@ function baseParams(request: ModelRequest): MessageCreateParamsNonStreaming {
         schema: request.responseFormat.schema ?? {},
       },
     };
+  }
+  if (fixedSampling && request.reasoningEffort === "low") {
+    params.output_config = { ...params.output_config, effort: "low" };
   }
   return params;
 }

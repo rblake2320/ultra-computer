@@ -89,7 +89,7 @@ describe("credential persistence boundaries", () => {
   });
 
   it("never returns a submitted key from the quick-add response", async () => {
-    const result = await modelService.quickAdd("openai", "gpt-5.6-sol", "api_key", {
+    const result = await modelService.quickAdd("openai", "gpt-6.1-sol", "api_key", {
       apiKey: "quick-add-secret",
       baseUrl: "http://127.0.0.1:1/v1",
     });

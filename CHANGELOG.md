@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-10-04
 
 ### Fixed
+- Connect dynamically discovered models through Quick Add; honor selected catalog
+  credentials, fetch complete paginated lists, and hide unavailable static presets.
+- Reject app-owner keys as provider keys and show actionable provider-auth failures
+  without clearing owner login or echoing provider credential errors.
+- Refresh OpenAI GPT-6, Claude 5.5/Fable 5.1, Gemini 3.8/3.5, OpenRouter and local
+  Gemma 4/Qwen 3.8 suggestions, request parameters and guarded budget bounds.
 - Preserve direct short questions with reply-format suffixes; deny occupied
   ports during installer verification and isolate restored listener ports.
 - Add a private-owner installer with protected persistent keys, dedicated Redis,
