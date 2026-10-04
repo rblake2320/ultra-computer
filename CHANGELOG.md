@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-10-04
 
 ### Fixed
+- Keep name-only follow-ups on the brief answer path; make sandbox descriptions
+  match the active engine and shell examples match the installed command policy.
+- Build OpenShell's non-root workload from the same digest-pinned local stage
+  as the Docker interpreter, removing a mutable parent-image reference.
 - Use one worker for simple requests, omit tool schemas for plain answers,
   disable optional Ollama thinking on the wire, and remove hidden memory calls.
 - Bound each turn to 16 provider attempts, 64,000 estimated input tokens and

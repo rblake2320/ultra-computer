@@ -832,3 +832,25 @@ nonempty input to zeros. Stage checked bytes on native Linux and upload `.` to
 /workspace. Validate incoming JSON before host writes. Timeout uses vendor exit
 124, and deletion acceptance requires polling until the named sandbox is absent.
 These cases are exercised by test:openshell and the installed owner acceptance.
+
+### 0041 — Measure conversational follow-ups and describe the actual sandbox
+
+Installed acceptance returned Atlas correctly but loaded roughly 4,111 estimated
+input tokens: the format suffix parser omitted "name", so it included tool schemas.
+Extend that bounded format case and require one call under 1,000 estimated input
+tokens in the receiving test. Its named regression failed before the change.
+The same browser check found Docker-specific security and bind-mount descriptions
+under OpenShell. Render engine-specific descriptions and remove absolute leakage
+and host-OOM claims. Shell tool examples must match the deny-by-default policy;
+acceptance uses an allowed file-producing command and an executed nonzero exit,
+without widening permissions to make a fixture pass. See ADR-0006.
+
+### 0042 — Build both sandbox engines from one pinned image stage
+
+The default-branch Scorecard publisher flagged OpenShell's mutable local parent
+image. Rebuilding that tag in the installer reduced drift but left the Dockerfile
+dependent on ambient daemon state. Use two final targets in Dockerfile.sandbox
+from the same digest-pinned stage, with the OpenShell target selecting user 1000.
+The default Docker target preserves host-UID selection. A repository-wide base
+image regression failed on the old tag and guards every external FROM dependency;
+build and receiving checks exercise the actual OpenShell target.

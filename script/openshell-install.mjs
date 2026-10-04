@@ -28,7 +28,7 @@ try {
  run('docker',['pull',GATEWAY]);
  for(const image of ['ghcr.io/nvidia/openshell/sandbox@sha256:bf4797b6c511f2d8ba02955dbba4bf76c1f0dd6d83531420c5408d5f1fb9d72f','ghcr.io/nvidia/openshell/supervisor@sha256:d7b5264bb6bc56f4796e6fa3617b8e4a8d785be0b7293542efd8cc250b0fb67a'])run('docker',['pull',image]);
  run('docker',['build','-f','Dockerfile.sandbox','-t','ultra-computer-sandbox:local','.'],300000);
- run('docker',['build','-f','Dockerfile.openshell','-t','ultra-computer-openshell:local','.']);
+ run('docker',['build','-f','Dockerfile.sandbox','--target','openshell','-t','ultra-computer-openshell:local','.']);
  // Generate only when absent; never rotate certificates used by a running gateway.
  if(!fs.existsSync(path.join(dir,'tls','ca.crt')))run('docker',['run','--rm','--user','0','-v','/var/lib/ultra-computer-openshell:/var/lib/ultra-computer-openshell','-e','XDG_CONFIG_HOME=/var/lib/ultra-computer-openshell/config',GATEWAY,'generate-certs','--output-dir','/var/lib/ultra-computer-openshell/tls','--server-san','host.openshell.internal','--server-san','127.0.0.1']);
  run('docker',['compose','-p','ultra-computer-openshell','-f','docker-compose.openshell.yml','up','-d']);

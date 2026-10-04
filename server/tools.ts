@@ -63,11 +63,11 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   ...IMAGE_GEN_TOOL_SCHEMAS,
   {
     name: "bash",
-    description: "Execute a command in the configured isolated sandbox when the sandbox is available. The working directory is /workspace. Standard output and stderr are returned with CPU, memory, PID, network and timeout limits enforced.",
+    description: "Execute a policy-approved command in the configured isolated sandbox. The working directory is /workspace. Standard output, stderr and exit status are returned. Use write_file to create scripts, then run python3 script.py, node script.js or bash script.sh. Network commands, package installation and inline Python/Node execution are denied by default.",
     parameters: {
       type: "object",
       properties: {
-        command: { type: "string", description: "The shell command to execute. Can be multi-line. Example: 'python3 script.py' or 'curl -s https://api.example.com | jq .'" },
+        command: { type: "string", description: "A shell command allowed by the installed policy. Examples: 'ls', 'cat result.txt', 'python3 script.py' or 'echo -n 42 > result.txt'." },
       },
       required: ["command"],
     },

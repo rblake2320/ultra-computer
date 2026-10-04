@@ -1,5 +1,18 @@
 # Policy Control Plane Operational Readiness Gate
 
+> **2026-10-04 OpenShell receiving update — VERIFIED LOCALLY:** The installed
+> private app at commit 5154134 authenticated to NVIDIA OpenShell over mTLS.
+> Python, Node, TypeScript and Bash returned 4; a Python-produced file arrived
+> with bytes 42. Protected filesystem writes and workload network access were
+> denied, and the workload reported UID 1000. A real Gemma 4 bash action produced
+> a host-received file containing 42 under the existing shell policy. Reading a
+> missing file returned exit 1 and a failed tool receipt. Source receiving tests
+> also exercised timeout classification and waited for actual sandbox deletion.
+> Commands: `test:openshell`, `verify:efficient-owner`; ADR-0006, WHY-0039–0042.
+> OpenShell is a private same-owner isolation engine; this adds no tenant grant
+> or shell-policy exception. Engine-specific UI and tool descriptions reflect
+> file transfer, approved commands and persistent app sandbox files.
+
 > **2026-10-04 private deployment update:** The host/private installer builds
 > the sandbox image and exercises governed Python/Node/TypeScript/Bash, retains
 > deny-by-default policy, binds owner services to loopback, and scopes Docker

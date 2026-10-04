@@ -1,6 +1,10 @@
 import { expect, it } from "vitest";
 import { isSingleQuestion } from "../../server/taskPlan.js";
 
+it('keeps a name-only conversational follow-up on the brief question path', () => {
+  expect(isSingleQuestion('What is my verification project named? Reply with only the name.')).toBe(true);
+});
+
 it("keeps arithmetic questions with a reply-format suffix on the direct answer path", () => {
   expect(isSingleQuestion("What is 1 + 1? Reply with only the number.")).toBe(true);
   expect(isSingleQuestion("What is 3 + 3?")).toBe(true);
