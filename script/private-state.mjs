@@ -30,11 +30,24 @@ function inside(directory, relative) {
   if (path.isAbsolute(relative) || path.relative(directory, resolved).startsWith("..")) throw new Error("Backup manifest path escapes its root");
   return resolved;
 }
+function checkoutContains(directory) {
+  const relative = path.relative(root, directory);
+  return !relative || (relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative));
+}
+function physicalDestination(directory) {
+  let existing = directory;
+  const missing = [];
+  while (!fs.existsSync(existing)) {
+    missing.unshift(path.basename(existing));
+    existing = path.dirname(existing);
+  }
+  return path.resolve(fs.realpathSync(existing), ...missing);
+}
 
 try {
   if (!suppliedPath || !["backup", "restore"].includes(mode)) throw new Error("Usage: npm run state:backup -- <new-directory> OR npm run state:restore -- <backup-directory>. Restore requires an empty installation state.");
   const directory = path.resolve(suppliedPath);
-  if (directory === root || directory.startsWith(root + path.sep)) throw new Error("Backup directory must be outside this checkout so private state cannot become source or public assets");
+  if (checkoutContains(directory) || checkoutContains(physicalDestination(directory))) throw new Error("Backup directory must be outside this checkout so private state cannot become source or public assets");
   if (mode === "backup") {
     if (fs.existsSync(directory)) throw new Error("Backup destination already exists; choose a new directory.");
     const config = JSON.parse(fs.readFileSync(path.join(root, "data/private-install.json"), "utf8"));
