@@ -1,8 +1,5 @@
 name: Security
 
-env:
-  ONNXRUNTIME_NODE_INSTALL: skip
-
 on:
   pull_request:
   push:
@@ -22,6 +19,8 @@ concurrency:
 jobs:
   dependency-audit:
     runs-on: ubuntu-latest
+    env:
+      ONNXRUNTIME_NODE_INSTALL: skip
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -51,3 +50,10 @@ jobs:
       - uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
           sarif_file: scorecard-results.sarif
+      - name: Retain Scorecard report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: scorecard-report
+          path: scorecard-results.sarif
+          if-no-files-found: warn

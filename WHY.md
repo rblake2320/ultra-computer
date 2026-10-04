@@ -779,3 +779,12 @@ private install's already-verified defaults: bundled image, enabled isolation,
 network disabled. Credentials/history remain retained, and the receipt makes
 the reset explicit. The import regression includes a disabled retired image.
 The receiving owner check executes all four isolated interpreters after import.
+### 0037 — Keep the Scorecard publisher inside its upstream trust contract
+
+The main-branch Scorecard publisher returned HTTP 400 because a global CPU
+installation env variable violated its workflow restrictions. The PR job had
+skipped publication, hiding this failure. Move the CPU setting into the
+dependency-audit job, keep publication enabled, and retain its report. A static
+regression guards top-level/job env and defaults, runner and permitted actions.
+The live default-branch publisher is the receiving acceptance gate.
+Source: https://github.com/ossf/scorecard-action#workflow-restrictions
