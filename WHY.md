@@ -854,3 +854,16 @@ from the same digest-pinned stage, with the OpenShell target selecting user 1000
 The default Docker target preserves host-UID selection. A repository-wide base
 image regression failed on the old tag and guards every external FROM dependency;
 build and receiving checks exercise the actual OpenShell target.
+
+### 0043 — Verify the test runner's actual model daemon
+
+Default-branch CI failed local-model connection. Its retained Ollama log showed
+the launched process had exited with address already in use; health had instead
+accepted the installer's system service. Stop that service on the disposable CI
+runner, reject an occupied port, and require the launched PID and pinned version.
+The exact connection error was lost because only status was polled and the failure
+upload omitted browser context. Retain both, preserving the full real-model gate
+and its existing deadlines. This repairs test-process ownership and diagnostics;
+the initial connection error cannot be attributed more precisely from that run.
+The installed owner's real Gemma 4 acceptance remained 16/16 successful. No app
+runtime, credentials or owner-host Ollama service changes are made by this fix.
