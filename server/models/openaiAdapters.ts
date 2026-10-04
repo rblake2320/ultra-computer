@@ -390,7 +390,9 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
   async generate(request: ModelRequest, context: ProviderRequestContext): Promise<ModelResponse> {
     assertRequest(request);
     try {
-      const result = await this.client.chat.completions.create(chatParams(request), {
+      const params = chatParams(request);
+      if (this.provider === "ollama" && request.reasoningEffort !== undefined) params.reasoning_effort = request.reasoningEffort as any;
+      const result = await this.client.chat.completions.create(params, {
         signal: context.signal,
       });
       const choice = result.choices[0];
@@ -432,6 +434,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       stream: true,
       stream_options: { include_usage: true },
     };
+    if (this.provider === "ollama" && request.reasoningEffort !== undefined) params.reasoning_effort = request.reasoningEffort as any;
     try {
       const stream = await this.client.chat.completions.create(params, {
         signal: context.signal,

@@ -47,6 +47,12 @@ describe("current model request contracts", () => {
   it("disables optional Ollama thinking for a short connection probe", () => {
     expect(connectionTestRequest({ provider: "ollama", modelId: "gemma4:latest", capabilities: "[]" })).toMatchObject({ reasoningEffort: "none", maxOutputTokens: 64 });
   });
+  it("sends the thinking control to the actual Ollama endpoint", async () => {
+    const fixture = await contractServer((_request,response)=>json(response,{id:'probe',choices:[{message:{content:'pong'},finish_reason:'stop'}]}));
+    const adapter = new OpenAICompatibleAdapter('ollama',{apiKey:'ollama',baseURL:fixture.baseURL+'/v1'});
+    await adapter.generate(connectionTestRequest({provider:'ollama',modelId:'gemma4:latest',capabilities:'[]'}),{requestId:'probe'});
+    expect(fixture.requests[0].body).toMatchObject({reasoning_effort:'none',max_tokens:64});
+  });
 });
 
 const servers: http.Server[] = [];

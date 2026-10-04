@@ -11,6 +11,7 @@ import { useState, useEffect } from "react";
 import { Container, Shield, Cpu, HardDrive, Network, Clock, RefreshCw, Trash2, Download, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 
 interface SandboxStatus {
+  engine?: string;
   dockerAvailable: boolean;
   enabled: boolean;
   activeContainers: number;
@@ -105,10 +106,10 @@ export function SandboxPage() {
           <div>
             <h1 className="text-xl font-bold flex items-center gap-2">
               <Container className="w-5 h-5 text-primary" />
-              Docker Sandbox
+              {status?.engine || "Docker"} Sandbox
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Isolate bash commands in Docker containers with CPU, memory, and network limits.
+              Isolate code with CPU, memory, filesystem and network limits.
             </p>
           </div>
         </div>
@@ -132,10 +133,10 @@ export function SandboxPage() {
             <div className="flex-1">
               <p className="text-sm font-medium">
                 {isActive
-                  ? "Docker isolation active"
+                  ? `${status?.engine || "Docker"} isolation active`
                   : dockerOk
-                    ? "Docker available but sandbox disabled"
-                    : "Docker not detected — code execution unavailable"
+                    ? `${status?.engine || "Docker"} available but sandbox disabled`
+                    : `${status?.engine || "Docker"} unavailable — code execution unavailable`
                 }
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -164,7 +165,7 @@ export function SandboxPage() {
               <div className="flex items-center gap-3">
                 <Shield className="w-4 h-4 text-primary" />
                 <div>
-                  <Label className="text-sm font-semibold">Enable Docker Sandbox</Label>
+                  <Label className="text-sm font-semibold">Enable Sandbox</Label>
                   <p className="text-xs text-muted-foreground">Bash runs in isolated containers. Turning this off disables code execution.</p>
                 </div>
               </div>
@@ -292,6 +293,7 @@ export function SandboxPage() {
               </div>
               <Switch
                 checked={form.networkEnabled}
+                disabled={status?.engine === "NVIDIA OpenShell"}
                 onCheckedChange={v => setForm(f => f ? { ...f, networkEnabled: v } : f)}
                 data-testid="switch-network-enabled"
               />
@@ -359,10 +361,10 @@ export function SandboxPage() {
             <li>Capabilities are dropped (CAP_DROP=ALL) with minimal add-backs for file operations</li>
             <li>PID limit of 256 prevents fork bombs</li>
             <li>Memory and swap are capped — no OOM cascading to host</li>
-            <li>Network isolation (--network=none) is the default — toggle above to enable</li>
+            <li>{status?.engine === "NVIDIA OpenShell" ? "OpenShell network access is denied by the installed policy." : "Network isolation (--network=none) is the default."}</li>
             <li>The sandbox directory is bind-mounted as /workspace for file persistence</li>
             <li>Containers auto-reap after idle timeout</li>
-            <li>Code execution requires Docker. Commands fail closed when Docker is unavailable.</li>
+            <li>Code execution requires the configured sandbox engine. Unavailable isolation blocks execution.</li>
           </ul>
         </div>
       </div>

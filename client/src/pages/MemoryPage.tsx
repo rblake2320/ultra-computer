@@ -79,7 +79,7 @@ export function MemoryPage() {
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-card/50">
         <Brain className="w-4 h-4 text-primary" />
         <h1 className="font-semibold text-sm">Memory</h1>
-        <p className="text-xs text-muted-foreground flex-1">Orchestrator-owned persistent cross-session memory</p>
+        <p className="text-xs text-muted-foreground flex-1">Say “Remember that…” to save a fact in this session, or add one here.</p>
         <Button size="sm" onClick={() => setShowForm(f => !f)} className="gap-1">
           <Plus className="w-3 h-3" />Add Memory
         </Button>

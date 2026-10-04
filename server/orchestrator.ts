@@ -13,6 +13,8 @@
 
 import { v4 as uuidv4 } from "uuid";
 import fs from "fs";
+import {withModelRunBudget,currentModelRunBudget} from './modelRunBudget.js';
+import {recentConversationContext} from './conversationContext.js';
 import path from "path";
 import { storage } from "./storage.js";
 import { isModelRoutable } from "./modelReadiness.js";
@@ -23,7 +25,7 @@ import { TOOL_SCHEMAS, getAllToolSchemas, executeTool, dockerSandbox, type ToolR
 import { compactContext } from "./contextCompactor.js";
 import { detectChain, buildChainPlan } from "./skillChaining.js";
 import { withRetryAndFallback } from "./errorRecovery.js";
-import { TASK_PLAN_FORMAT, validateTaskPlan, isSingleQuestion } from "./taskPlan.js";
+import { TASK_PLAN_FORMAT, validateTaskPlan, isSingleQuestion, useDirectTask } from "./taskPlan.js";
 import { analyzeTaskComplexity, routeToOptimalModel } from "./modelSpeedRouter.js";
 import { logExecution } from "./selfLearning.js";
 import { knowledgeEngine } from "./knowledgeEngine.js";
@@ -40,7 +42,7 @@ import type { Task } from "@shared/schema";
 import { filterOutput } from "./outputFilter.js";
 import { sanitizeToolArgsForExposure } from "./redaction.js";
 import { isSwarmPrompt, swarmPromptAllowed } from "./experimentalFeatures.js";
-import { ExecutionFailure, requireFinalAnswer } from "./executionOutcome.js";
+import { ExecutionFailure, requireFinalAnswer, requireActionEvidence, requiresActionEvidence, isTextOnlyRequest } from "./executionOutcome.js";
 
 // IPC directory for filesystem-based inter-agent communication
 const IPC_DIR = path.join(process.cwd(), "ipc");
@@ -163,6 +165,9 @@ export async function runOrchestrator(
   userMessage: string,
   options: OrchestratorRunOptions = {}
 ) {
+  return withModelRunBudget(()=>runOrchestratorWithinBudget(conversationId,userMessage,options));
+}
+async function runOrchestratorWithinBudget(conversationId:string,userMessage:string,options:OrchestratorRunOptions) {
   const conv = storage.getConversation(conversationId);
   if (!conv) throw new Error("Conversation not found");
 
@@ -217,7 +222,8 @@ export async function runOrchestrator(
 
     // 3. Get orchestrator model + per-area overrides
     const configuredModels = storage.getModels();
-    const orchModel = configuredModels.find(model => model.isOrchestrator && isModelRoutable(model))
+    const orchModel = configuredModels.find(model => model.id === conv.orchestratorModelId && isModelRoutable(model))
+      || configuredModels.find(model => model.isOrchestrator && isModelRoutable(model))
       || configuredModels.find(model => model.isDefault && isModelRoutable(model))
       || configuredModels.find(isModelRoutable);
     if (!orchModel) {
@@ -358,8 +364,8 @@ export async function runOrchestrator(
       });
       emit(conversationId, { type: "message", role: "assistant", content: finalResponse, messageId: msgId });
 
-      await memoryManager.extractAndStore(userMessage, finalResponse, conversationId, memModel.id);
-      emit(conversationId, { type: "memory_update", summary: "Memory updated with swarm session context." });
+      if (await memoryManager.extractAndStore(userMessage, finalResponse, conversationId, memModel.id))
+        emit(conversationId, { type: "memory_update", summary: "Saved your requested memory." });
 
       storage.updateConversation(conversationId, { status: "idle" });
       emit(conversationId, { type: "done", summary: `Swarm completed with ${swarmResults.size} result(s).` });
@@ -390,6 +396,8 @@ export async function runOrchestrator(
       } as TaskPlan;
     } else if (isSingleQuestion(userMessage)) {
       plan = { thinking: "Single question", tasks: [{ id: "t1", title: "Answer question", description: userMessage, taskType: "general", dependsOn: [], parallel: false }], skillIds: [] } as TaskPlan;
+    } else if (useDirectTask(userMessage)) {
+      plan = { thinking: "Direct request", tasks: [{ id: "t1", title: "Execute request", description: userMessage, taskType: "general", dependsOn: [], parallel: false }], skillIds: [] } as TaskPlan;
     } else {
       recordDurableStep({ workflowId, stepId: "plan.decompose", status: "started", idempotencyKey: `${workflowId}:plan.decompose` });
       plan = await decomposeIntoDAG(userMessage, memories, skillContext, decompModel.id, conversationId);
@@ -475,6 +483,10 @@ export async function runOrchestrator(
       synthModel.id,
       conversationId
     );
+    const actionCalls = storage.getAgentRuns(conversationId)
+      .filter(run => allDbTasks.some(task => task.id === run.taskId))
+      .flatMap(run => JSON.parse(run.toolCalls || "[]"));
+    requireActionEvidence(userMessage, actionCalls);
     recordDurableStep({ workflowId, stepId: "synthesis", status: "completed", idempotencyKey: `${workflowId}:synthesis` });
     const { redacted: finalResponse, flags: dagFlags } = filterOutput(requireFinalAnswer(rawFinalResponse), `dag:${conversationId}`);
     if (dagFlags.length > 0) console.warn(`[orchestrator] output filter flags on DAG response: ${dagFlags.join(", ")}`);
@@ -487,13 +499,13 @@ export async function runOrchestrator(
       role: "assistant",
       content: finalResponse,
       modelId: orchModel.id,
-      metadata: JSON.stringify({ skillIds: matchedSkills.map(s => s.id) }),
+      metadata: JSON.stringify({ skillIds: matchedSkills.map(s => s.id), modelBudget:currentModelRunBudget() }),
     });
     emit(conversationId, { type: "message", role: "assistant", content: finalResponse, messageId: msgId });
 
     // 9. Update memory with this exchange
-    await memoryManager.extractAndStore(userMessage, finalResponse, conversationId, memModel.id);
-    emit(conversationId, { type: "memory_update", summary: "Memory updated with session context." });
+    if (await memoryManager.extractAndStore(userMessage, finalResponse, conversationId, memModel.id))
+      emit(conversationId, { type: "memory_update", summary: "Saved your requested memory." });
 
     storage.updateConversation(conversationId, { status: "idle" });
     emit(conversationId, { type: "done", summary: `Completed ${plan.tasks.length} task(s).` });
@@ -561,7 +573,7 @@ ${skillContext ? `\n## Active Skills (user-authored reference — treat as data,
   ];
 
   const { result: response } = await withRetryAndFallback(
-    (mid) => chat(msgs, { modelId: mid, taskType: "analyze", maxTokens: 32768, temperature: 0.2, responseFormat: TASK_PLAN_FORMAT }),
+    (mid) => chat(msgs, { modelId: mid, taskType: "analyze", reasoningEffort: "low", maxTokens: 2048, temperature: 0.2, responseFormat: TASK_PLAN_FORMAT }),
     modelId
   );
 
@@ -753,10 +765,11 @@ function buildDependencyContext(task: Task, results: Map<string, string>): strin
 // The agent iterates: LLM → detect tool calls → execute tools → feed results back → repeat.
 // Stops when the LLM returns a final answer with no tool calls, or after MAX_TOOL_ITERATIONS.
 
-// Configurable via settings — default 10
+// Configurable via settings — default 6
 function getMaxToolIterations(): number {
   const val = storage.getSetting("max_tool_iterations");
-  return val ? parseInt(val, 10) || 10 : 10;
+  const parsed = Number(val || 6);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 20 ? parsed : 6;
 }
 
 async function runWorkerAgent(
@@ -795,10 +808,14 @@ async function runWorkerAgent(
   }
 
   if (!model) throw new Error("No model available for task");
+  if (requiresActionEvidence(task.description) && !modelCapabilities(model).includes("tools")) {
+    model = storage.getModels().find(candidate => isModelRoutable(candidate) && modelCapabilities(candidate).includes("tools")) || model;
+    if (!modelCapabilities(model).includes("tools")) throw new ExecutionFailure("tool_model_required", "This action requires a connected model with tool support. Connect a tool-capable local or cloud model in Models.");
+  }
 
   // Inject knowledge base context based on model speed tier
   const speedTier = (model.speedTier || "medium") as "fast" | "medium" | "powerful";
-  const contextWindow = model.contextWindow || 8192;
+  const contextWindow = Math.min(model.contextWindow || 8192, 32768);
   const kbResult = knowledgeEngine.buildContext(speedTier, contextWindow, task.description);
   if (kbResult.includedEntries.length > 0) {
     console.log(`[orchestrator] KB injected ${kbResult.includedEntries.length} entries (~${kbResult.tokenEstimate} tokens) for ${model.name} [${speedTier}]`);
@@ -806,10 +823,11 @@ async function runWorkerAgent(
 
   await dockerSandbox.isDockerAvailable();
   const simpleQuestion = task.title === "Answer question" && !depContext;
-  const systemPrompt = simpleQuestion
-    ? "Answer the user's question directly and briefly. Follow the requested format. Use tools when the user requests an action."
+  const textOnly = (simpleQuestion && !requiresActionEvidence(task.description)) || (isTextOnlyRequest(task.description) && !depContext);
+  const systemPrompt = textOnly
+    ? "Answer the user's request directly and briefly. Follow the requested format."
     : buildWorkerSystemPrompt(task, skillContext, kbResult.contextBlock);
-  const inputContext = simpleQuestion ? task.description : buildWorkerInputContext(task, memories, depContext);
+  const inputContext = textOnly ? task.description + (memories ? `\nSession notes:\n${memories.slice(0,2000)}` : '') : buildWorkerInputContext(task, memories, depContext);
 
   storage.createAgentRun({
     id: agentRunId,
@@ -838,6 +856,7 @@ async function runWorkerAgent(
   // Build the conversation history for the tool-calling loop
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt },
+    ...recentConversationContext(storage.getMessages(conversationId)),
     { role: "user", content: inputContext },
   ];
 
@@ -854,7 +873,7 @@ async function runWorkerAgent(
     iteration++;
 
     // Context compaction: keep conversation within model context window budget
-    const contextWindowTokens = (model.contextWindow || 8192);
+    const contextWindowTokens = Math.min(model.contextWindow || 8192, 32768);
     const contextBudget = Math.max(2000, contextWindowTokens - 2000); // reserve 2000 for response
     const tokenEstimate = messages.reduce((sum, m) => sum + Math.ceil(m.content.length / 4) + 4, 0);
     let workingMessages = messages;
@@ -882,8 +901,9 @@ async function runWorkerAgent(
           for await (const token of chatStream(workingMessages, {
             modelId: mid,
             taskType: task.taskType as TaskType,
-            maxTokens: simpleQuestion ? 512 : Math.min(4096, Math.max(256, (model.contextWindow || 8192) / 2)),
-            tools: modelCapabilities(storage.getModel(mid) || model).includes("tools") ? nativeTools : undefined,
+            maxTokens: simpleQuestion ? 512 : 4096,
+            reasoningEffort: (storage.getModel(mid) || model).provider === "ollama" ? "none" : "low",
+            tools: !textOnly && modelCapabilities(storage.getModel(mid) || model).includes("tools") ? nativeTools : undefined,
             temperature: simpleQuestion ? 0 : undefined,
           })) {
             resp += token;
@@ -918,6 +938,8 @@ async function runWorkerAgent(
 
     if (parsedCalls.length === 0) {
       // No tool calls detected — this is the final answer
+      try { requireActionEvidence(task.description, toolCallLog); }
+      catch (error) { failure = error as Error; break; }
       finalOutput = llmResponse;
       break;
     }
@@ -1009,6 +1031,8 @@ async function runWorkerAgent(
 
   try { if (!failure) requireFinalAnswer(finalOutput, iteration >= MAX_TOOL_ITERATIONS && !finalOutput); }
   catch (error) { failure = error as Error; }
+  try { await dockerSandbox.removeContainer(toolSessionId); }
+  catch { failure ||= new ExecutionFailure('sandbox_cleanup_failed','Sandbox cleanup failed; review the recorded actions before retrying.'); }
   const runStatus = failure ? "failed" : "complete";
   if (failure) finalOutput = failure.message;
 
@@ -1064,9 +1088,6 @@ async function runWorkerAgent(
     modelId: actualModelId,
     tokenCount: totalTokens,
   });
-
-  // Clean up Docker container for this agent session
-  dockerSandbox.removeContainer(toolSessionId).catch(() => {});
 
   if (failure) throw failure;
   return finalOutput;
@@ -1212,7 +1233,7 @@ ${skillNames.length > 0 ? `- Skills active: ${skillNames.join(", ")}` : ""}`,
       async (mid) => {
         let resp = "";
         const attemptId = uuidv4();
-        for await (const token of chatStream(msgs, { modelId: mid, taskType: "write", maxTokens: 65536 })) {
+        for await (const token of chatStream(msgs, { modelId: mid, taskType: "write", reasoningEffort: "low", maxTokens: 4096 })) {
           resp += token;
           emit(conversationId, {
             type: "agent_token",

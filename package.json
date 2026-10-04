@@ -52,7 +52,11 @@
     "verify:artifact": "node script/verify-private-release.mjs",
     "verify:owner": "node script/private-owner-acceptance.mjs",
     "migrate:legacy-private": "node script/migrate-legacy-private.mjs",
-    "test:private-lifecycle": "node script/private-lifecycle-acceptance.mjs"
+    "test:private-lifecycle": "node script/private-lifecycle-acceptance.mjs",
+    "setup:openshell": "node script/openshell-install.mjs",
+    "test:efficiency": "node script/efficient-execution-acceptance.mjs",
+    "verify:efficient-owner": "node script/private-efficient-acceptance.mjs",
+    "test:openshell": "tsx script/openshell-acceptance.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",

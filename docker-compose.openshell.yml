@@ -1,0 +1,23 @@
+services:
+  gateway:
+    image: ghcr.io/nvidia/openshell/gateway@sha256:2fe4dad9118e14ab80a8258b545ea6e6cd74c3469e24ad4e6610f964d98913a2
+    restart: unless-stopped
+    command: ["--bind-address", "0.0.0.0", "--port", "5671", "--health-port", "5672"]
+    user: "0"
+    ports:
+      - "127.0.0.1:5671:5671"
+      - "127.0.0.1:5672:5672"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/ultra-computer-openshell:/var/lib/ultra-computer-openshell
+      - ./policies/openshell-gateway.toml:/etc/openshell/gateway.toml:ro
+    environment:
+      OPENSHELL_GATEWAY_CONFIG: /etc/openshell/gateway.toml
+      OPENSHELL_DB_URL: "sqlite:/var/lib/ultra-computer-openshell/gateway.db?mode=rwc"
+      XDG_DATA_HOME: /var/lib/ultra-computer-openshell
+      HOME: /var/lib/ultra-computer-openshell
+      OPENSHELL_LOCAL_TLS_DIR: /var/lib/ultra-computer-openshell/tls
+      OPENSHELL_TLS_CERT: /var/lib/ultra-computer-openshell/tls/server/tls.crt
+      OPENSHELL_TLS_KEY: /var/lib/ultra-computer-openshell/tls/server/tls.key
+      OPENSHELL_TLS_CLIENT_CA: /var/lib/ultra-computer-openshell/tls/ca.crt
+      OPENSHELL_ENABLE_MTLS_AUTH: "true"

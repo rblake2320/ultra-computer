@@ -30,7 +30,7 @@ export function SettingsPage() {
   const [systemName, setSystemName] = useState("");
   const [defaultModelId, setDefaultModelId] = useState("");
   const [sandboxAutoEnable, setSandboxAutoEnable] = useState(false);
-  const [maxToolIterations, setMaxToolIterations] = useState(10);
+  const [maxToolIterations, setMaxToolIterations] = useState(6);
   // Swarm defaults
   const [swarmMaxTokens, setSwarmMaxTokens] = useState(1000000);
   const [swarmMaxAgents, setSwarmMaxAgents] = useState(15);
@@ -45,7 +45,7 @@ export function SettingsPage() {
     if (settings.sandbox_auto_enable !== undefined)
       setSandboxAutoEnable(settings.sandbox_auto_enable === "true");
     if (settings.max_tool_iterations !== undefined)
-      setMaxToolIterations(Number(settings.max_tool_iterations) || 10);
+      setMaxToolIterations(Number(settings.max_tool_iterations) || 6);
     if (settings.swarm_max_tokens !== undefined)
       setSwarmMaxTokens(Number(settings.swarm_max_tokens) || 1000000);
     if (settings.swarm_max_agents !== undefined)

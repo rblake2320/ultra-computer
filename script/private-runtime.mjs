@@ -43,7 +43,9 @@ export function envFor(config) {
     DATABASE_PATH: path.join(data, "ultra_computer.db"), ULTRA_DURABLE_RUN_DIR: path.join(data, "durable-runs"),
     ULTRA_API_KEY: config.apiKey, ENCRYPTION_KEY: config.encryptionKey, ALLOW_HOST_SHELL: "false",
     ULTRA_LOCAL_EGRESS_ALLOWLIST: "127.0.0.1", ULTRA_ALLOW_INSECURE_HTTP: "true", ALLOWED_ORIGIN: `http://127.0.0.1:${config.httpPort}`,
-    ULTRA_SANDBOX_IMAGE: "ultra-computer-sandbox:local", ULTRA_EXPERIMENTAL: "0", ULTRA_PRIVATE_INSTALL: "1" };
+    ULTRA_SANDBOX_ENGINE: config.sandboxEngine || "docker",
+    ULTRA_OPENSHELL_HOME: path.join(data, "openshell"),
+    ULTRA_SANDBOX_IMAGE: config.sandboxEngine === "openshell" ? "ultra-computer-openshell:local" : "ultra-computer-sandbox:local", ULTRA_EXPERIMENTAL: "0", ULTRA_PRIVATE_INSTALL: "1" };
 }
 export function startQueue(config, stdio = "inherit") {
   execFileSync("docker", ["compose", "--project-name", config.projectName, "--file", "docker-compose.private.yml", "up", "--detach", "--wait", "redis"],

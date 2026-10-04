@@ -6,16 +6,18 @@ For someone who has never used it before.
 
 ## What Is Ultra Computer?
 
-Ultra Computer is not a chatbot. It is an **AI agent harness** — a system that:
+Ultra Computer runs configured models and tools from a local application:
 
 1. Takes your goal as a message
-2. Breaks it into parallel tasks automatically
+2. Uses one worker for a simple request, or plans explicitly sequential work
 3. Assigns each task to the best AI model available
 4. Runs multiple AI "workers" at the same time
-5. Remembers everything across sessions
+5. Recalls explicitly saved facts within the current session
 6. Returns one complete answer
 
-The difference from a chatbot: if you ask a standard chatbot to "research this topic, write code for it, and summarize the results," it does those three things one at a time with one model. Ultra Computer splits them into three parallel agents, picks the right model for each, and finishes faster with better results.
+Tool requests require a connected model with tool support and successful tool
+receipts. A failed action appears as a failed conversation instead of a completed
+answer. Recent dialogue is limited to six messages and 8,000 characters.
 
 ---
 
@@ -187,18 +189,20 @@ Now whenever your message contains those keywords, this skill's instructions are
 
 ## Memory — The AI That Remembers You
 
-The memory system stores facts across sessions. The orchestrator automatically saves important information from your conversations and reads it back at the start of future sessions.
+Say "Remember that I prefer concise replies" to save your own words in the
+current session. Ordinary chat does not run a hidden memory-extraction model or
+store assistant-generated facts. Chat recall stays within that session.
 
 ### Viewing your memory:
 
 1. Click **Memory** in the sidebar
 2. You will see all stored memory entries organized by category and importance score
 
-### What gets remembered automatically:
+### Explicit examples:
 
-- Facts you state ("I prefer Python over JavaScript")
-- Project context ("We're building a fintech app that handles ACH transfers")
-- Preferences ("Always include error handling in code examples")
+- "Remember that I prefer Python over JavaScript."
+- "Remember that this project handles ACH transfers."
+- "Remember that I prefer code examples with error handling."
 
 ### Adding a memory manually:
 
@@ -209,9 +213,8 @@ The memory system stores facts across sessions. The orchestrator automatically s
 
 ### Tips:
 
-- High-importance memories are always recalled
-- Lower-importance memories are recalled when relevant
-- The AI uses memory to avoid asking you the same questions twice
+- Recall ranks up to five relevant entries within the current chat session
+- The Memory page also supports manually stored entries
 - You can delete any memory you do not want retained
 
 ---
@@ -310,18 +313,19 @@ The Swarm page shows each agent's status in real-time:
 
 ---
 
-## Docker Sandbox — Safe Code Execution
+## Sandbox — Isolated Code Execution
 
-The sandbox runs agent shell commands in a resource-limited Docker container.
-Only the application sandbox directory is mounted, and container networking is
-disabled by default. If Docker isolation is unavailable, shell execution fails
-instead of running the command on the application host.
+The default sandbox runs shell commands in a resource-limited Docker container.
+Only the application sandbox directory is mounted; networking is disabled by
+default. The optional Windows OpenShell engine transfers bounded sandbox files
+and uses an offline, non-root policy. If the configured engine is unavailable,
+shell execution fails instead of running on the application host.
 
 ### Enabling the sandbox:
 
 1. Click **Sandbox** in the sidebar
 2. Toggle **Enable Sandbox**
-3. Click **Pull Image** to download the execution environment (one-time, takes about a minute)
+3. Use the private installer to build the execution image
 
 ### Using the sandbox:
 
@@ -414,7 +418,7 @@ Click **Settings** in the sidebar to configure:
 - **Theme** — light or dark
 - **System name** — what the AI calls itself
 - **Default model** — which model is used when nothing more specific applies
-- **Max tool iterations** — how many times an agent can use tools in one turn (default 10)
+- **Max tool iterations** — maximum worker rounds per turn (default 6, range 1–20); the shared turn budget also limits provider attempts and tokens
 - **Sandbox auto-enable** — automatically enable the Docker sandbox for every new session
 
 ---
