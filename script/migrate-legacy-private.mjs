@@ -50,6 +50,10 @@ try {
       const modelColumns = new Set(imported.prepare("PRAGMA table_info(models)").all().map(c => c.name));
       if (modelColumns.has("connection_status")) imported.exec("UPDATE models SET connection_status='disconnected'");
       imported.exec("UPDATE models SET is_default=0,is_orchestrator=0");
+      // Legacy installs can disable isolation or refer to a retired image.
+      // Private setup has verified its bundled sandbox; restore that contract
+      // instead of importing incompatible execution settings.
+      imported.prepare("DELETE FROM settings WHERE key IN ('sandbox_config','sandbox_auto_enable')").run();
       const unfinished = imported.prepare("SELECT id FROM conversations WHERE status NOT IN ('idle','error')").all();
       const now = Date.now();
       for (const conversation of unfinished) {
@@ -69,7 +73,7 @@ try {
   // One atomic replacement keeps a canonical database present even if the
   // importer is killed. The original empty target also remains recoverable.
   fs.renameSync(temporary, destination);
-  const receipt = { status: "Worked", checkedAt: new Date().toISOString(), retainedRows: counts, interruptedConversations, credentialsReencrypted: true, connectionsRequireRetest: true, previousDatabasePreserved: true };
+  const receipt = { status: "Worked", checkedAt: new Date().toISOString(), retainedRows: counts, interruptedConversations, credentialsReencrypted: true, connectionsRequireRetest: true, sandboxSettingsResetToPrivateDefaults: true, previousDatabasePreserved: true };
   fs.writeFileSync(path.join(data, "legacy-import-receipt.json"), JSON.stringify(receipt, null, 2), { mode: 0o600 });
   console.log(JSON.stringify(receipt));
 } catch (error) { console.error(`Legacy import failed safely (${error.code || "import-error"}): ${String(error.message || "Unknown failure").slice(0, 500)}. Existing source and destination databases are retained.`); process.exitCode = 1; }

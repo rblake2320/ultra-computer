@@ -20,6 +20,7 @@ it("preserves legacy history and reencrypts credentials before disconnecting old
   for (const file of [source, target]) { const db = new Database(file); db.exec(schema); db.close(); }
   const original = new Database(source);
   original.exec("ALTER TABLE models ADD COLUMN connection_status TEXT DEFAULT 'connected'");
+  original.prepare("INSERT INTO settings (key,value,updated_at) VALUES (?,?,?)").run("sandbox_config", JSON.stringify({ enabled: false, image: "retired-image", networkEnabled: true }), Date.now());
   original.prepare("INSERT INTO models (id,name,provider,model_id,api_key,created_at,is_default,is_orchestrator) VALUES (?,?,?,?,?,?,?,?)").run("model", "Legacy", "openai", "unprobed", oldCredential, Date.now(), 1, 1);
   original.prepare("INSERT INTO conversations (id,title,status,created_at,updated_at) VALUES (?,?,?,?,?)").run("history", "Retain me", "planning", Date.now(), Date.now()); original.close();
   execFileSync(process.execPath, [path.join(scripts, "migrate-legacy-private.mjs"), source, "--legacy-development-key"], { stdio: "pipe", windowsHide: true, timeout: 15000 });
@@ -27,6 +28,7 @@ it("preserves legacy history and reencrypts credentials before disconnecting old
   try {
     expect(restored.prepare("SELECT title FROM conversations WHERE id='history'").get()).toEqual({ title: "Retain me" });
     expect(restored.prepare("SELECT status FROM conversations WHERE id='history'").get()).toEqual({ status: "error" });
+    expect(restored.prepare("SELECT value FROM settings WHERE key='sandbox_config'").get()).toBeUndefined();
     expect(restored.prepare("SELECT count(*) AS n FROM messages WHERE conversation_id='history'").get()).toEqual({ n: 1 });
     const model = restored.prepare("SELECT api_key,connection_status,is_default,is_orchestrator FROM models WHERE id='model'").get() as any;
     expect(model.connection_status).toBe("disconnected"); expect(model.is_default).toBe(0); expect(model.is_orchestrator).toBe(0);

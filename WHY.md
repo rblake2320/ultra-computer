@@ -770,3 +770,12 @@ retains the known completed workflow ID, fetches its result twice through
 separate handles, and checks both activity history and the execution counter
 for duplication. It tests the stated guarantee directly and does not depend
 on visibility indexing catching up.
+### 0036 — Import history without incompatible legacy execution settings
+
+The real owner database had disabled Docker isolation. After the history import,
+the new app correctly denied interpreter calls with HTTP 503 despite a working
+Docker engine. The importer now resets the two legacy sandbox settings to the
+private install's already-verified defaults: bundled image, enabled isolation,
+network disabled. Credentials/history remain retained, and the receipt makes
+the reset explicit. The import regression includes a disabled retired image.
+The receiving owner check executes all four isolated interpreters after import.
