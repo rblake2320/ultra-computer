@@ -753,3 +753,11 @@ Legacy import now copies/fsyncs the empty prior target and atomically replaces
 the canonical DB. A real Windows probe returned EPERM when fsync used an 'r'
 handle; an 'r+' handle passed. The import regression and receiving check require
 that Windows-compatible flush while retaining the source and original target.
+### 0034 — Commit the queued-batch fixture once
+
+Windows Node 22 coverage CI exceeded the default five-second deadline while
+creating 101 queued admissions with 202 individual durable SQLite commits.
+The test now creates that pagination fixture in one transaction, preserving
+all 101 rows and the admission/terminal-state assertions. The separate
+cross-connection test still checks durable admission. This changes fixture
+setup rather than extending deadlines or relaxing product guarantees.

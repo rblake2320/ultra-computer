@@ -29,10 +29,15 @@ describe("durable message admission", () => {
     expect(processor).not.toHaveBeenCalled();
   });
   it("delivers new admissions even with more than a batch of queued requests", () => {
-    for (let i = 0; i < 101; i++) {
-      const queued = { ...task, taskId: `outbox-${i}` };
-      persistTaskAdmission(queued); updateAdmission(queued.taskId, "queued");
-    }
+    // This fixture tests pagination past a queued batch. Commit its setup once;
+    // 202 independent durable writes can exceed Vitest's deadline on Windows
+    // coverage runners. Cross-connection durability is checked above.
+    sqlite.transaction(() => {
+      for (let i = 0; i < 101; i++) {
+        const queued = { ...task, taskId: `outbox-${i}` };
+        persistTaskAdmission(queued); updateAdmission(queued.taskId, "queued");
+      }
+    })();
     persistTaskAdmission(task);
     expect(unfinishedAdmissions()).toContainEqual(task);
     updateAdmission(task.taskId, "completed"); updateAdmission(task.taskId, "queued");
