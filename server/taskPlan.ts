@@ -9,6 +9,11 @@ export function isSingleQuestion(input: string): boolean {
   return !suffix || /^(?:please\s+)?(?:reply|answer|respond|return)\s+(?:with\s+|in\s+)?(?:only\s+)?(?:the\s+)?(?:number|answer|result|json|one\s+(?:word|sentence)|a\s+short\s+(?:answer|sentence))[.!]?$/i.test(suffix);
 }
 
+/** One request needs one worker; explicit sequential steps retain DAG planning. */
+export function useDirectTask(input: string): boolean {
+  return input.length <= 4000 && !/\b(?:then|after that|followed by)\b|(?:^|\n)\s*\d+[.)]\s|\?[^?]+\?/i.test(input);
+}
+
 const task = z.object({
   id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
   title: z.string().min(1).max(200),

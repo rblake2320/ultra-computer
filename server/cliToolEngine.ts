@@ -1135,10 +1135,10 @@ export async function executeCodeInterpreter(
     );
   }
 
-  const { dockerSandbox } = await import("./dockerSandbox.js");
+  const { dockerSandbox } = await import("./sandboxRuntime.js");
   if (!(await dockerSandbox.isActive())) {
     throw new Error(
-      "Code interpreter requires the isolated Docker sandbox; host execution is disabled.",
+      "Code interpreter requires an available isolated sandbox; host execution is disabled.",
     );
   }
 

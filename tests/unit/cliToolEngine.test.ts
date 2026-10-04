@@ -98,7 +98,7 @@ describe("interpreter and transform containment", () => {
     try {
       await expect(
         executeCodeInterpreter("print('must not run on host')", "python3"),
-      ).rejects.toThrow(/requires the isolated Docker sandbox/i);
+      ).rejects.toThrow(/requires an available isolated sandbox/i);
     } finally {
       dockerSandbox.updateConfig(previous);
     }

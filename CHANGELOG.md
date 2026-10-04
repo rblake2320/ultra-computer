@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-10-04
 
 ### Fixed
+- Use one worker for simple requests, omit tool schemas for plain answers,
+  disable optional Ollama thinking on the wire, and remove hidden memory calls.
+- Bound each turn to 16 provider attempts, 64,000 estimated input tokens and
+  32,768 output tokens/reservations; cap automatic KB context at 2,048 tokens.
+- Preserve recent session dialogue and require successful tool receipts for
+  requested actions instead of accepting invented execution summaries.
 - Connect dynamically discovered models through Quick Add; honor selected catalog
   credentials, fetch complete paginated lists, and hide unavailable static presets.
 - Reject app-owner keys as provider keys and show actionable provider-auth failures
@@ -30,6 +36,10 @@ All notable changes to this project will be documented in this file.
   generation and add private-install/crash checks to existing CI.
 
 ### Added
+- Optional pinned NVIDIA OpenShell 0.1.2 bridge for Windows/WSL Ubuntu 24.04,
+  with mTLS, offline policy, non-root workloads and bounded file transfer.
+- Receiving acceptance for Windows input, sandbox output, timeout, real-model
+  request counts, session context, explicit memory and failed actions.
 - Managed private background operation, bounded logs, restart/health recovery,
   maintenance-stop controls and removable Windows login startup (ADR-0004).
 - A real-model sustained workload gate and a distinct CI lifecycle regression;

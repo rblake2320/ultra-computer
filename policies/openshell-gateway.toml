@@ -1,0 +1,19 @@
+[openshell]
+version = 2
+[openshell.gateway]
+bind_address = "127.0.0.1:5671"
+health_bind_address = "127.0.0.1:5672"
+log_level = "info"
+compute_driver = "docker"
+disable_tls = false
+guest_tls_ca = "/var/lib/ultra-computer-openshell/tls/ca.crt"
+guest_tls_cert = "/var/lib/ultra-computer-openshell/tls/client/tls.crt"
+guest_tls_key = "/var/lib/ultra-computer-openshell/tls/client/tls.key"
+[openshell.drivers.docker]
+default_image = "ultra-computer-openshell:local"
+sandbox_runtime_image = "ghcr.io/nvidia/openshell/sandbox@sha256:bf4797b6c511f2d8ba02955dbba4bf76c1f0dd6d83531420c5408d5f1fb9d72f"
+supervisor_image = "ghcr.io/nvidia/openshell/supervisor@sha256:d7b5264bb6bc56f4796e6fa3617b8e4a8d785be0b7293542efd8cc250b0fb67a"
+image_pull_policy = "if_not_present"
+sandbox_label = "ultra-computer-openshell"
+grpc_endpoint = "https://127.0.0.1:5671"
+app_armor_profile = "Unconfined"

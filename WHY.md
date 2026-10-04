@@ -813,3 +813,22 @@ package-lock with npm ci, scripts disabled, and the tested esbuild version
 pinned. A regression requires hashes for every package and rejects global
 installation. Receiving acceptance rebuilds the image and executes all four
 languages, including TypeScript with the packaged native esbuild binary.
+
+### 0039 — Bound each user turn and require real action receipts
+
+Live arithmetic and summary each consumed three Ollama calls, including hidden
+memory extraction; an upgrade request returned speculative agent prose. Direct
+workers, plain-answer schema omission and the actual Ollama thinking field
+remove those extra calls. A shared admission budget limits parallel workers and
+fallbacks. Explicit memory keeps original owner words. Requested actions require
+successful matching tool receipts, and receiving tests inspect actual files.
+See ADR-0006 and the real-model efficiency acceptance command.
+
+### 0040 — Treat cross-platform transfer and deletion as receiving boundaries
+
+OpenShell directory upload preserves the source basename. WSL reports zero
+allocated blocks for Windows-mounted files; sparse-tar upload converted a real
+nonempty input to zeros. Stage checked bytes on native Linux and upload `.` to
+/workspace. Validate incoming JSON before host writes. Timeout uses vendor exit
+124, and deletion acceptance requires polling until the named sandbox is absent.
+These cases are exercised by test:openshell and the installed owner acceptance.

@@ -145,7 +145,7 @@ describe("Docker sandbox — host-shell policy", () => {
       const result = await executeTool("bash", { command: "echo should-not-run" });
       expect(result.success).toBe(false);
       expect(result.output).toBe("");
-      expect(result.error).toMatch(/Docker sandbox required but unavailable/);
+      expect(result.error).toMatch(/Isolated sandbox required but unavailable/);
     } finally {
       dockerSandbox.updateConfig(previousConfig);
       if (previousNodeEnv === undefined) delete process.env.NODE_ENV;

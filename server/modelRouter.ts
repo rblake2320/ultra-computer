@@ -6,6 +6,7 @@
  */
 
 import crypto from "crypto";
+import {admitModelAttempt} from './modelRunBudget.js';
 import type { Model } from "@shared/schema";
 import { cacheEngine } from "./cacheEngine.js";
 import type {
@@ -329,7 +330,10 @@ async function guardedGenerate(
 async function guardedGenerateCore(
   adapter: ProviderAdapter, model: Model, request: ModelRequest, signal?: AbortSignal,
 ): Promise<ModelResponse> {
-  const reservation = reserveModelRequest(model, request);
+  const settleRun = admitModelAttempt(request);
+  let reservation: ReturnType<typeof reserveModelRequest>;
+  try { reservation = reserveModelRequest(model, request); }
+  catch (error) { settleRun({ inputTokens: 0, outputTokens: 0, totalTokens: 0 }); throw error; }
   let settled = false;
   try {
     const result = await adapter.generate(request, {
@@ -337,10 +341,12 @@ async function guardedGenerateCore(
       signal,
     });
     settleModelReservation(reservation, model, result.usage);
+    settleRun(result.usage);
     settled = true;
     requireProviderCompletion(Boolean(result.text.trim()), result.toolCalls.length, result.finishReason);
     return result;
   } catch (error) {
+    settleRun();
     if (!settled) {
       // Once adapter execution begins, transport failures are ambiguous: the
       // provider may have accepted and billed the request.
@@ -427,7 +433,10 @@ export async function* chatStream(
   const request = toModelRequest(model, messages, options);
   const adapter = createProviderAdapter(model);
   assertAdapterSupports(model, adapter, request, true);
-  const reservation = reserveModelRequest(model, request);
+  const settleRun = admitModelAttempt(request);
+  let reservation: ReturnType<typeof reserveModelRequest>;
+  try { reservation = reserveModelRequest(model, request); }
+  catch (error) { settleRun({ inputTokens: 0, outputTokens: 0, totalTokens: 0 }); throw error; }
 
   const span = startModelStream({ "model.id_hash": telemetryIdentity(model.id), "model.provider": model.provider });
   let streamWorked = false;
@@ -475,6 +484,7 @@ export async function* chatStream(
     }
 
     settleModelReservation(reservation, model, providerCompleted ? usage : undefined);
+    settleRun(providerCompleted ? usage : undefined);
     settled = true;
 
     requireProviderCompletion(emittedText, toolCalls.size, finishReason, providerCompleted);
@@ -493,6 +503,7 @@ export async function* chatStream(
       );
     }
   } finally {
+    settleRun();
     span.setStatus({ code: streamWorked ? SpanStatusCode.OK : SpanStatusCode.ERROR });
     span.end();
     if (!settled) {

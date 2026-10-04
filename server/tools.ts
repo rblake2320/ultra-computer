@@ -10,7 +10,7 @@
 
 import fs from "fs";
 import path from "path";
-import { dockerSandbox } from "./dockerSandbox.js";
+import { dockerSandbox } from "./sandboxRuntime.js";
 import { BROWSER_TOOL_SCHEMAS, executeBrowserTool } from "./browserTool.js";
 import { IMAGE_GEN_TOOL_SCHEMAS, executeImageGenTool } from "./imageGenTool.js";
 import {
@@ -34,7 +34,7 @@ async function getMCPModule() {
 ensureSandboxDir();
 
 // Re-export sandbox management for routes
-export { dockerSandbox } from "./dockerSandbox.js";
+export { dockerSandbox } from "./sandboxRuntime.js";
 
 // ─── Tool Schema (OpenAI function-calling format) ────────────────────────────
 
@@ -63,7 +63,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   ...IMAGE_GEN_TOOL_SCHEMAS,
   {
     name: "bash",
-    description: "Execute a command in an isolated Docker container when the sandbox is available. The working directory is /workspace. Standard output and stderr are returned with CPU, memory, PID, network and timeout limits enforced.",
+    description: "Execute a command in the configured isolated sandbox when the sandbox is available. The working directory is /workspace. Standard output and stderr are returned with CPU, memory, PID, network and timeout limits enforced.",
     parameters: {
       type: "object",
       properties: {
@@ -352,7 +352,7 @@ function sandboxUnavailableResult(start: number, error?: unknown): ToolResult {
   return {
     success: false,
     output: "",
-    error: `Docker sandbox required but unavailable${detail}`,
+    error: `Isolated sandbox required but unavailable${detail}`,
     durationMs: Date.now() - start,
   };
 }

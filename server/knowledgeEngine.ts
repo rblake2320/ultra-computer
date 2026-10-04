@@ -59,19 +59,9 @@ export interface KBStats {
 class KnowledgeBaseEngine {
   /** Max % of model context window to use for KB content */
   private readonly TOKEN_BUDGET_PERCENT = 0.15; // 15% of context window
-  /**
-   * Absolute cap scales with context window:
-   *   - Standard models (≤200K ctx):  50K tokens
-   *   - Large context (≤1M ctx):     200K tokens
-   *   - Scout/ultra (>1M ctx):     1,000K tokens (1M)
-   * This lets Scout's 10M window inject massive MCP/CLI/SDK context.
-   */
-  private getMaxTokensAbsolute(contextWindowTokens: number): number {
-    if (contextWindowTokens > 1_000_000) return 1_000_000;  // Scout 10M, Maverick 1M
-    if (contextWindowTokens > 200_000) return 200_000;       // Large context models
-    return 50_000;                                            // Standard models
-  }
-  private readonly MIN_TOKENS_FOR_KB = 2000; // Don't bother if context window too small
+  // A large advertised context window is not a reason to inject the full KB.
+  private getMaxTokensAbsolute(_contextWindowTokens: number): number { return 2048; }
+  private readonly MIN_TOKENS_FOR_KB = 128; // Don't bother if context window too small
 
   /**
    * Build the knowledge context block for a given model tier and optional query.

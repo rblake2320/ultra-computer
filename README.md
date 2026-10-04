@@ -569,3 +569,19 @@ Proprietary — Blakes Innovations. All rights reserved.
 ## Author
 
 **Rob Blake** — Blakes Innovations
+
+## Optional NVIDIA OpenShell on Windows
+
+With WSL Ubuntu 24.04 and Docker Desktop integration available, stop the private
+service, run `npm run setup:openshell`, then `npm run service:start`. The installer
+verifies a pinned CLI digest, pins gateway/runtime/supervisor images, builds the
+workload image, and verifies authenticated readiness before selecting the engine.
+The Sandbox page shows the active engine. Workloads run offline as UID 1000;
+only checked application sandbox files cross the boundary. Runtime quotas and
+policy are in ADR-0006. This bridge is scoped to the private Windows deployment.
+
+Run `npm run verify:efficient-owner` against the installed artifact to exercise
+one-call local answers, follow-up context, explicit memory, actual tool/file
+receipts, all four interpreters and denials. It creates named verification chats
+and sandbox files. `npm run test:efficiency` uses separate synthetic data and a
+real Ollama proxy to measure actual calls and tokens.
