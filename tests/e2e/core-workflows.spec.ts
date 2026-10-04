@@ -38,7 +38,9 @@ test("workflow 1b: provider credentials have an explicit save-and-connect action
   await page.getByTestId("tab-add").click();
   await page.getByTestId("provider-openai").click();
   await page.getByTestId("input-qa-api-key").fill("not-a-real-key");
-  await expect(page.getByTestId("preset-gpt-5.6-sol")).toContainText("Save & connect");
+  await expect(page.getByTestId("preset-gpt-6.1-sol")).toContainText("Save & connect");
+  await expect(page.getByTestId("button-sync-model-catalog")).toBeDisabled();
+  await expect(page.getByRole("alert")).toContainText("provider API key starting with sk-");
   await expect(page.getByText("The key is encrypted and stored with the model")).toBeVisible();
 });
 
@@ -64,6 +66,23 @@ test("workflow 1c: authenticated connector creation and multipart upload work in
   });
   await expect.poll(async () => JSON.stringify(await api("/api/sandbox/files"))).toContain(relativePath);
   await api(`/api/sandbox/files/${relativePath}`, { method: "DELETE" });
+});
+
+test("workflow 1d: live installed-model discovery can save, test and connect a dynamic model", async ({ page }) => {
+  test.skip(!localModel, "Ollama is not running on 127.0.0.1:11434");
+  test.setTimeout(240_000);
+  await page.goto("/#/models");
+  await page.getByTestId("tab-add").click();
+  await page.getByTestId("provider-ollama").click();
+  await page.getByTestId("input-qa-base-url").fill("http://127.0.0.1:11434/v1");
+  await page.getByTestId("button-sync-model-catalog").click();
+  await expect(page.getByText(/Live catalog synchronized/)).toBeVisible();
+  await page.getByTestId(`preset-${localModel}`).click();
+  await expect.poll(async () => (await api<any[]>("/api/models")).find(m => m.modelId === localModel)?.connectionStatus, { timeout: 180_000 }).toBe("connected");
+  const model = (await api<any[]>("/api/models")).find(m => m.modelId === localModel);
+  await expect(page.getByTestId(`model-card-${model.id}`)).toBeVisible();
+  await expect(page.getByTestId("tab-connected")).toContainText("1 connected");
+  await api(`/api/models/${model.id}`, { method: "DELETE" });
 });
 
 test("workflow 2: manual model creation and first passing test assign both roles", async ({ page }) => {

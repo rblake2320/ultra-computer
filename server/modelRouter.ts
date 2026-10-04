@@ -83,8 +83,12 @@ export function connectionTestRequest(
   return {
     model: model.modelId,
     messages: [{ role: "user", content: "Reply with exactly: pong" }],
-    maxOutputTokens: CONNECTION_TEST_MAX_OUTPUT_TOKENS,
-    reasoningEffort: resolveReasoningEffort(model),
+    maxOutputTokens: /^(?:gpt-6(?:\.|-)|claude-(?:fable|opus|sonnet)-5)/.test(model.modelId) ? 1024 : CONNECTION_TEST_MAX_OUTPUT_TOKENS,
+    reasoningEffort: model.provider === "openai" && /^gpt-6(?:\.|-)/.test(model.modelId)
+      ? model.modelId === "gpt-6-luna" ? "none" : "low"
+      : model.provider === "ollama" ? "none"
+      : model.provider === "anthropic" && /^claude-(?:fable|opus|sonnet)-5/.test(model.modelId) ? "low"
+      : resolveReasoningEffort(model),
   };
 }
 
@@ -265,9 +269,10 @@ export function resolveReasoningEffort(
   requested?: ModelRequest["reasoningEffort"],
 ): ModelRequest["reasoningEffort"] {
   if (requested !== undefined) return requested;
+  if (model.provider === "ollama") return "none";
   if (model.provider !== "openai") return undefined;
   const capabilities = modelCapabilities(model);
-  return capabilities.includes("reasoning") || /^gpt-5\.6(?:-|$)/.test(model.modelId)
+  return capabilities.includes("reasoning") || /^gpt-(?:5\.6|6(?:\.1)?)(?:-|$)/.test(model.modelId)
     ? "medium"
     : undefined;
 }

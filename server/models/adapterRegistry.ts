@@ -1,5 +1,5 @@
 import type { Model } from "@shared/schema";
-import { resolveCredentials } from "../modelConnections.js";
+import { assertProviderApiKey, resolveCredentials } from "../modelConnections.js";
 import { AnthropicAdapter } from "./anthropicAdapter.js";
 import { GoogleAdapter } from "./googleAdapter.js";
 import { OpenAICompatibleAdapter, OpenAIResponsesAdapter } from "./openaiAdapters.js";
@@ -28,6 +28,7 @@ const OPENAI_COMPATIBLE_PROVIDERS = new Set([
 
 function credentialsFor(model: Model): { apiKey: string; baseURL?: string; sessionId: string } {
   const credentials = resolveCredentials(model);
+  assertProviderApiKey(credentials.apiKey);
   if (!credentials.isValid) {
     throw new Error(`No valid credentials configured for ${model.provider} model ${model.name}`);
   }

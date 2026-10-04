@@ -18,6 +18,37 @@ interface CapturedRequest {
   body: Record<string, unknown>;
 }
 
+describe("current model request contracts", () => {
+  it("uses supported GPT-6 reasoning, bounded probes and sampling parameters", async () => {
+    const fixture = await contractServer((_request, response) => json(response, {
+      id: "modern-probe", object: "response", status: "completed", output: [], output_text: "pong",
+    }));
+    const adapter = new OpenAIResponsesAdapter({ apiKey: "contract-test-key", baseURL: `${fixture.baseURL}/v1` });
+    for (const modelId of ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna"]) {
+      await adapter.generate({ ...connectionTestRequest({ provider: "openai", modelId, capabilities: '["reasoning"]' }), temperature: 0.7, topP: 0.8 }, { requestId: modelId });
+    }
+    expect(fixture.requests[0].body).toMatchObject({ model: "gpt-6.1-sol", reasoning: { effort: "low" }, max_output_tokens: 1024 });
+    expect(fixture.requests[0].body).not.toHaveProperty("temperature");
+    expect(fixture.requests[1].body).not.toHaveProperty("top_p");
+    expect(fixture.requests[2].body).toMatchObject({ reasoning: { effort: "none" }, temperature: 0.7, top_p: 0.8 });
+  });
+
+  it("uses current Claude fixed sampling and low-effort connection probes", async () => {
+    const fixture = await contractServer((_request, response) => json(response, {
+      id: "claude-probe", type: "message", role: "assistant", content: [{ type: "text", text: "pong" }],
+      model: "claude-sonnet-5-5", stop_reason: "end_turn", usage: { input_tokens: 5, output_tokens: 1 },
+    }));
+    const adapter = new AnthropicAdapter({ apiKey: "contract-test-key", baseURL: fixture.baseURL });
+    await adapter.generate({ ...connectionTestRequest({ provider: "anthropic", modelId: "claude-sonnet-5-5", capabilities: '["reasoning"]' }), temperature: 0.7 }, { requestId: "claude-probe" });
+    expect(fixture.requests[0].body).toMatchObject({ max_tokens: 1024, output_config: { effort: "low" } });
+    expect(fixture.requests[0].body).not.toHaveProperty("temperature");
+  });
+
+  it("disables optional Ollama thinking for a short connection probe", () => {
+    expect(connectionTestRequest({ provider: "ollama", modelId: "gemma4:latest", capabilities: "[]" })).toMatchObject({ reasoningEffort: "none", maxOutputTokens: 64 });
+  });
+});
+
 const servers: http.Server[] = [];
 const previousLocalEgressAllowlist = process.env.ULTRA_LOCAL_EGRESS_ALLOWLIST;
 

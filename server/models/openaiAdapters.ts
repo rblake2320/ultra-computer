@@ -144,8 +144,10 @@ function nativeResponseParams(request: ModelRequest): ResponseCreateParamsNonStr
     params.reasoning = { effort: request.reasoningEffort };
   }
   if (request.maxOutputTokens !== undefined) params.max_output_tokens = request.maxOutputTokens;
-  if (request.temperature !== undefined) params.temperature = request.temperature;
-  if (request.topP !== undefined) params.top_p = request.topP;
+  const reasoningModel = /^gpt-6(?:\.|-)/.test(request.model);
+  const supportsSampling = !reasoningModel || request.reasoningEffort === "none";
+  if (supportsSampling && request.temperature !== undefined) params.temperature = request.temperature;
+  if (supportsSampling && request.topP !== undefined) params.top_p = request.topP;
   if (request.tools?.length) params.tools = toResponsesTools(request);
   if (request.toolChoice) {
     params.tool_choice = request.toolChoice === "required"

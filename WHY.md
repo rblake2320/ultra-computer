@@ -1,5 +1,21 @@
 # Why Ledger
 
+### WHY-0031: Make discovered models connect through the same selected credential
+
+- **Status:** Accepted implementation
+- **Date:** 2026-10-04
+- **Problem:** The owner saw catalog HTTP 401. Both existing OpenAI credentials
+  were rejected live; application sync ignored selected environment variables,
+  retained unavailable presets, and Quick Add rejected discovered model IDs.
+- **Decision:** Carry explicit auth selection end to end, reject owner-key reuse,
+  publish complete paginated catalogs, add dynamic entries, and refresh supported
+  presets plus native request contracts and conservative budget rates.
+- **Why:** A listed model and detected environment variable are not a working
+  connection. Keep owner login separate from provider authentication failures.
+- **Enforcement:** Eight regression scenarios failed before repair; unit/native
+  request contracts and a real installed-model browser workflow cover the path.
+- **Decision record:** [ADR-0005](docs/decisions/0005-current-model-connections.md).
+
 ### WHY-0030: Install and recover the declared private-owner product
 
 - **Status:** Accepted implementation
