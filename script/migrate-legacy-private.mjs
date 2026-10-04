@@ -36,7 +36,7 @@ try {
   } finally { target.close(); }
   const temporary = path.join(data, `legacy-import-${randomBytes(6).toString("hex")}.db`);
   sourceDb = new Database(source, { readonly: true }); await sourceDb.backup(temporary); sourceDb.close(); sourceDb = null;
-  const imported = new Database(temporary); const counts = {};
+  const imported = new Database(temporary); const counts = {}; let interruptedConversations = 0;
   try {
     imported.transaction(() => {
       for (const [table, columns] of [["models", ["api_key", "oauth_tokens"]], ["connectors", ["config"]]]) {
@@ -50,6 +50,14 @@ try {
       const modelColumns = new Set(imported.prepare("PRAGMA table_info(models)").all().map(c => c.name));
       if (modelColumns.has("connection_status")) imported.exec("UPDATE models SET connection_status='disconnected'");
       imported.exec("UPDATE models SET is_default=0,is_orchestrator=0");
+      const unfinished = imported.prepare("SELECT id FROM conversations WHERE status NOT IN ('idle','error')").all();
+      const now = Date.now();
+      for (const conversation of unfinished) {
+        imported.prepare("UPDATE conversations SET status='error',updated_at=? WHERE id=?").run(now, conversation.id);
+        imported.prepare("INSERT INTO messages (id,conversation_id,role,content,metadata,created_at) VALUES (?,?,?,?,?,?)").run(`legacy-interruption-${randomBytes(12).toString("hex")}`, conversation.id, "assistant",
+          "The previous installation stopped before this request finished. Inspect the retained history and archived artifacts before submitting a new request.", JSON.stringify({ reason: "legacy-installation-interruption" }), now);
+      }
+      interruptedConversations = unfinished.length;
     })();
     if (imported.pragma("integrity_check", { simple: true }) !== "ok") throw new Error("Imported SQLite integrity failed");
     for (const table of ["conversations", "messages", "tasks", "models", "connectors", "memory", "skills"]) counts[table] = imported.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
@@ -58,7 +66,7 @@ try {
   const before = path.join(data, `before-legacy-import-${randomBytes(6).toString("hex")}.db`);
   fs.renameSync(destination, before);
   try { fs.renameSync(temporary, destination); } catch (error) { fs.renameSync(before, destination); throw error; }
-  const receipt = { status: "Worked", checkedAt: new Date().toISOString(), retainedRows: counts, credentialsReencrypted: true, connectionsRequireRetest: true, previousDatabasePreserved: true };
+  const receipt = { status: "Worked", checkedAt: new Date().toISOString(), retainedRows: counts, interruptedConversations, credentialsReencrypted: true, connectionsRequireRetest: true, previousDatabasePreserved: true };
   fs.writeFileSync(path.join(data, "legacy-import-receipt.json"), JSON.stringify(receipt, null, 2), { mode: 0o600 });
   console.log(JSON.stringify(receipt));
 } catch { console.error("Legacy import failed safely. Check the source schema/key and ensure the destination app is stopped and empty. Existing source and destination databases are retained."); process.exitCode = 1; }
