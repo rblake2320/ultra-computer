@@ -26,10 +26,12 @@ replay of uncertain tool effects remains PARK-0021.
   found zero npm advisories, built the app/image, generated persistent protected
   keys, started dedicated Redis and verified owner authentication/model APIs
   and four real interpreters returning `4`. Repeating setup preserved identity.
-- `npm run verify`: typecheck, 346 unit tests in 50 files before the additional
-  POSIX ownership regression, coverage thresholds,
+- `npm run verify`: typecheck, 346 unit tests in 50 files, coverage thresholds,
   production build, zero-advisory audit, SBOM and authenticated production smoke.
   Coverage: statements 29.73%, branches 24.01%, functions 31.78%.
+  After the POSIX ownership correction, the full unit retest passed 347/347
+  across the same 50 files. The unchanged private file modes and capability
+  restrictions were exercised by the root-denial/owner-success receiving test.
 - `npm run test:e2e`: 9/9, zero skips, 50.9 seconds. Real local model connection,
   `2+2=4`, `3+3=6`, no re-executed historical task, credential persistence UX,
   connector/upload UI, no-model guidance, governed file access and restart history.

@@ -165,7 +165,7 @@ export function SandboxPage() {
                 <Shield className="w-4 h-4 text-primary" />
                 <div>
                   <Label className="text-sm font-semibold">Enable Docker Sandbox</Label>
-                  <p className="text-xs text-muted-foreground">When enabled, bash commands run in isolated containers instead of the host</p>
+                  <p className="text-xs text-muted-foreground">Bash runs in isolated containers. Turning this off disables code execution.</p>
                 </div>
               </div>
               <Switch
