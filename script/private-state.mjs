@@ -34,7 +34,7 @@ function inside(directory, relative) {
 try {
   if (!suppliedPath || !["backup", "restore"].includes(mode)) throw new Error("Usage: npm run state:backup -- <new-directory> OR npm run state:restore -- <backup-directory>. Restore requires an empty installation state.");
   const directory = path.resolve(suppliedPath);
-  if (directory === root || ["data", "ipc", "sandbox"].some(name => directory === path.join(root, name) || directory.startsWith(path.join(root, name) + path.sep))) throw new Error("Backup directory must be outside live state");
+  if (directory === root || directory.startsWith(root + path.sep)) throw new Error("Backup directory must be outside this checkout so private state cannot become source or public assets");
   if (mode === "backup") {
     if (fs.existsSync(directory)) throw new Error("Backup destination already exists; choose a new directory.");
     const config = JSON.parse(fs.readFileSync(path.join(root, "data/private-install.json"), "utf8"));
