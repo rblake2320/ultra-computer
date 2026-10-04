@@ -96,3 +96,8 @@ new request. Exact activity replay remains PARK-0021. Backups require a stopped
 app and drained queue/outbox. Laya is optional and has no action authority.
 Paid-provider or third-party credentials were not used to force release proof.
 The historical Temporal sample remains separate from normal application messages.
+# October technology follow-up
+
+Recent dependency/protocol/diagnostic upgrades and receiving results are in
+[technology-upgrades-2026-10-04.md](technology-upgrades-2026-10-04.md).
+The original installation findings below retain their historical evidence.

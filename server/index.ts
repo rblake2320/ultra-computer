@@ -27,6 +27,8 @@ import { stopWatchdog } from "./processWatchdog.js";
 import { buildRuntimeHealth, type RuntimeCheckState } from "./runtimeHealth.js";
 import { shutdownRuntime } from "./lifecycle.js";
 import { recoverInterruptedExecutions } from "./orchestrator.js";
+import { privateTraceExporter, shutdownTelemetry } from "./telemetry.js";
+import { shutdownMCPClients } from "./mcpProtocol.js";
 
 assertProductionEnvironment();
 recoverInterruptedExecutions();
@@ -49,6 +51,8 @@ function shutdown(reason: string, exitCode: number): Promise<void> {
         { name: "browser", close: shutdownBrowser },
         { name: "Docker sandbox", close: () => dockerSandbox.shutdown() },
         { name: "cache", close: () => cacheEngine.shutdown() },
+        { name: "MCP clients", close: shutdownMCPClients },
+        { name: "private traces", close: shutdownTelemetry },
         { name: "SQLite", close: () => sqlite.close() },
         { name: "private state lock", close: () => releasePrivateState?.() },
       ],
@@ -156,6 +160,10 @@ app.use(apiLimiter);
 
 // ─── API Key Authentication ───────────────────────────────────────────────
 app.use(createAuthMiddleware());
+app.get("/api/diagnostics/traces", (_req, res) => {
+  try { res.json({ ...privateTraceExporter.status(), spans: privateTraceExporter.read() }); }
+  catch { res.status(503).json({ error: "Private traces are unavailable", ...privateTraceExporter.status() }); }
+});
 
 app.use(
   express.json({

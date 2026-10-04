@@ -416,6 +416,7 @@ class PrefixOptimizer {
 // ─── Tier 3: SemanticCache ────────────────────────────────────────────────────
 
 interface SemanticEntry {
+  contextKey: string;
   embedding: number[] | null;
   tfidfText: string;
   response: CacheResponse;
@@ -492,7 +493,8 @@ class SemanticCache {
   find(
     queryText: string,
     queryEmbedding: number[] | null,
-    globalTTLMs: number
+    globalTTLMs: number,
+    contextKey: string,
   ): { entry: SemanticEntry; similarity: number } | null {
     const now = Date.now();
     let bestSim = -1;
@@ -501,6 +503,7 @@ class SemanticCache {
 
     const snapshot = Array.from(this.lru.entries());
     for (const [key, entry] of snapshot) {
+      if (entry.contextKey !== contextKey) continue;
       if (now > entry.expiresAt) {
         this.lru.delete(key);
         this.totalBytes -= entry.bytes;
@@ -535,10 +538,12 @@ class SemanticCache {
     queryText: string,
     embedding: number[] | null,
     response: CacheResponse,
-    ttlMs: number
+    ttlMs: number,
+    contextKey: string,
   ): void {
     const bytes = estimateBytes(response) + (embedding ? embedding.length * 8 : 0);
     const entry: SemanticEntry = {
+      contextKey,
       embedding,
       tfidfText: queryText,
       response,
@@ -674,7 +679,8 @@ export class CacheEngine {
     if (this.config.semanticCache.enabled) {
       const queryText = request.messages.map((m) => m.content).join(" ");
       const queryEmbedding: number[] | null = null; // populated by caller if available
-      const match = this.semantic.find(queryText, queryEmbedding, this.config.globalTTLMs);
+      const contextKey = this.responseContextKey(request);
+      const match = this.semantic.find(queryText, queryEmbedding, this.config.globalTTLMs, contextKey);
       if (match) {
         this.recordHit(request.model);
         this.totalCostSavings += match.entry.response.tokensOut * COST_PER_TOKEN_USD;
@@ -716,13 +722,22 @@ export class CacheEngine {
     // Tier 3: Semantic
     if (this.config.semanticCache.enabled) {
       const queryText = request.messages.map((m) => m.content).join(" ");
-      const semKey = createHash("sha256").update(queryText + response.modelId).digest("hex");
+      const contextKey = this.responseContextKey(request);
+      const semKey = createHash("sha256").update(JSON.stringify([contextKey, queryText])).digest("hex");
       const embedding = response.embedding ?? null;
-      this.semantic.store(semKey, queryText, embedding, response, ttlMs);
+      this.semantic.store(semKey, queryText, embedding, response, ttlMs, contextKey);
     }
   }
 
   // ── Prompt Optimisation ───────────────────────────────────────────────────
+
+  private responseContextKey(request: CacheRequest): string {
+    return createHash("sha256").update(JSON.stringify({
+      model: request.model, parameters: request.parameters, route: request.route,
+      // A similar user question must not substitute a response under a different instruction.
+      instructions: request.messages.filter(m => m.role !== "user"),
+    })).digest("hex");
+  }
 
   optimizePrompt(messages: Message[], _provider: string): Message[] {
     if (!this.config.prefixOptimizer.enabled) return messages;

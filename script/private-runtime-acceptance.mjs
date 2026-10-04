@@ -107,6 +107,12 @@ try {
   const delivered = await completion(handoff.id, 6);
   const reader = new Database(dbPath, { readonly: true }); const admission = reader.prepare("SELECT state FROM execution_outbox WHERE message_id=?").get("handoff-fixture"); reader.close();
   record("persisted-admission-recovery", admission.state === "completed", { ...delivered, fixture: "persisted admission before dispatch", admissionState: admission.state });
+  record("private-diagnostics-owner-auth", (await fetch(`${base}/api/diagnostics/traces`)).status === 401, { unauthenticatedStatus: 401 });
+  const diagnostics = await api("/api/diagnostics/traces");
+  const workflow = diagnostics.spans.filter(s => s.name === "workflow.execute" && s.outcome === "worked");
+  const childModel = diagnostics.spans.find(s => s.name.startsWith("model.") && s.outcome === "worked" && workflow.some(w => w.traceId === s.traceId && w.spanId === s.parentSpanId));
+  const metadataOnly = !JSON.stringify(diagnostics).includes(key) && !JSON.stringify(diagnostics).includes("What is");
+  record("real-queue-model-trace", Boolean(childModel) && !diagnostics.exportFailed && metadataOnly, { workflowSpans: workflow.length, receivingModelSpan: childModel?.name, metadataOnly });
 } catch (error) { results.push({ name: "private-runtime-acceptance", status: "Failed", detail: { error: error.message } }); console.error(error.message); process.exitCode = 1; }
 finally {
   await stop(); await queue?.close();

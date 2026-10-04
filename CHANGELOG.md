@@ -22,6 +22,10 @@ All notable changes to this project will be documented in this file.
   generation and add private-install/crash checks to existing CI.
 
 ### Added
+- Pinned Transformers.js 4.3 CPU inference, MCP client SDK 2.3 with modern/legacy
+  negotiation, and OpenTelemetry 2.11 private bounded execution traces (ADR-0003).
+- Provider-constrained task plans with deterministic DAG admission; isolate
+  cached responses across models, formats, parameters and instructions.
 - Optional isolated CPU Laya diagnostic classifier with pinned artifacts,
   structured input and an eight-case benchmark.
 - WHY-0030, ADR-0002 and the dated private deployment evidence report.

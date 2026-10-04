@@ -27,7 +27,9 @@ import {
 import { storage } from "./storage.js";
 import { isModelRoutable } from "./modelReadiness.js";
 import { createGovernedProviderFetch } from "./models/providerFetch.js";
-import { requireProviderCompletion } from "./executionOutcome.js";
+import { ExecutionFailure, requireProviderCompletion } from "./executionOutcome.js";
+import { SpanStatusCode } from "@opentelemetry/api";
+import { telemetryIdentity, withExecutionSpan, startModelStream } from "./telemetry.js";
 import {
   reserveModelRequest,
   settleModelReservation,
@@ -63,6 +65,7 @@ export interface RouterOptions {
   maxTokens?: number;
   temperature?: number;
   reasoningEffort?: ModelRequest["reasoningEffort"];
+  responseFormat?: ModelRequest["responseFormat"];
   tools?: ToolDef[];
   /** Connection probes and other freshness-sensitive calls must bypass response caching. */
   bypassCache?: boolean;
@@ -248,6 +251,7 @@ function toModelRequest(
     reasoningEffort: resolveReasoningEffort(model, options.reasoningEffort),
     // Do not force sampling parameters. New reasoning models often reject them.
     temperature: options.temperature,
+    responseFormat: options.responseFormat,
     tools: options.tools?.map((tool) => ({
       name: tool.name,
       description: tool.description,
@@ -293,11 +297,13 @@ function cacheRequest(
     isStatic: message.role === "system",
   }));
   return {
-    model: model.modelId,
+    model: `${model.provider}:${model.id}:${model.modelId}`,
     messages: cacheMessages,
     parameters: {
       maxTokens: options.maxTokens ?? 4096,
       ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
+      ...(options.responseFormat === undefined ? {} : { responseFormat: options.responseFormat }),
+      ...(options.reasoningEffort === undefined ? {} : { reasoningEffort: options.reasoningEffort }),
     },
     route: `chat/${taskType}`,
     streaming: false,
@@ -310,6 +316,14 @@ async function guardedGenerate(
   request: ModelRequest,
   signal?: AbortSignal,
 ): Promise<ModelResponse> {
+  return withExecutionSpan("model.generate", {
+    "model.id_hash": telemetryIdentity(model.id), "model.provider": model.provider,
+  }, () => guardedGenerateCore(adapter, model, request, signal));
+}
+
+async function guardedGenerateCore(
+  adapter: ProviderAdapter, model: Model, request: ModelRequest, signal?: AbortSignal,
+): Promise<ModelResponse> {
   const reservation = reserveModelRequest(model, request);
   let settled = false;
   try {
@@ -319,6 +333,7 @@ async function guardedGenerate(
     });
     settleModelReservation(reservation, model, result.usage);
     settled = true;
+    requireProviderCompletion(Boolean(result.text.trim()), result.toolCalls.length, result.finishReason);
     return result;
   } catch (error) {
     if (!settled) {
@@ -409,6 +424,9 @@ export async function* chatStream(
   assertAdapterSupports(model, adapter, request, true);
   const reservation = reserveModelRequest(model, request);
 
+  const span = startModelStream({ "model.id_hash": telemetryIdentity(model.id), "model.provider": model.provider });
+  let streamWorked = false;
+
   let emittedText = false;
   let reasoning = "";
   let usage: ModelResponse["usage"];
@@ -456,6 +474,8 @@ export async function* chatStream(
 
     requireProviderCompletion(emittedText, toolCalls.size, finishReason, providerCompleted);
 
+    streamWorked = true;
+
     if (toolCalls.size) {
       yield toolCallBlocks(
         [...toolCalls.entries()]
@@ -468,6 +488,8 @@ export async function* chatStream(
       );
     }
   } finally {
+    span.setStatus({ code: streamWorked ? SpanStatusCode.OK : SpanStatusCode.ERROR });
+    span.end();
     if (!settled) {
       settleReservationConservatively(reservation, model);
     }
@@ -483,8 +505,12 @@ export async function testModelConnection(
   try {
     const adapter = createProviderAdapter(model);
     const request = connectionTestRequest(model);
-    let result = await guardedGenerate(adapter, model, request);
-    if (model.provider === "ollama" && !result.text.trim() && !result.toolCalls.length) {
+    let result: ModelResponse;
+    try { result = await guardedGenerate(adapter, model, request); }
+    catch (error) {
+      // The bounded Ollama probe retry must survive the completion barrier.
+      // Each empty attempt remains a failed trace, never a successful connection.
+      if (model.provider !== "ollama" || !(error instanceof ExecutionFailure) || error.code !== "empty_provider_output") throw error;
       result = await guardedGenerate(adapter, model, { ...request, maxOutputTokens: 128, temperature: 0 });
     }
     if (!result.text.trim() && result.toolCalls.length === 0) {

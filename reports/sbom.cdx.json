@@ -2644,6 +2644,45 @@
     },
     {
       "type": "library",
+      "name": "node-server",
+      "group": "@hono",
+      "version": "1.19.17",
+      "bom-ref": "rest-express@1.0.0|@hono/node-server@1.19.17",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40hono/node-server@1.19.17",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/@hono/node-server/-/node-server-1.19.17.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "7529de4b9aa189ab995860c278ae28ebde5777d9d4363be249908c42b8f5d1e7adafc5259f5b9c9fa6dba6138ce94ca700c32d348cd9352a4bf6f9c0489c2b3d"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@hono/node-server"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "name": "resolvers",
       "group": "@hookform",
       "version": "5.4.0",
@@ -5127,6 +5166,266 @@
     },
     {
       "type": "library",
+      "name": "client",
+      "group": "@modelcontextprotocol",
+      "version": "2.3.0",
+      "bom-ref": "rest-express@1.0.0|@modelcontextprotocol/client@2.3.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40modelcontextprotocol/client@2.3.0",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/@modelcontextprotocol/client/-/client-2.3.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "a5b1ed1a3e847850879e0144f20b4d3da2abb23f0c6f520cc38e412dc68f30bfe6d964f123ba7262678d42f6aec7cf0bc3c0523b9afb9f245b532224202986ae"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@modelcontextprotocol/client"
+        }
+      ],
+      "components": [
+        {
+          "type": "library",
+          "name": "zod",
+          "version": "4.6.5",
+          "bom-ref": "rest-express@1.0.0|@modelcontextprotocol/client@2.3.0|zod@4.6.5",
+          "licenses": [
+            {
+              "license": {
+                "id": "MIT",
+                "acknowledgement": "declared"
+              }
+            }
+          ],
+          "purl": "pkg:npm/zod@4.6.5",
+          "externalReferences": [
+            {
+              "url": "https://registry.npmjs.org/zod/-/zod-4.6.5.tgz",
+              "type": "distribution",
+              "hashes": [
+                {
+                  "alg": "SHA-512",
+                  "content": "bf997f6855d941e6a2e1ac0b6cea52a0779c13d52232b9dfc7be6d1172e33689d754047143998e7a2a538d1394721b3350d0aa9c4fa1a8032e8d1b111ecbadd9"
+                }
+              ],
+              "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+            }
+          ],
+          "properties": [
+            {
+              "name": "cdx:npm:package:path",
+              "value": "node_modules/@modelcontextprotocol/client/node_modules/zod"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "core",
+      "group": "@modelcontextprotocol",
+      "version": "2.3.0",
+      "bom-ref": "rest-express@1.0.0|@modelcontextprotocol/core@2.3.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40modelcontextprotocol/core@2.3.0",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/@modelcontextprotocol/core/-/core-2.3.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "d3d04715a35505ee69076021cc27cb8f472a9ac28b111bd943815b9733fdd143062da5d5a9d64f072163511c2c5180a6c689d45b6c80c204d3be57bef0edbff3"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@modelcontextprotocol/core"
+        }
+      ],
+      "components": [
+        {
+          "type": "library",
+          "name": "zod",
+          "version": "4.6.5",
+          "bom-ref": "rest-express@1.0.0|@modelcontextprotocol/core@2.3.0|zod@4.6.5",
+          "licenses": [
+            {
+              "license": {
+                "id": "MIT",
+                "acknowledgement": "declared"
+              }
+            }
+          ],
+          "purl": "pkg:npm/zod@4.6.5",
+          "externalReferences": [
+            {
+              "url": "https://registry.npmjs.org/zod/-/zod-4.6.5.tgz",
+              "type": "distribution",
+              "hashes": [
+                {
+                  "alg": "SHA-512",
+                  "content": "bf997f6855d941e6a2e1ac0b6cea52a0779c13d52232b9dfc7be6d1172e33689d754047143998e7a2a538d1394721b3350d0aa9c4fa1a8032e8d1b111ecbadd9"
+                }
+              ],
+              "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+            }
+          ],
+          "properties": [
+            {
+              "name": "cdx:npm:package:path",
+              "value": "node_modules/@modelcontextprotocol/core/node_modules/zod"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "node",
+      "group": "@modelcontextprotocol",
+      "version": "2.1.1",
+      "bom-ref": "rest-express@1.0.0|@modelcontextprotocol/node@2.1.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40modelcontextprotocol/node@2.1.1",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/@modelcontextprotocol/node/-/node-2.1.1.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "118f763805cddb160beed352fcc56c5895b5bfc54700fc25f41e026b7a42ae39afab20be4b50bfe941ec3311761a814fada4b9632839eaf173f5bad5a45a2330"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@modelcontextprotocol/node"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "server",
+      "group": "@modelcontextprotocol",
+      "version": "2.3.0",
+      "bom-ref": "rest-express@1.0.0|@modelcontextprotocol/server@2.3.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40modelcontextprotocol/server@2.3.0",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/@modelcontextprotocol/server/-/server-2.3.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "fba6f42ddb102e61ecbd2ec9eac409e30793a73527eb57d4d49292fb7db5ffe2320d8a075b9091d9382a72ce86800010be57ac0a8eb25f7c6db609b1f971ad27"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@modelcontextprotocol/server"
+        }
+      ],
+      "components": [
+        {
+          "type": "library",
+          "name": "zod",
+          "version": "4.6.5",
+          "bom-ref": "rest-express@1.0.0|@modelcontextprotocol/server@2.3.0|zod@4.6.5",
+          "licenses": [
+            {
+              "license": {
+                "id": "MIT",
+                "acknowledgement": "declared"
+              }
+            }
+          ],
+          "purl": "pkg:npm/zod@4.6.5",
+          "externalReferences": [
+            {
+              "url": "https://registry.npmjs.org/zod/-/zod-4.6.5.tgz",
+              "type": "distribution",
+              "hashes": [
+                {
+                  "alg": "SHA-512",
+                  "content": "bf997f6855d941e6a2e1ac0b6cea52a0779c13d52232b9dfc7be6d1172e33689d754047143998e7a2a538d1394721b3350d0aa9c4fa1a8032e8d1b111ecbadd9"
+                }
+              ],
+              "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+            }
+          ],
+          "properties": [
+            {
+              "name": "cdx:npm:package:development",
+              "value": "true"
+            },
+            {
+              "name": "cdx:npm:package:path",
+              "value": "node_modules/@modelcontextprotocol/server/node_modules/zod"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "library",
       "name": "msgpackr-extract-darwin-arm64",
       "group": "@msgpackr-extract",
       "version": "3.0.4",
@@ -5614,6 +5913,286 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/@oozcitak/util"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "api",
+      "group": "@opentelemetry",
+      "version": "1.9.0",
+      "bom-ref": "rest-express@1.0.0|@opentelemetry/api@1.9.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40opentelemetry/api@1.9.0",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/@opentelemetry/api/-/api-1.9.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "de0880390bd9887e45f5b325322bfcf8648f31eaa0d1d6da7a8e7cff44a503db314aa6619d4b71cd7f7fd85cf2852f6c5907f94b418913400a06b16a8e979872"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@opentelemetry/api"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "context-async-hooks",
+      "group": "@opentelemetry",
+      "version": "2.11.0",
+      "bom-ref": "rest-express@1.0.0|@opentelemetry/context-async-hooks@2.11.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40opentelemetry/context-async-hooks@2.11.0",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/@opentelemetry/context-async-hooks/-/context-async-hooks-2.11.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "4ebefd0f2588f22b6c05d83e8c7fa8a637ebc0bcd7f9eae4d7f131908c215a80158d5ac9227db2e7e7068d30b4572f1fc8d200ff2f30b893d9c2bd53df109979"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@opentelemetry/context-async-hooks"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "core",
+      "group": "@opentelemetry",
+      "version": "2.11.0",
+      "bom-ref": "rest-express@1.0.0|@opentelemetry/core@2.11.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40opentelemetry/core@2.11.0",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/@opentelemetry/core/-/core-2.11.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "ed83f8e171f4b55ebe31be78c766067fce22ef28bedf530166513c270be8ce4c724ef5db4a9d745fb708ed8138f42849dec84c268066089177fb540504972d18"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@opentelemetry/core"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "resources",
+      "group": "@opentelemetry",
+      "version": "2.11.0",
+      "bom-ref": "rest-express@1.0.0|@opentelemetry/resources@2.11.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40opentelemetry/resources@2.11.0",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/@opentelemetry/resources/-/resources-2.11.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "21eefef2af0c0c5e05004402295313c7745e52fc622008088a25b773d25d98ff3e1cc703cb6d29b93f801e37b19c4c609dbbc1c6343d7e39050d6ae2909da340"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@opentelemetry/resources"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "sdk-trace-base",
+      "group": "@opentelemetry",
+      "version": "2.11.0",
+      "bom-ref": "rest-express@1.0.0|@opentelemetry/sdk-trace-base@2.11.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40opentelemetry/sdk-trace-base@2.11.0",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/@opentelemetry/sdk-trace-base/-/sdk-trace-base-2.11.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "1f5f71fd35ff2d976a8983a333b7eab52c70969942e6981e95abea6d07476e176ad2afc023f4c690cd9d7c6baeca74d79893de1761e8655a0f0eef931a85bbf0"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@opentelemetry/sdk-trace-base"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "sdk-trace-node",
+      "group": "@opentelemetry",
+      "version": "2.11.0",
+      "bom-ref": "rest-express@1.0.0|@opentelemetry/sdk-trace-node@2.11.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40opentelemetry/sdk-trace-node@2.11.0",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/@opentelemetry/sdk-trace-node/-/sdk-trace-node-2.11.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "0aebc2309999c6cc2134b94cd8b7ee2ce5b78777d9ba303886c1b807e4b3e1d5f6cef6973bc360ef87270c7583eb880bb334e58621b773488d5238f883ed3fb0"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@opentelemetry/sdk-trace-node"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "sdk-trace",
+      "group": "@opentelemetry",
+      "version": "2.11.0",
+      "bom-ref": "rest-express@1.0.0|@opentelemetry/sdk-trace@2.11.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40opentelemetry/sdk-trace@2.11.0",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/@opentelemetry/sdk-trace/-/sdk-trace-2.11.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "7c59d3a869bcfc6ef7190567c588bb2d76b565560452f80be972352e9bd5d1b3c2ed643f64680ac424a5f059e56412ada3d2471c41533bab3a094a6fbedc05ac"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@opentelemetry/sdk-trace"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "semantic-conventions",
+      "group": "@opentelemetry",
+      "version": "1.43.0",
+      "bom-ref": "rest-express@1.0.0|@opentelemetry/semantic-conventions@1.43.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/%40opentelemetry/semantic-conventions@1.43.0",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/@opentelemetry/semantic-conventions/-/semantic-conventions-1.43.0.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "7926164e6eb6d2d4e4e3910a49e75a50bf0c15823c856d7ae21217b20207cb1bb75686d40777c50aee6dd2141bcba3a85913ec1b52a42941b633951a7622e256"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/@opentelemetry/semantic-conventions"
         }
       ]
     },
@@ -16391,10 +16970,6 @@
       ],
       "properties": [
         {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
-        {
           "name": "cdx:npm:package:path",
           "value": "node_modules/cross-spawn"
         }
@@ -20127,6 +20702,74 @@
     },
     {
       "type": "library",
+      "name": "eventsource-parser",
+      "version": "3.1.1",
+      "bom-ref": "rest-express@1.0.0|eventsource-parser@3.1.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/eventsource-parser@3.1.1",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/eventsource-parser/-/eventsource-parser-3.1.1.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "10a375bca00c719f0c95832968dbb137a47dc9a9331fab9a8c7707553a96273beee695b0f43ca16cfdf91c7f0c54143e7598c07c3c64f80f0d891f4a59a5e2c9"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/eventsource-parser"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "eventsource",
+      "version": "3.0.7",
+      "bom-ref": "rest-express@1.0.0|eventsource@3.0.7",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/eventsource@3.0.7",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/eventsource/-/eventsource-3.0.7.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "0914f5593cae4280fbef5196e7a5c464543f66849f5a27756a52860d832692ddb297c517ad5478a6ca6a58d11ca8abd523383a3c096d5a3c5c4923eb6e803888"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/eventsource"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "name": "expand-template",
       "version": "2.0.3",
       "bom-ref": "rest-express@1.0.0|expand-template@2.0.3",
@@ -22141,6 +22784,44 @@
     },
     {
       "type": "library",
+      "name": "hono",
+      "version": "4.13.13",
+      "bom-ref": "rest-express@1.0.0|hono@4.13.13",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/hono@4.13.13",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/hono/-/hono-4.13.13.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "090e3a53466400699b4ffe14c5dcf3189a5a70fd8878a818e1ae7fb4e23d00005ba4e31f2bbdfdc1f0d79afd6eb0293edd190a8f5850cb8fdf8e18b06b6c65ac"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        },
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/hono"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "name": "hosted-git-info",
       "version": "9.0.3",
       "bom-ref": "rest-express@1.0.0|hosted-git-info@9.0.3",
@@ -22915,10 +23596,6 @@
       ],
       "properties": [
         {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
-        {
           "name": "cdx:npm:package:path",
           "value": "node_modules/isexe"
         }
@@ -23186,6 +23863,40 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/jiti"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "jose",
+      "version": "6.2.12",
+      "bom-ref": "rest-express@1.0.0|jose@6.2.12",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/jose@6.2.12",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/jose/-/jose-6.2.12.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "f4d88598911ec74b32d83939f23d94181487814b36ca917d7994aee0beaf8ce5f70e9f7a4b0d45dee2fe1fe0f5b31d368d965dcd44f41e0bc2cb9f42baf5dc5b"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/jose"
         }
       ]
     },
@@ -27875,10 +28586,6 @@
       ],
       "properties": [
         {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
-        {
           "name": "cdx:npm:package:path",
           "value": "node_modules/path-key"
         }
@@ -28226,6 +28933,40 @@
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/pino"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pkce-challenge",
+      "version": "5.0.1",
+      "bom-ref": "rest-express@1.0.0|pkce-challenge@5.0.1",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT",
+            "acknowledgement": "declared"
+          }
+        }
+      ],
+      "purl": "pkg:npm/pkce-challenge@5.0.1",
+      "externalReferences": [
+        {
+          "url": "https://registry.npmjs.org/pkce-challenge/-/pkce-challenge-5.0.1.tgz",
+          "type": "distribution",
+          "hashes": [
+            {
+              "alg": "SHA-512",
+              "content": "c10d1bfd6e05af4d6ab691e5a92aaca5c8f712106f8a6b1d8742a51e11fc1d166732c11ad1e6b67d350b397392f5c710af7a26f86706464e1efa2b2b65657ca9"
+            }
+          ],
+          "comment": "as detected from npm-ls property \"resolved\" and property \"integrity\""
+        }
+      ],
+      "properties": [
+        {
+          "name": "cdx:npm:package:path",
+          "value": "node_modules/pkce-challenge"
         }
       ]
     },
@@ -30935,10 +31676,6 @@
       ],
       "properties": [
         {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
-        {
           "name": "cdx:npm:package:path",
           "value": "node_modules/shebang-command"
         }
@@ -30972,10 +31709,6 @@
         }
       ],
       "properties": [
-        {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
         {
           "name": "cdx:npm:package:path",
           "value": "node_modules/shebang-regex"
@@ -34743,10 +35476,6 @@
       ],
       "properties": [
         {
-          "name": "cdx:npm:package:development",
-          "value": "true"
-        },
-        {
           "name": "cdx:npm:package:path",
           "value": "node_modules/which"
         }
@@ -35297,6 +36026,12 @@
         "rest-express@1.0.0|@hookform/resolvers@5.4.0",
         "rest-express@1.0.0|@huggingface/transformers@4.3.0",
         "rest-express@1.0.0|@jridgewell/trace-mapping@0.3.31",
+        "rest-express@1.0.0|@modelcontextprotocol/client@2.3.0",
+        "rest-express@1.0.0|@modelcontextprotocol/node@2.1.1",
+        "rest-express@1.0.0|@modelcontextprotocol/server@2.3.0",
+        "rest-express@1.0.0|@opentelemetry/api@1.9.0",
+        "rest-express@1.0.0|@opentelemetry/resources@2.11.0",
+        "rest-express@1.0.0|@opentelemetry/sdk-trace-node@2.11.0",
         "rest-express@1.0.0|@playwright/test@1.61.1",
         "rest-express@1.0.0|@pothos/core@4.13.1",
         "rest-express@1.0.0|@radix-ui/react-accordion@1.2.16",
@@ -35790,6 +36525,12 @@
       ]
     },
     {
+      "ref": "rest-express@1.0.0|@hono/node-server@1.19.17",
+      "dependsOn": [
+        "rest-express@1.0.0|hono@4.13.13"
+      ]
+    },
+    {
       "ref": "rest-express@1.0.0|@hookform/resolvers@5.4.0",
       "dependsOn": [
         "rest-express@1.0.0|@standard-schema/utils@0.3.0",
@@ -36201,6 +36942,48 @@
       ]
     },
     {
+      "ref": "rest-express@1.0.0|@modelcontextprotocol/client@2.3.0",
+      "dependsOn": [
+        "rest-express@1.0.0|@modelcontextprotocol/client@2.3.0|zod@4.6.5",
+        "rest-express@1.0.0|@modelcontextprotocol/core@2.3.0",
+        "rest-express@1.0.0|cross-spawn@7.0.6",
+        "rest-express@1.0.0|eventsource-parser@3.1.1",
+        "rest-express@1.0.0|eventsource@3.0.7",
+        "rest-express@1.0.0|jose@6.2.12",
+        "rest-express@1.0.0|pkce-challenge@5.0.1"
+      ]
+    },
+    {
+      "ref": "rest-express@1.0.0|@modelcontextprotocol/client@2.3.0|zod@4.6.5"
+    },
+    {
+      "ref": "rest-express@1.0.0|@modelcontextprotocol/core@2.3.0",
+      "dependsOn": [
+        "rest-express@1.0.0|@modelcontextprotocol/core@2.3.0|zod@4.6.5"
+      ]
+    },
+    {
+      "ref": "rest-express@1.0.0|@modelcontextprotocol/core@2.3.0|zod@4.6.5"
+    },
+    {
+      "ref": "rest-express@1.0.0|@modelcontextprotocol/node@2.1.1",
+      "dependsOn": [
+        "rest-express@1.0.0|@hono/node-server@1.19.17",
+        "rest-express@1.0.0|@modelcontextprotocol/server@2.3.0",
+        "rest-express@1.0.0|hono@4.13.13"
+      ]
+    },
+    {
+      "ref": "rest-express@1.0.0|@modelcontextprotocol/server@2.3.0",
+      "dependsOn": [
+        "rest-express@1.0.0|@modelcontextprotocol/core@2.3.0",
+        "rest-express@1.0.0|@modelcontextprotocol/server@2.3.0|zod@4.6.5"
+      ]
+    },
+    {
+      "ref": "rest-express@1.0.0|@modelcontextprotocol/server@2.3.0|zod@4.6.5"
+    },
+    {
       "ref": "rest-express@1.0.0|@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4"
     },
     {
@@ -36265,6 +37048,61 @@
     },
     {
       "ref": "rest-express@1.0.0|@oozcitak/util@10.0.0"
+    },
+    {
+      "ref": "rest-express@1.0.0|@opentelemetry/api@1.9.0"
+    },
+    {
+      "ref": "rest-express@1.0.0|@opentelemetry/context-async-hooks@2.11.0",
+      "dependsOn": [
+        "rest-express@1.0.0|@opentelemetry/api@1.9.0"
+      ]
+    },
+    {
+      "ref": "rest-express@1.0.0|@opentelemetry/core@2.11.0",
+      "dependsOn": [
+        "rest-express@1.0.0|@opentelemetry/api@1.9.0",
+        "rest-express@1.0.0|@opentelemetry/semantic-conventions@1.43.0"
+      ]
+    },
+    {
+      "ref": "rest-express@1.0.0|@opentelemetry/resources@2.11.0",
+      "dependsOn": [
+        "rest-express@1.0.0|@opentelemetry/api@1.9.0",
+        "rest-express@1.0.0|@opentelemetry/core@2.11.0",
+        "rest-express@1.0.0|@opentelemetry/semantic-conventions@1.43.0"
+      ]
+    },
+    {
+      "ref": "rest-express@1.0.0|@opentelemetry/sdk-trace-base@2.11.0",
+      "dependsOn": [
+        "rest-express@1.0.0|@opentelemetry/api@1.9.0",
+        "rest-express@1.0.0|@opentelemetry/core@2.11.0",
+        "rest-express@1.0.0|@opentelemetry/resources@2.11.0",
+        "rest-express@1.0.0|@opentelemetry/sdk-trace@2.11.0",
+        "rest-express@1.0.0|@opentelemetry/semantic-conventions@1.43.0"
+      ]
+    },
+    {
+      "ref": "rest-express@1.0.0|@opentelemetry/sdk-trace-node@2.11.0",
+      "dependsOn": [
+        "rest-express@1.0.0|@opentelemetry/api@1.9.0",
+        "rest-express@1.0.0|@opentelemetry/context-async-hooks@2.11.0",
+        "rest-express@1.0.0|@opentelemetry/core@2.11.0",
+        "rest-express@1.0.0|@opentelemetry/sdk-trace-base@2.11.0"
+      ]
+    },
+    {
+      "ref": "rest-express@1.0.0|@opentelemetry/sdk-trace@2.11.0",
+      "dependsOn": [
+        "rest-express@1.0.0|@opentelemetry/api@1.9.0",
+        "rest-express@1.0.0|@opentelemetry/core@2.11.0",
+        "rest-express@1.0.0|@opentelemetry/resources@2.11.0",
+        "rest-express@1.0.0|@opentelemetry/semantic-conventions@1.43.0"
+      ]
+    },
+    {
+      "ref": "rest-express@1.0.0|@opentelemetry/semantic-conventions@1.43.0"
     },
     {
       "ref": "rest-express@1.0.0|@oxc-project/types@0.139.0"
@@ -38539,6 +39377,7 @@
     {
       "ref": "rest-express@1.0.0|drizzle-orm@0.45.2",
       "dependsOn": [
+        "rest-express@1.0.0|@opentelemetry/api@1.9.0",
         "rest-express@1.0.0|@types/better-sqlite3@7.6.13",
         "rest-express@1.0.0|better-sqlite3@12.11.1"
       ]
@@ -38753,6 +39592,15 @@
     },
     {
       "ref": "rest-express@1.0.0|events@3.3.0"
+    },
+    {
+      "ref": "rest-express@1.0.0|eventsource-parser@3.1.1"
+    },
+    {
+      "ref": "rest-express@1.0.0|eventsource@3.0.7",
+      "dependsOn": [
+        "rest-express@1.0.0|eventsource-parser@3.1.1"
+      ]
     },
     {
       "ref": "rest-express@1.0.0|expand-template@2.0.3"
@@ -39087,6 +39935,9 @@
       "ref": "rest-express@1.0.0|help-me@5.0.0"
     },
     {
+      "ref": "rest-express@1.0.0|hono@4.13.13"
+    },
+    {
       "ref": "rest-express@1.0.0|hosted-git-info@9.0.3",
       "dependsOn": [
         "rest-express@1.0.0|hosted-git-info@9.0.3|lru-cache@11.5.2"
@@ -39231,6 +40082,9 @@
     },
     {
       "ref": "rest-express@1.0.0|jiti@2.7.0"
+    },
+    {
+      "ref": "rest-express@1.0.0|jose@6.2.12"
     },
     {
       "ref": "rest-express@1.0.0|joycon@3.1.1"
@@ -39987,6 +40841,9 @@
         "rest-express@1.0.0|sonic-boom@4.2.1",
         "rest-express@1.0.0|thread-stream@4.2.0"
       ]
+    },
+    {
+      "ref": "rest-express@1.0.0|pkce-challenge@5.0.1"
     },
     {
       "ref": "rest-express@1.0.0|platform@1.3.6"
@@ -41072,6 +41929,7 @@
     {
       "ref": "rest-express@1.0.0|vitest@4.1.11",
       "dependsOn": [
+        "rest-express@1.0.0|@opentelemetry/api@1.9.0",
         "rest-express@1.0.0|@types/node@24.13.3",
         "rest-express@1.0.0|@vitest/coverage-v8@4.1.11",
         "rest-express@1.0.0|@vitest/expect@4.1.11",

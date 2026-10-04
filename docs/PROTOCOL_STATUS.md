@@ -1,10 +1,10 @@
 # Protocol Status
 
-**Verified:** 2026-07-17
+**Verified:** 2026-10-04 for MCP; other protocol rows retain the July assessment.
 
 | Protocol | Product status | Version / evidence |
 | --- | --- | --- |
-| MCP client/server | Supported locally | Current stable `2025-11-25`; Streamable HTTP initialization, session ID, protocol header, strict JSON-RPC response IDs, `tools/call`, authentication forwarding and cleanup are covered by focused tests. |
+| MCP client/server | Supported locally | Inbound server remains `2025-11-25`. Client SDK 2.3 negotiates `2026-07-28` discovery and supported legacy versions; official modern SDK/SSE calculator/resource receiving tests and legacy session/auth/redirect negatives are required. Transport headers stay private. |
 | A2A external interoperability | Disabled | Current released A2A specification is `1.0.0`. The retained legacy engine models `0.3.0`, so all external A2A routes return HTTP 501 and the UI shows the version gap. |
 | CLI tools | Supported locally | Shell-free allowlisted argv execution inside the fixed sandbox; traversal and shell operators are rejected. |
 | GraphQL HTTP | Registered but not a supported UI workflow | The UI hooks are unused and subscriptions have no authenticated WebSocket server. Human approval is required before disabling this public endpoint. |
@@ -18,8 +18,8 @@ Authoritative current sources:
   currently documents 0.3 compatibility; v1 work must be adopted only after a
   stable, reviewed release or a repository-native 1.0 implementation passes
   the official compatibility kit)
-- MCP specification: https://modelcontextprotocol.io/specification/2025-11-25
-  (current stable protocol version)
+- MCP July specification: https://blog.modelcontextprotocol.io/posts/2026-07-28/
+- MCP client SDK: https://github.com/modelcontextprotocol/typescript-sdk/releases/tag/v2.3.0
 
 ## Reactivation gate for A2A
 

@@ -12,6 +12,7 @@ import { Queue, Worker, Job, QueueEvents, UnrecoverableError } from "bullmq";
 import IORedis, { type RedisOptions } from "ioredis";
 import { createHash } from "node:crypto";
 import { unfinishedAdmissions, updateAdmission, admissionState } from "./executionOutbox.js";
+import { telemetryIdentity, withExecutionSpan } from "./telemetry.js";
 
 // ─── Exported Types ───────────────────────────────────────────────────────────
 
@@ -152,6 +153,12 @@ export class TaskQueue {
   }
 
   async processJob(
+    job: Pick<Job<QueuedTask>, "id" | "data" | "updateProgress">
+  ): Promise<string> {
+    return withExecutionSpan("workflow.execute", { "workflow.task_id_hash": telemetryIdentity(job.data.taskId) }, () => this.processJobCore(job));
+  }
+
+  private async processJobCore(
     job: Pick<Job<QueuedTask>, "id" | "data" | "updateProgress">
   ): Promise<string> {
     if (!this.processor) {

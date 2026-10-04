@@ -697,3 +697,18 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Residual:** CPU installation still needs npm registry access. Deliberate
   Linux GPU installation requires compatible hardware/libraries and explicit
   configuration; the private release does not require that path.
+
+## WHY-0032 — Protocol upgrades and output schemas need receiving controls
+
+- **Problem:** Modern MCP peers cannot connect through the old client. Real
+  local schema testing returned an unconstrained cached answer because semantic
+  lookup ignored request parameters. A 270M model emitted a cyclic task graph.
+- **Decision:** Adopt maintained MCP negotiation with governed, bounded traffic;
+  add private OpenTelemetry metadata; independently validate planner graphs;
+  partition exact and semantic responses by their execution contract.
+- **Control:** Official SDK receiving tests, cache boundary negatives, a real
+  4B provider plan, failed provider trace, queue/model correlation, content canary
+  and bounded file rotation. ADR-0003 records versions and privacy decisions.
+- **Consequence:** Schema compliance aids formatting; logical admission and
+  owner authority remain deterministic application checks. Same-model offline
+  embedding comparisons establish compatibility rather than a quality claim.
