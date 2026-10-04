@@ -12,6 +12,7 @@ if (!host || !Number.isSafeInteger(port) || port < 1 || port > 65_535) {
 const deadline = Date.now() + timeoutMs;
 let lastError = "connection not attempted";
 
+async function main() {
 while (Date.now() < deadline) {
   try {
     await new Promise((resolve, reject) => {
@@ -25,7 +26,7 @@ while (Date.now() < deadline) {
       socket.once("error", done);
     });
     console.log(`TCP endpoint ready: ${host}:${port}`);
-    process.exit(0);
+    return;
   } catch (error) {
     lastError = error instanceof Error ? error.message : String(error);
     await delay(500);
@@ -33,3 +34,5 @@ while (Date.now() < deadline) {
 }
 
 throw new Error(`TCP endpoint ${host}:${port} was not ready within ${timeoutMs}ms: ${lastError}`);
+}
+await main();

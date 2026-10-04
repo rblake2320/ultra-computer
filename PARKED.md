@@ -1,5 +1,22 @@
 # Parked Work
 
+### PARK-0021: Exact application activity replay after uncertain side effects
+
+- **Status:** Parked; safe interruption contract implemented
+- **Owner:** Runtime engineering and repository owner
+- **Parked on:** 2026-10-04
+- **Reason:** The private message path now resumes acceptance-only work and
+  quarantines later interruptions. Exact tool/provider activity replay requires
+  deterministic workflow code, per-activity idempotency and receiving receipts.
+- **Current risk:** A crash after an effect requires owner inspection before a
+  new request. The tool may have completed even when its answer was lost.
+- **Reactivate when:** Unattended long-running execution is a release requirement
+  and an application workflow runtime/operational plan is selected.
+- **Next decision:** Move actual model/tool activities into that runtime; kill
+  workers during known effects and assert exactly one receiving outcome and
+  resumed answers. A separate Temporal sample is not this application contract.
+- **Related:** WHY-0030, ADR-0002 and existing durable execution gate.
+
 This ledger records intentional deferrals. Parked work is not silently
 discarded: each item has a reason, owner, reactivation condition, and decision
 link so future contributors can tell whether the constraint still applies.

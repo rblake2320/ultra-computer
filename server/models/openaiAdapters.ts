@@ -363,6 +363,12 @@ function chatParams(request: ModelRequest): ChatCompletionCreateParamsNonStreami
   }
   if (request.responseFormat?.type === "json_object") {
     params.response_format = { type: "json_object" };
+  } else if (request.responseFormat?.type === "json_schema") {
+    params.response_format = { type: "json_schema", json_schema: {
+      name: request.responseFormat.name ?? "response",
+      schema: request.responseFormat.schema ?? {},
+      strict: request.responseFormat.strict ?? false,
+    } };
   }
   return params;
 }

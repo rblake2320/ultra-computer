@@ -1,4 +1,5 @@
 import fs from "fs";
+import crypto from "node:crypto";
 import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -9,6 +10,7 @@ import {
   markDurableRunStatus,
   recordDurableStep,
   workflowIdFromMessage,
+  canResumeRun,
 } from "../../server/durableExecution.js";
 import { executeTool } from "../../server/tools.js";
 import { runOrchestrator } from "../../server/orchestrator.js";
@@ -132,7 +134,7 @@ describe("durable execution ledger", () => {
         idempotencyKey,
         messageId,
         executionMode: "bullmq",
-      })).resolves.toBeUndefined();
+      })).rejects.toThrow(/refusing to report unfinished work/i);
       expect(storage.getConversation(conversationId)?.status).toBe("idle");
       expect(storage.getMessages(conversationId)).toEqual([]);
       expect(getDurableRun(workflowId)?.attempts).toBe(2);
@@ -156,6 +158,30 @@ describe("durable execution ledger", () => {
       retryable: false,
       category: "validation",
     });
+  });
+
+  it("recovers a dead pre-execution owner but quarantines side effects", () => {
+    const input = { workflowId: "crash-safe", idempotencyKey: "crash-safe", conversationId: "c", executionMode: "bullmq" as const };
+    beginDurableRun(input);
+    const filename = path.join(process.env.ULTRA_DURABLE_RUN_DIR!, "runs", crypto.createHash("sha256").update(input.workflowId).digest("hex") + ".json");
+    const stale = JSON.parse(fs.readFileSync(filename, "utf8"));
+    stale.ownerPid = process.pid; stale.ownerToken = "previous-boot";
+    fs.writeFileSync(filename, JSON.stringify(stale));
+    const resumed = beginDurableRun(input);
+    expect(resumed.created).toBe(true);
+    expect(resumed.run.events.some(e => e.type === "safe_pre_execution_resume")).toBe(true);
+    recordDurableStep({ workflowId: input.workflowId, stepId: "tool.once.write_file", status: "started" });
+    const unsafe = JSON.parse(fs.readFileSync(filename, "utf8"));
+    expect(canResumeRun(unsafe)).toBe(false);
+    unsafe.ownerToken = "previous-boot";
+    fs.writeFileSync(filename, JSON.stringify(unsafe));
+    expect(() => beginDurableRun(input)).toThrow(/Review its recorded actions/i);
+    expect(getDurableRun(input.workflowId)?.status).toBe("interrupted");
+  });
+
+  it("rejects identifier reuse by another request", () => {
+    beginDurableRun({ workflowId: "conflict", idempotencyKey: "first", conversationId: "c", executionMode: "direct" });
+    expect(() => beginDurableRun({ workflowId: "conflict", idempotencyKey: "second", conversationId: "c", executionMode: "direct" })).toThrow(/already belongs/);
   });
 
   it("correlates denied policy decisions to workflow-prefixed tool sessions without leaking secrets", async () => {

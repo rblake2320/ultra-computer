@@ -33,6 +33,7 @@ let clientConnection: Connection | undefined;
 let workerConnection: NativeConnection | undefined;
 let worker: Worker | undefined;
 let workerRun: Promise<void> | undefined;
+let completedWorkflowId: string | undefined;
 
 async function connectClient(): Promise<Connection> {
   const deadline = Date.now() + 60_000;
@@ -108,6 +109,7 @@ describe.skipIf(!process.env.TEMPORAL_ADDRESS)("Temporal durable execution — V
 
     const result = await handle.result();
     expect(result).toBe(`done:b:a:${workflowId}`);
+    completedWorkflowId = workflowId;
 
     // Verify event history recorded all 3 activities
     const history = await handle.fetchHistory();
@@ -125,21 +127,20 @@ describe.skipIf(!process.env.TEMPORAL_ADDRESS)("Temporal durable execution — V
   it("workflow result is idempotent — fetching twice returns same result", async () => {
     const client = new Client({ connection: clientConnection! });
 
-    // Find the last workflow we ran (re-query by known prefix)
-    // This is a simplified check — in production use the workflowId
-    const runs = client.workflow.list({
-      query: `TaskQueue = '${TASK_QUEUE}' AND ExecutionStatus = 'Completed'`,
-    });
-
-    let count = 0;
-    for await (const run of runs) {
-      const handle = client.workflow.getHandle(run.workflowId);
-      const result = await handle.result();
-      expect(result).toMatch(/^done:b:a:/);
-      count++;
-    }
-    expect(count).toBeGreaterThan(0);
-    console.log(`VERIFIED LIVE: idempotent — queried ${count} completed workflow(s), all returned correct results`);
+    // Use the identity returned by the completed execution. Visibility search
+    // can lag behind completion and is not an idempotency acceptance check.
+    expect(completedWorkflowId).toBeDefined();
+    const handle = client.workflow.getHandle(completedWorkflowId!);
+    const before = stepLog.length;
+    const first = await handle.result();
+    const second = await client.workflow.getHandle(completedWorkflowId!).result();
+    expect(first).toBe(`done:b:a:${completedWorkflowId}`);
+    expect(second).toBe(first);
+    expect(stepLog.length).toBe(before);
+    const history = await handle.fetchHistory();
+    expect(history.events?.filter(event => event.eventType ===
+      temporal.api.enums.v1.EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED)).toHaveLength(3);
+    console.log("VERIFIED LIVE: the exact completed workflow returned its result twice without additional activity execution");
   }, 30_000);
 });
 

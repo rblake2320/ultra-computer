@@ -8,7 +8,8 @@ import {
   OpenAIResponsesAdapter,
   type ModelRequest,
 } from "../../server/models/index.js";
-import { connectionTestRequest } from "../../server/modelRouter.js";
+import { connectionTestRequest, testModelConnection } from "../../server/modelRouter.js";
+import { storage } from "../../server/storage.js";
 
 interface CapturedRequest {
   method: string;
@@ -91,6 +92,19 @@ afterEach(async () => {
 });
 
 describe("provider adapter protocol contracts", () => {
+  it("retries only an empty Ollama connection probe within the existing bounded allowance", async () => {
+    let completions = 0;
+    const fixture = await contractServer((request, response) => {
+      if (request.path === "/api/show") { json(response, { capabilities: ["completion"] }); return; }
+      completions++;
+      json(response, { id: "probe", object: "chat.completion", created: 1, model: "fixture-probe", choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: completions === 1 ? "" : "pong" } }] });
+    });
+    const model = storage.createModel({ id: crypto.randomUUID(), name: "Bounded local probe", provider: "ollama", modelId: "fixture-probe", baseUrl: `${fixture.baseURL}/v1`, authMethod: "none" });
+    try {
+      expect((await testModelConnection(model.id)).ok).toBe(true);
+      expect(fixture.requests.filter(r => r.path.endsWith("/chat/completions")).map(r => r.body.max_tokens)).toEqual([64, 128]);
+    } finally { storage.deleteModel(model.id); }
+  });
   it("serializes the real connection probe within OpenAI Responses limits", async () => {
     const fixture = await contractServer((_request, response) => {
       json(response, {
@@ -229,11 +243,14 @@ describe("provider adapter protocol contracts", () => {
     const result = await adapter.generate(baseRequest({
       model: "compat-model",
       tools: undefined,
+      responseFormat: { type: "json_schema", name: "answer", strict: true, schema: { type: "object", properties: { answer: { type: "number" } }, required: ["answer"] } },
     }), { requestId: "request-2" });
 
     expect(result.text).toBe("real protocol response");
     expect(fixture.requests[0].path).toBe("/v1/chat/completions");
     expect(fixture.requests[0].body).not.toHaveProperty("temperature");
+    expect(fixture.requests[0].body).toHaveProperty("response_format.json_schema.name", "answer");
+    expect(fixture.requests[0].body).toHaveProperty("response_format.json_schema.strict", true);
   });
 
   it("normalizes native OpenAI Responses SSE text, reasoning, tools, and usage", async () => {

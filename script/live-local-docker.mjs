@@ -260,5 +260,5 @@ async function main() {
 
 main().catch((err) => {
   console.error("live-local Docker gate failed:", err instanceof Error ? err.message : String(err));
-  process.exit(1);
+  process.exitCode = 1;
 });

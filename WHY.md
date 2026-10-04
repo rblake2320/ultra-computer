@@ -1,5 +1,27 @@
 # Why Ledger
 
+### WHY-0030: Install and recover the declared private-owner product
+
+- **Status:** Accepted implementation
+- **Date:** 2026-10-04
+- **Problem:** Real beta upgrades failed model reads; a killed queued run was
+  incorrectly completed; exhaustion placeholders passed chat tests; container
+  code execution lacked a runtime. Install and recovery lacked operator commands.
+- **Decision:** Provide host/private installation, a dedicated queue and code
+  image, additive schema readiness, persistent admission, serialized claims,
+  truthful terminal outcomes and verified offline recovery. Quarantine uncertain
+  effects instead of repeating them. Keep Laya optional and advisory.
+- **Why:** The chosen single-owner deployment needs receiving outcomes from the
+  built app and an installation command, not healthy services alone. A replay
+  that silently skips or repeats work is worse than a visible interruption.
+- **Alternatives:** Mount Docker into the app container, retry whole workflows,
+  or migrate all activities to Temporal now. The first widens host authority;
+  the second duplicates unknown effects; the third requires a larger redesign.
+- **Evidence:** `setup:private`, `test:private-runtime`, nine real browser
+  workflows, full-state recovery and existing verification/Docker gates. CI runs
+  private installation and crash recovery in the existing core-e2e job.
+- **Related:** ADR-0002, PARK-0021, `reports/private-readiness-20261004.md`.
+
 This ledger records why consequential changes exist. It complements the
 changelog, which records what changed, and the ADRs in `docs/decisions/`, which
 hold detailed decisions that affect architecture or long-lived behavior.
@@ -658,3 +680,102 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Evidence:** Repeated Windows-equivalent coverage execution, full local
   verification, protected PR checks and post-merge checks must pass.
 - **Related:** WHY-0024 and WHY-0028.
+## WHY-0031 — CPU installation must not require an optional GPU feed
+
+- **Problem:** The final Linux Node 22 CI installation failed in
+  `onnxruntime-node` while downloading CUDA libraries from NuGet
+  (`ETIMEDOUT`), before any application test ran.
+- **Root cause:** The locked dependency automatically downloads CUDA on Linux
+  x64 even though the supported embedding path uses its bundled CPU provider.
+- **Decision:** Set the documented `ONNXRUNTIME_NODE_INSTALL=skip` profile for
+  the private installer, both Docker dependency stages and all CI/security
+  npm installations. The installer allows an explicit environment override.
+- **Escape and control:** Windows needs no CUDA download and earlier Linux
+  runs had feed access. Add real, offline native CPU inference using a pinned,
+  MIT-licensed upstream MatMul fixture to every unit matrix and private setup;
+  require all nine expected values. Retain the original failed receiving log.
+- **Residual:** CPU installation still needs npm registry access. Deliberate
+  Linux GPU installation requires compatible hardware/libraries and explicit
+  configuration; the private release does not require that path.
+
+## WHY-0032 — Protocol upgrades and output schemas need receiving controls
+
+- **Problem:** Modern MCP peers cannot connect through the old client. Real
+  local schema testing returned an unconstrained cached answer because semantic
+  lookup ignored request parameters. A 270M model emitted a cyclic task graph.
+- **Decision:** Adopt maintained MCP negotiation with governed, bounded traffic;
+  add private OpenTelemetry metadata; independently validate planner graphs;
+  partition exact and semantic responses by their execution contract.
+- **Control:** Official SDK receiving tests, cache boundary negatives, a real
+  4B provider plan, failed provider trace, queue/model correlation, content canary
+  and bounded file rotation. ADR-0003 records versions and privacy decisions.
+- **Consequence:** Schema compliance aids formatting; logical admission and
+  owner authority remain deterministic application checks. Same-model offline
+  embedding comparisons establish compatibility rather than a quality claim.
+
+## WHY-0033 — Private readiness includes operating and distribution checks
+
+- **Problem:** A foreground-only install had no managed recovery. A question
+  followed by a formatting instruction was routed into planning and the real
+  tiny model acknowledged a template rather than answering. Restores retained
+  listener ports; installer probes could reach a different copy's health.
+- **Decision:** Preserve the direct-question route for explicit format suffixes;
+  preflight listener ownership; select independent restored ports; add managed
+  restart/log/maintenance controls and a sustained real-model workload gate.
+  Keep tiny-model failures distinct from the 4B release acceptance. Offline
+  legacy import retains history, reencrypts credentials and requires model
+  retesting rather than automatically calling old paid endpoints.
+- **Escape and sweep:** Short questions ending in '?' passed previous checks;
+  suffixes and sustained operation were absent. Installer/start/restore and
+  supervisor startup now share the same port controls. Source and built health
+  are checked together; duplicate supervision and real receiving identity are
+  required. Worker queue outcomes and model answers are independently checked.
+- **Controls:** singleQuestion/privatePorts/legacyPrivateImport regressions;
+  real varied inference, five concurrent reads, outage/kill/relaunch gates;
+  source/build/SBOM archives with GitHub cryptographic attestation and integrity
+  checks. The existing core CI adds a separate managed-service regression.
+- **Residual:** Host/model availability and post-effect uncertainty remain in
+  the declared private contract, ADR-0004. Human acceptance is Constitution R14.
+
+### Windows receiving corrections for WHY-0033
+
+The signed-archive run completed its API/model workload, Redis recovery and
+app recovery, then exposed a native libuv assertion during supervisor relaunch.
+The launcher forced process.exit immediately after a fetch whose body was not
+consumed. Use natural CLI returns and consume the health body; the real Windows
+retest completed eight start commands, supervisor kill/orphan cleanup/relaunch
+and confirmed stop without assertions. The class sweep removed forced exits
+from fetch-based smoke/build/Docker helpers and the TCP readiness CLI; the
+cliExitSafety gate forbids reintroducing the fetch/forced-exit combination.
+Upstream receiving report: [nodejs/node#58091](https://github.com/nodejs/node/issues/58091).
+
+Legacy import now copies/fsyncs the empty prior target and atomically replaces
+the canonical DB. A real Windows probe returned EPERM when fsync used an 'r'
+handle; an 'r+' handle passed. The import regression and receiving check require
+that Windows-compatible flush while retaining the source and original target.
+### 0034 — Commit the queued-batch fixture once
+
+Windows Node 22 coverage CI exceeded the default five-second deadline while
+creating 101 queued admissions with 202 individual durable SQLite commits.
+The test now creates that pagination fixture in one transaction, preserving
+all 101 rows and the admission/terminal-state assertions. The separate
+cross-connection test still checks durable admission. This changes fixture
+setup rather than extending deadlines or relaxing product guarantees.
+### 0035 — Verify Temporal completion by its exact workflow identity
+
+CI observed a completed three-activity workflow in event history while an
+immediate visibility search returned zero rows. The old idempotency test
+queried that search and fetched each result only once. The revised live test
+retains the known completed workflow ID, fetches its result twice through
+separate handles, and checks both activity history and the execution counter
+for duplication. It tests the stated guarantee directly and does not depend
+on visibility indexing catching up.
+### 0036 — Import history without incompatible legacy execution settings
+
+The real owner database had disabled Docker isolation. After the history import,
+the new app correctly denied interpreter calls with HTTP 503 despite a working
+Docker engine. The importer now resets the two legacy sandbox settings to the
+private install's already-verified defaults: bundled image, enabled isolation,
+network disabled. Credentials/history remain retained, and the receipt makes
+the reset explicit. The import regression includes a disabled retired image.
+The receiving owner check executes all four isolated interpreters after import.

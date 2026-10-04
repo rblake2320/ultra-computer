@@ -47,7 +47,7 @@ export function WelcomePage() {
         </div>
         <h1 className="text-2xl font-bold gradient-text mb-2">Ultra Computer</h1>
         <p className="text-muted-foreground text-sm max-w-md mb-6">
-          A complete agent harness — not a chatbot. Decomposes goals, spawns parallel sub-agents, routes tasks to the best model, and remembers everything.
+          An agent workspace for conversations, tasks, tools and saved context.
         </p>
         <Button onClick={() => create.mutate()} disabled={create.isPending} size="lg" className="gap-2 mb-10">
           <Plus className="w-4 h-4" />

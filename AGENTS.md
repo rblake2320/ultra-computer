@@ -2,6 +2,15 @@
 
 ## Commands
 - Install: `npm ci`
+- Private owner install/start: `npm run setup:private`, `npm run start:private`
+- Install acceptance: `npm run verify:private` (stop the app first)
+- Real message acceptance: `npm run test:private-runtime` (Docker and Ollama required)
+- Managed private lifecycle: `service:start`, `service:stop`, `service:status`;
+  Windows login startup: `service:install` / `service:uninstall`.
+- Sustained receiving acceptance: `npm run test:private-production` in a fresh
+  private install only. Default 600s uses real installed gemma3:latest 4B;
+  shorter CI runs are explicitly service regression evidence, not a release soak.
+- Offline recovery: `npm run state:backup -- <new-directory>` / `npm run state:restore -- <backup-directory>`
 - Build: `npm run build`
 - Full gate: `npm run verify`
 - SBOM: `npm run sbom`
@@ -11,7 +20,7 @@
 ## Verification
 - Diagnostics: `npm run doctor`; add `-- --live` only for intentional real
   probes against every enabled model.
-- Authenticated local E2E: `npm run test:e2e` (eight tests; requires real Ollama
+- Authenticated local E2E: `npm run test:e2e` (nine tests; requires real Ollama
   for the two inference/model-connection paths; zero skips are required for a
   full local claim).
 - Typecheck: `npm run check`
@@ -51,6 +60,10 @@
 - Agent/tool permissions live in `policies/*-access.json` and are deny-by-default. Do not broaden policy rules to make a feature or test pass; wire the feature through the policy evaluator and keep the policy as the hard constraint.
 - Do not round policy evaluator tests up to live tool proof. They are unit-level evidence unless the real governed route and real external capability were exercised.
 - Do not call agent execution production-durable unless a real durable runtime such as Temporal, Microsoft Durable Task, or an equivalent is started and crash/restart/resume behavior is exercised. BullMQ, local JSON ledgers, and unit tests are useful boundaries but not exact workflow replay proof.
+- Private production messages require a live queue and persisted admission.
+  Resume only pre-execution interruptions; quarantine later interruptions.
+  Sandbox cleanup must include installation ownership, and ordinary shutdown
+  must also include process ownership.
 - Do not describe the application spend ledger as provider invoice control.
   Unknown paid pricing fails closed, the configured limit cannot exceed $20,
   and provider-side quotas remain a separate control.

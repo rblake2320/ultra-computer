@@ -1,0 +1,37 @@
+name: Private release artifact
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, codex/private-production-hardening]
+permissions:
+  contents: read
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - run: npm run check && npm run audit && npm run build && npm run sbom
+      - name: Package committed source, build and SBOM
+        run: npm run package:private -- "$RUNNER_TEMP/ultra-computer-private.tar.gz"
+      - name: Attest the archive with GitHub's build identity
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/ultra-computer-private.tar.gz
+      - name: Retain the attested release candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ultra-computer-private
+          path: ${{ runner.temp }}/ultra-computer-private.tar.gz
+          retention-days: 30

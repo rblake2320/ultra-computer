@@ -10,6 +10,7 @@ import {
   callRemoteTool,
   connectToServer,
   disconnectServer,
+  listConnectedServers,
 } from "../../server/mcpProtocol.js";
 
 function rpcResponse(options: RequestInit | undefined, result: unknown, headers?: HeadersInit): Response {
@@ -24,7 +25,9 @@ describe("MCP Streamable HTTP client", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.governedFetch.mockImplementation(async (_url: string, options: RequestInit) => {
+      if (options.method === "GET") return new Response(null, { status: 405 });
       const request = JSON.parse(String(options.body));
+      if (request.method === "server/discover") return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Method not found" } }), { headers: { "content-type": "application/json" } });
       if (request.method === "initialize") {
         return rpcResponse(options, {
           protocolVersion: "2025-11-25",
@@ -47,17 +50,18 @@ describe("MCP Streamable HTTP client", () => {
       url: "https://mcp.example.test/mcp",
       name: "test",
       transport: "streamable-http",
+      headers: { Authorization: "Bearer private-test-token", "MCP-Protocol-Version": "wrong", "Mcp-Session-Id": "wrong" },
     });
     const result = await callRemoteTool(connection.id, "lookup", { id: 7 });
     expect(result.content).toEqual([{ type: "text", text: "real result" }]);
 
     const toolCall = mocks.governedFetch.mock.calls.find(([, options]) =>
-      JSON.parse(String(options.body)).method === "tools/call");
+      options.body && JSON.parse(String(options.body)).method === "tools/call");
     expect(toolCall).toBeDefined();
-    expect(toolCall?.[1].headers).toMatchObject({
-      "Mcp-Session-Id": "remote-session",
-      "MCP-Protocol-Version": "2025-11-25",
-    });
+    const headers = new Headers(toolCall?.[1].headers);
+    expect(headers.get("mcp-session-id")).toBe("remote-session");
+    expect(headers.get("mcp-protocol-version")).toBe("2025-11-25");
+    expect(JSON.stringify(listConnectedServers())).not.toContain("private-test-token");
     expect(JSON.parse(String(toolCall?.[1].body))).toMatchObject({
       jsonrpc: "2.0",
       method: "tools/call",
@@ -76,12 +80,23 @@ describe("MCP Streamable HTTP client", () => {
   });
 
   it("rejects an initialize response that does not negotiate the supported version", async () => {
-    mocks.governedFetch.mockImplementationOnce(async (_url: string, options: RequestInit) =>
-      rpcResponse(options, { protocolVersion: "2024-11-05", capabilities: {} }));
+    const original = mocks.governedFetch.getMockImplementation()!;
+    mocks.governedFetch.mockImplementation(async (url: string, options: RequestInit) => {
+      if (options.body && JSON.parse(String(options.body)).method === "initialize") {
+        return rpcResponse(options, { protocolVersion: "2099-01-01", capabilities: {}, serverInfo: { name: "bad", version: "1" } });
+      }
+      return original(url, options);
+    });
     await expect(connectToServer({
       url: "https://mcp.example.test/mcp",
       name: "old",
       transport: "streamable-http",
-    })).rejects.toThrow("Unsupported MCP protocol version");
+    })).rejects.toThrow("MCP connection failed");
+  });
+
+  it("does not downgrade an authentication failure to a legacy handshake", async () => {
+    mocks.governedFetch.mockResolvedValue(new Response(null, { status: 401 }));
+    await expect(connectToServer({ url: "https://mcp.example.test/mcp", name: "auth", transport: "streamable-http" })).rejects.toThrow("MCP connection failed");
+    expect(mocks.governedFetch.mock.calls.some(([, options]) => options.body && JSON.parse(String(options.body)).method === "initialize")).toBe(false);
   });
 });

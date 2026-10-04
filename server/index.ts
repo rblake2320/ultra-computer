@@ -1,3 +1,5 @@
+// Private ownership must be acquired before stateful module initialization.
+import { privateStateRelease as releasePrivateState } from "./privateStateLock.js";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -24,8 +26,12 @@ import { shutdownBrowser } from "./browserTool.js";
 import { stopWatchdog } from "./processWatchdog.js";
 import { buildRuntimeHealth, type RuntimeCheckState } from "./runtimeHealth.js";
 import { shutdownRuntime } from "./lifecycle.js";
+import { recoverInterruptedExecutions } from "./orchestrator.js";
+import { privateTraceExporter, shutdownTelemetry } from "./telemetry.js";
+import { shutdownMCPClients } from "./mcpProtocol.js";
 
 assertProductionEnvironment();
+recoverInterruptedExecutions();
 const app = express();
 const httpServer = createServer(app);
 
@@ -45,7 +51,10 @@ function shutdown(reason: string, exitCode: number): Promise<void> {
         { name: "browser", close: shutdownBrowser },
         { name: "Docker sandbox", close: () => dockerSandbox.shutdown() },
         { name: "cache", close: () => cacheEngine.shutdown() },
+        { name: "MCP clients", close: shutdownMCPClients },
+        { name: "private traces", close: shutdownTelemetry },
         { name: "SQLite", close: () => sqlite.close() },
+        { name: "private state lock", close: () => releasePrivateState?.() },
       ],
     });
 
@@ -68,6 +77,9 @@ function shutdown(reason: string, exitCode: number): Promise<void> {
 
 process.once("SIGTERM", () => void shutdown("SIGTERM", 0));
 process.once("SIGINT", () => void shutdown("SIGINT", 0));
+if (process.env.ULTRA_PRIVATE_SUPERVISED === "1" && process.connected) {
+  process.once("disconnect", () => void shutdown("private supervisor disconnected", 1));
+}
 process.on("uncaughtException", (err) => {
   logger.error({ err }, "[uncaughtException]");
   void shutdown("uncaughtException", 1);
@@ -151,6 +163,13 @@ app.use(apiLimiter);
 
 // ─── API Key Authentication ───────────────────────────────────────────────
 app.use(createAuthMiddleware());
+app.get("/api/diagnostics/traces", (_req, res) => {
+  try { res.json({ ...privateTraceExporter.status(), spans: privateTraceExporter.read() }); }
+  catch { res.status(503).json({ error: "Private traces are unavailable", ...privateTraceExporter.status() }); }
+});
+app.get("/api/diagnostics/runtime", (_req, res) => {
+  res.json({ pid: process.pid, parentPid: process.ppid, uptimeSeconds: process.uptime(), memory: process.memoryUsage(), queueAvailable: taskQueue.isAvailable() });
+});
 
 app.use(
   express.json({
@@ -205,7 +224,7 @@ app.get("/api/health", (_req, res) => {
 
   // Check SQLite — run a trivial synchronous query
   try {
-    db.run(sql`SELECT 1`);
+    db.run(sql`SELECT auth_method, connection_status FROM models LIMIT 0`);
   } catch {
     databaseState = "unavailable";
   }
@@ -277,6 +296,7 @@ app.use((req, res, next) => {
 
 (async () => {
   try {
+  await dockerSandbox.recoverPrivateContainers();
   // Honeypot: register canary routes before real routes — any hit is an attacker probe
   registerHoneypot(app);
 

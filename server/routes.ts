@@ -36,6 +36,7 @@ import { estimateTaskDuration, taskQueue } from "./taskQueue.js";
 import { initWatchdog, getHealthStatus } from "./processWatchdog.js";
 import { startCheckpointHeartbeats } from "./taskCheckpointing.js";
 import { workflowIdFromMessage } from "./durableExecution.js";
+import { persistTaskAdmission } from "./executionOutbox.js";
 import { startScheduler } from "./cronScheduler.js";
 import { createStreamToken } from "./streamAuth.js";
 import { governedFetch } from "./governedFetch.js";
@@ -185,13 +186,12 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   // ─── Initialize task queue (non-blocking) ──────────────────────────────────
   taskQueue.setProcessor(async (task) => {
-    await runOrchestrator(task.conversationId, task.userMessage, {
+    return runOrchestrator(task.conversationId, task.userMessage, {
       workflowId: workflowIdFromMessage(task.taskId),
       idempotencyKey: `message:${task.taskId}`,
       messageId: task.taskId,
       executionMode: "bullmq",
     });
-    return "orchestrator completed";
   });
 
   taskQueue.initialize().then(available => {
@@ -459,6 +459,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   });
 
   app.post("/api/conversations/:id/messages", async (req, res) => {
+    const requireQueue = process.env.NODE_ENV === "production" && process.env.REQUIRE_TASK_QUEUE !== "0";
+    if (requireQueue && !taskQueue.isAvailable()) return res.status(503).json({ error: "Task queue is unavailable. Retry when the server is ready." });
     const { content } = req.body;
     if (!content) return res.status(400).json({ error: "content required" });
     if (typeof content !== "string") return res.status(400).json({ error: "content must be a string" });
@@ -491,10 +493,10 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       return res.status(500).json({ error: "Failed to save message" });
     }
 
-    res.status(201).json(userMsg);
-
     const workflowId = workflowIdFromMessage(userMsg.id);
     const estimatedDuration = estimateTaskDuration(content, storage.getTasks(convId).length);
+    if (requireQueue) persistTaskAdmission({ conversationId: convId, taskId: userMsg.id, userMessage: content, estimatedDuration });
+    res.status(201).json(userMsg);
 
     if (taskQueue.isAvailable()) {
       taskQueue.enqueue({
@@ -504,6 +506,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
         estimatedDuration,
       }).then((jobId) => {
         if (jobId.startsWith("unavailable:") || jobId.startsWith("error:")) {
+          if (requireQueue) { console.warn("[routes] Accepted task retained in outbox for delivery when Redis recovers."); return; }
           console.warn(`[routes] Queue degraded for message ${userMsg.id}; falling back to direct in-process execution.`);
           runOrchestrator(convId, content, {
             workflowId,
@@ -517,6 +520,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
         }
         console.log(`[routes] Enqueued orchestrator workflow ${workflowId} as job ${jobId}.`);
       }).catch(err => {
+        if (requireQueue) { console.error("[routes] Accepted task retained in outbox:", err.message); return; }
         console.error("[routes] Queue enqueue failed; falling back to direct orchestrator:", err);
         runOrchestrator(convId, content, {
           workflowId,

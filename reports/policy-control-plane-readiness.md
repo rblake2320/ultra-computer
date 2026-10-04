@@ -1,5 +1,13 @@
 # Policy Control Plane Operational Readiness Gate
 
+> **2026-10-04 private deployment update:** The host/private installer builds
+> the sandbox image and exercises governed Python/Node/TypeScript/Bash, retains
+> deny-by-default policy, binds owner services to loopback, and scopes Docker
+> cleanup by ownership. CLI adversarial checks passed 31/31 and the live Docker
+> gate passed dispatch, persistence, auth, missing policy and audit failure
+> controls. See `private-readiness-20261004.md` and ADR-0002. Historical enterprise
+> policy architecture findings below are not a private-install readiness claim.
+
 Date: 2026-06-06
 
 ## Evidence Rule

@@ -1,7 +1,7 @@
 /**
  * MCP Protocol Implementation — Ultra Computer
  *
- * Implements the Model Context Protocol (MCP) specification version 2025-11-25
+ * Serves MCP 2025-11-25 and connects to legacy and 2026-07-28 servers through SDK 2.3.
  * using JSON-RPC 2.0 as the transport envelope.
  *
  * This module provides BOTH sides of the protocol:
@@ -18,6 +18,7 @@ import { storage } from "./storage.js";
 import { TOOL_SCHEMAS, executeTool } from "./tools.js";
 import crypto from "crypto";
 import { governedFetch } from "./governedFetch.js";
+import { Client, StreamableHTTPClientTransport, isInputRequiredResult } from "@modelcontextprotocol/client";
 
 // ─── MCP Protocol Version ─────────────────────────────────────────────────────
 
@@ -30,7 +31,7 @@ const SERVER_VERSION = "1.0.0";
 /**
  * Bearer token generated once at startup for MCP server authentication.
  * All inbound MCP requests must carry this token in the Authorization header.
- * The token is logged so the operator can configure MCP clients.
+ * The token is available through the authenticated owner configuration flow.
  */
 const MCP_BEARER_TOKEN = crypto.randomBytes(32).toString("hex");
 // NOTE: Bearer token is intentionally NOT logged to prevent credential exposure in logs.
@@ -169,12 +170,8 @@ export interface MCPServerConnection {
   status: MCPConnectionStatus;
   /** When the connection was established */
   connectedAt: number;
-  /** Custom HTTP headers forwarded on every request */
-  headers?: Record<string, string>;
-  /** Session identifier assigned by a Streamable HTTP server during initialize. */
-  sessionId?: string;
-  /** Running request counter for generating unique IDs */
-  _requestCounter: number;
+  /** Version negotiated by the maintained SDK; inbound server remains 2025-11-25. */
+  protocolVersion?: string;
 }
 
 /** Config required to connect to a remote MCP server */
@@ -192,6 +189,8 @@ interface MCPServerConfig {
  * Keys are the server connection IDs (UUIDs).
  */
 const serverRegistry = new Map<string, MCPServerConnection>();
+// Transport credentials and session headers never enter owner-facing snapshots.
+const remoteClients = new Map<string, Client>();
 
 // ─── MCP Tool Schema Conversion ───────────────────────────────────────────────
 
@@ -829,116 +828,33 @@ export async function handleMCPRequest(
 
 // ─── MCP CLIENT: Remote Server Communication ──────────────────────────────────
 
-/**
- * Sends a single JSON-RPC 2.0 request to a remote MCP server and returns the
- * parsed response. Handles both streamable-http and sse transports uniformly
- * (both use HTTP POST; SSE streaming is handled at the session level, not per-request).
- *
- * @param connection - The connected server to send the request to
- * @param method     - JSON-RPC method name
- * @param params     - Method parameters
- * @returns Parsed JSON-RPC result (throws on error)
- */
+/** All wire negotiation, framing and response validation belong to the maintained SDK. */
 async function sendRemoteRequest(
   connection: MCPServerConnection,
   method: string,
-  params?: Record<string, unknown>
+  params: Record<string, unknown> = {},
 ): Promise<unknown> {
-  connection._requestCounter++;
-  const requestId = `${connection.id}-${connection._requestCounter}`;
-
-  const body: JsonRpcRequest = {
-    jsonrpc: "2.0",
-    id: requestId,
-    method,
-    ...(params ? { params } : {}),
-  };
-
-  const response = await governedFetch(connection.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json, text/event-stream",
-      "User-Agent": `${SERVER_NAME}/${SERVER_VERSION} MCP-Client`,
-      ...(connection.sessionId ? { "Mcp-Session-Id": connection.sessionId } : {}),
-      ...(method !== "initialize" ? { "MCP-Protocol-Version": MCP_PROTOCOL_VERSION } : {}),
-      ...connection.headers,
-    },
-    body: JSON.stringify(body),
-  }, requestId, "network", "network:mcp_call");
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} ${response.statusText} from ${connection.url}`);
-  }
-
-  const assignedSessionId = response.headers.get("mcp-session-id");
-  if (assignedSessionId) connection.sessionId = assignedSessionId;
-
-  const contentType = response.headers.get("content-type") || "";
-
-  let rpcResponse: JsonRpcResponse;
-
-  if (contentType.includes("text/event-stream")) {
-    // SSE transport: parse the first data: event from the stream
-    const text = await response.text();
-    const dataLine = text.split("\n").find((line) => line.startsWith("data:"));
-    if (!dataLine) throw new Error("No data event received in SSE stream");
-    rpcResponse = JSON.parse(dataLine.replace(/^data:\s*/, "")) as JsonRpcResponse;
-  } else {
-    if (!contentType.includes("application/json")) {
-      throw new Error(`Unsupported MCP response content type: ${contentType || "missing"}`);
+  const client = remoteClients.get(connection.id);
+  if (!client) throw new Error("MCP connection is closed");
+  const options = { timeout: 15_000 };
+  switch (method) {
+    case "tools/list": return client.listTools(undefined, options);
+    case "resources/list": return client.listResources(undefined, options);
+    case "prompts/list": return client.listPrompts(undefined, options);
+    case "resources/read": return client.readResource({ uri: String(params.uri) }, options);
+    case "prompts/get": return client.getPrompt({
+      name: String(params.name), arguments: params.arguments as Record<string, string>,
+    }, options);
+    case "tools/call": {
+      const result = await client.callTool({
+        name: String(params.name), arguments: params.arguments as Record<string, unknown>,
+      }, options);
+      // MRTR requests require owner input. A tool server cannot authorize itself.
+      if (isInputRequiredResult(result)) throw new Error("MCP tool requires explicit owner input");
+      return result;
     }
-    rpcResponse = (await response.json()) as JsonRpcResponse;
+    default: throw new Error("Unsupported outbound MCP method");
   }
-
-  if (rpcResponse.jsonrpc !== "2.0" || rpcResponse.id !== requestId) {
-    throw new Error("Invalid MCP JSON-RPC response envelope or mismatched request id");
-  }
-
-  if (rpcResponse.error) {
-    throw new Error(
-      `RPC error ${rpcResponse.error.code}: ${rpcResponse.error.message}` +
-        (rpcResponse.error.data ? ` — ${JSON.stringify(rpcResponse.error.data)}` : "")
-    );
-  }
-
-  return rpcResponse.result;
-}
-
-/**
- * Sends a notification (one-way message, no response expected) to a remote
- * MCP server. Used for lifecycle notifications like notifications/initialized.
- */
-async function sendRemoteNotification(
-  connection: MCPServerConnection,
-  method: string,
-  params?: Record<string, unknown>
-): Promise<void> {
-  const body = {
-    jsonrpc: "2.0" as const,
-    method,
-    ...(params ? { params } : {}),
-    // No id — this is a notification
-  };
-
-  const response = await governedFetch(connection.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json, text/event-stream",
-      "User-Agent": `${SERVER_NAME}/${SERVER_VERSION} MCP-Client`,
-      ...(connection.sessionId ? { "Mcp-Session-Id": connection.sessionId } : {}),
-      "MCP-Protocol-Version": MCP_PROTOCOL_VERSION,
-      ...connection.headers,
-    },
-    body: JSON.stringify(body),
-  }, `${connection.id}:notification:${method}`, "network", "network:mcp_call", {
-    timeoutMs: 10_000,
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} ${response.statusText} from ${connection.url}`);
-  }
-  await response.body?.cancel();
 }
 
 /**
@@ -958,139 +874,80 @@ function getConnection(serverId: string): MCPServerConnection {
 /**
  * connectToServer — Establish a connection to a remote MCP server.
  *
- * Performs the MCP initialization handshake:
- *   1. POST initialize → receive server capabilities and protocol version
- *   2. POST notifications/initialized → inform server we are ready
- *   3. Fetch the server's tool and resource lists for caching
- *   4. Store the connection in the in-memory registry
+ * The SDK probes modern discovery and negotiates legacy initialization when
+ * appropriate. Advertised tools/resources must load before connection success.
  *
  * @param config - Connection configuration
  * @returns The populated MCPServerConnection stored in the registry
  */
 export async function connectToServer(config: MCPServerConfig): Promise<MCPServerConnection> {
   const parsedUrl = new URL(config.url);
-  if (!["http:", "https:"].includes(parsedUrl.protocol)) {
-    throw new Error("MCP server URL must use http or https");
+  if (!["http:", "https:"].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password || parsedUrl.hash) {
+    throw new Error("MCP server URL must use http or https without credentials or a fragment");
   }
   if (config.transport === "sse") {
-    throw new Error(
-      "Legacy MCP SSE transport is not implemented. Configure a Streamable HTTP endpoint instead.",
-    );
+    throw new Error("Legacy MCP SSE transport is not implemented. Configure a Streamable HTTP endpoint instead.");
   }
   const id = uuidv4();
-
-  // Create a provisional connection entry
   const conn: MCPServerConnection = {
-    id,
-    name: config.name,
-    url: config.url,
-    transport: config.transport,
-    capabilities: {},
-    tools: [],
-    resources: [],
-    status: "connecting",
-    connectedAt: Date.now(),
-    headers: config.headers,
-    _requestCounter: 0,
+    id, name: config.name, url: config.url, transport: config.transport,
+    capabilities: {}, tools: [], resources: [], status: "connecting", connectedAt: Date.now(),
   };
-
-  serverRegistry.set(id, conn);
-
+  const headers = new Headers(config.headers);
+  // SDK-owned headers must never be supplied by connector configuration.
+  for (const name of ["mcp-protocol-version", "mcp-session-id", "mcp-method", "content-type", "accept"]) headers.delete(name);
+  const client = new Client({ name: SERVER_NAME, version: SERVER_VERSION }, {
+    versionNegotiation: { mode: "auto" }, capabilities: {},
+  });
+  const transport = new StreamableHTTPClientTransport(parsedUrl, {
+    requestInit: { headers }, redirectPolicy: "same-origin",
+    fetch: async (input, init) => {
+      if (input instanceof Request) throw new Error("MCP transport must supply explicit URL and request options");
+      return governedFetch(String(input), init ?? {}, id, "network", "network:mcp_call", {
+        timeoutMs: 15_000, maxRedirects: 0, maxResponseBytes: 2 * 1024 * 1024,
+      });
+    },
+  });
   try {
-    // Step 1: initialize handshake
-    const initResult = await sendRemoteRequest(conn, "initialize", {
-      protocolVersion: MCP_PROTOCOL_VERSION,
-      capabilities: {
-        roots: { listChanged: false },
-        sampling: {},
-      },
-      clientInfo: {
-        name: SERVER_NAME,
-        version: SERVER_VERSION,
-      },
-    }) as {
-      protocolVersion?: string;
-      capabilities?: MCPServerConnection["capabilities"];
-      serverInfo?: { name: string; version: string };
-    };
-
-    if (initResult.protocolVersion !== MCP_PROTOCOL_VERSION) {
-      throw new Error(
-        `Unsupported MCP protocol version '${initResult.protocolVersion ?? "missing"}'; expected ${MCP_PROTOCOL_VERSION}`,
-      );
-    }
-
-    conn.capabilities = initResult.capabilities || {};
-
-    // Step 2: send initialized notification
-    await sendRemoteNotification(conn, "notifications/initialized");
-
-    // Mark as connected before fetching tools/resources
+    await client.connect(transport, { timeout: 15_000 });
+    conn.capabilities = client.getServerCapabilities() ?? {};
+    conn.protocolVersion = client.getNegotiatedProtocolVersion();
+    remoteClients.set(id, client);
+    serverRegistry.set(id, conn);
     conn.status = "connected";
-
-    // Step 3: pre-fetch tools and resources for local caching
-    try {
-      conn.tools = await listRemoteTools(id);
-    } catch (err) {
-      console.warn("[mcpProtocol] Could not pre-fetch tools", {
-        serverName: config.name,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    try {
-      conn.resources = await listRemoteResources(id);
-    } catch (err) {
-      console.warn("[mcpProtocol] Could not pre-fetch resources", {
-        serverName: config.name,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-
-    console.log("[mcpProtocol] Connected to MCP server", {
-      serverName: config.name,
-      connectionId: id,
-      toolCount: conn.tools.length,
-      resourceCount: conn.resources.length,
-    });
-
-    return conn;
-  } catch (err) {
-    conn.status = "error";
-    // Failed handshakes are not usable sessions and must not accumulate in memory.
+    // An advertised capability must be usable before reporting a connection.
+    if (conn.capabilities.tools) conn.tools = await listRemoteTools(id);
+    if (conn.capabilities.resources) conn.resources = await listRemoteResources(id);
+    return structuredClone(conn);
+  } catch (error) {
     serverRegistry.delete(id);
-    throw new Error(
-      `Failed to connect to MCP server '${config.name}' at ${config.url}: ${(err as Error).message}`
-    );
+    remoteClients.delete(id);
+    await client.close().catch(() => {});
+    // Keep transport errors actionable without echoing credentials or remote response text.
+    const code = typeof (error as { code?: unknown })?.code === "number" ? (error as { code: number }).code : undefined;
+    throw new Error(`MCP connection failed${code === undefined ? "" : ` (code ${code})`}`);
   }
 }
 
-/**
- * disconnectServer — Remove a server connection from the registry.
- *
- * Marks the connection as disconnected and removes it from the registry.
- * Any in-flight requests to this server will fail naturally (no graceful drain).
- *
- * @param serverId - ID returned from connectToServer
- */
+/** Closing the SDK also cancels pending requests; credentials remain private. */
 export function disconnectServer(serverId: string): void {
   const conn = serverRegistry.get(serverId);
-  if (!conn) return;
-
-  conn.status = "disconnected";
+  if (conn) conn.status = "disconnected";
   serverRegistry.delete(serverId);
-
-  console.log(`[mcpProtocol] Disconnected from MCP server '${conn.name}' (${serverId})`);
+  const client = remoteClients.get(serverId);
+  remoteClients.delete(serverId);
+  if (client) void client.close().catch(() => {});
 }
 
-/**
- * listConnectedServers — Return all currently connected MCP servers.
- *
- * Returns a snapshot of the registry, safe to iterate. Only includes servers
- * with status === "connected".
- */
+export async function shutdownMCPClients(): Promise<void> {
+  const clients = [...remoteClients.values()];
+  remoteClients.clear();
+  serverRegistry.clear();
+  await Promise.all(clients.map(client => client.close()));
+}
+
 export function listConnectedServers(): MCPServerConnection[] {
-  return Array.from(serverRegistry.values()).filter((c) => c.status === "connected");
+  return [...serverRegistry.values()].filter(c => c.status === "connected").map(c => structuredClone(c));
 }
 
 /**
@@ -1121,16 +978,17 @@ export async function callRemoteTool(
   serverId: string,
   toolName: string,
   args: Record<string, unknown>
-): Promise<{ content: MCPContent[]; isError?: boolean }> {
+): Promise<{ content: MCPContent[]; isError?: boolean; structuredContent?: Record<string, unknown> }> {
   const conn = getConnection(serverId);
   const result = (await sendRemoteRequest(conn, "tools/call", {
     name: toolName,
     arguments: args,
-  })) as { content?: MCPContent[]; isError?: boolean };
+  })) as { content: MCPContent[]; isError?: boolean; structuredContent?: Record<string, unknown> };
 
   return {
-    content: result.content || [],
+    content: result.content,
     isError: result.isError,
+    structuredContent: result.structuredContent,
   };
 }
 

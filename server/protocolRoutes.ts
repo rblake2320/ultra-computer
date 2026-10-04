@@ -545,6 +545,9 @@ export function registerProtocolRoutes(app: Express) {
     if (!language || typeof language !== "string") {
       return res.status(400).json({ error: "language (string) is required" });
     }
+    if (!cliToolEngine.isSupportedLanguage(language)) {
+      return res.status(400).json({ error: `language must be one of: ${cliToolEngine.SUPPORTED_LANGUAGES.join(", ")}` });
+    }
     if (code.length > 100_000) {
       return res.status(400).json({ error: "code too long (max 100,000 chars)" });
     }

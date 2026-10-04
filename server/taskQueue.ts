@@ -8,8 +8,11 @@
  * report stubbed work as successfully completed.
  */
 
-import { Queue, Worker, Job, QueueEvents } from "bullmq";
+import { Queue, Worker, Job, QueueEvents, UnrecoverableError } from "bullmq";
 import IORedis, { type RedisOptions } from "ioredis";
+import { createHash } from "node:crypto";
+import { unfinishedAdmissions, updateAdmission, admissionState } from "./executionOutbox.js";
+import { telemetryIdentity, withExecutionSpan } from "./telemetry.js";
 
 // ─── Exported Types ───────────────────────────────────────────────────────────
 
@@ -139,6 +142,8 @@ export class TaskQueue {
   private eventsRedis: IORedis | null = null;
   private processor: QueuedTaskProcessor | null = null;
   private available = false;
+  private outboxTimer: NodeJS.Timeout | null = null;
+  private flushingOutbox = false;
   private readonly readyConnections = new Set<string>();
 
   constructor() {}
@@ -150,11 +155,18 @@ export class TaskQueue {
   async processJob(
     job: Pick<Job<QueuedTask>, "id" | "data" | "updateProgress">
   ): Promise<string> {
+    return withExecutionSpan("workflow.execute", { "workflow.task_id_hash": telemetryIdentity(job.data.taskId) }, () => this.processJobCore(job));
+  }
+
+  private async processJobCore(
+    job: Pick<Job<QueuedTask>, "id" | "data" | "updateProgress">
+  ): Promise<string> {
     if (!this.processor) {
       throw new Error("Task queue processor is not configured; refusing to mark job complete.");
     }
 
     const { conversationId, taskId, userMessage, estimatedDuration } = job.data;
+    if (admissionState(taskId) === "failed") throw new UnrecoverableError("Request was cancelled or already failed; refusing execution.");
 
     console.log(
       `[TaskQueue] Processing job ${job.id}: ` +
@@ -164,14 +176,26 @@ export class TaskQueue {
     );
 
     await job.updateProgress(10);
-    const processorResult = await this.processor(job.data);
+    let processorResult;
+    try {
+      processorResult = await this.processor(job.data);
+      if (typeof processorResult !== "string" || !processorResult.trim()) {
+        throw new UnrecoverableError("Processor returned no completion receipt; refusing to mark job complete.");
+      }
+    } catch (error) {
+      if ((error as { retryable?: boolean })?.retryable === false) {
+        throw new UnrecoverableError(error instanceof Error ? error.message : "Execution failed");
+      }
+      throw error;
+    }
     await job.updateProgress(100);
+    updateAdmission(taskId, "completed");
 
     return JSON.stringify({
       taskId,
       conversationId,
       status: "orchestrator_complete",
-      result: processorResult ?? "completed",
+      result: processorResult,
     });
   }
 
@@ -218,7 +242,10 @@ export class TaskQueue {
         (job) => this.processJob(job),
         {
           connection: workerRedis,
-          concurrency: 4,
+          concurrency: 1,
+          // Bound private crash recovery without shortening the renewable lease.
+          stalledInterval: 10000,
+          lockDuration: 30000,
         }
       );
 
@@ -227,6 +254,9 @@ export class TaskQueue {
       });
 
       this.worker.on("failed", (job, err) => {
+        if (job && (err instanceof UnrecoverableError || job.attemptsMade >= (job.opts.attempts || 1))) {
+          updateAdmission(job.data.taskId, "failed");
+        }
         console.error(`[TaskQueue] Job ${job?.id} failed:`, err.message);
       });
 
@@ -254,6 +284,9 @@ export class TaskQueue {
       this.readyConnections.add("worker");
       this.readyConnections.add("events");
       this.refreshAvailability();
+      await this.flushOutbox();
+      this.outboxTimer = setInterval(() => { void this.flushOutbox().catch(error => console.error("[TaskQueue] Outbox delivery failed:", error.message)); }, 5000);
+      this.outboxTimer.unref();
       console.log("[TaskQueue] Initialized successfully — Redis connected.");
       return true;
     } catch (err: any) {
@@ -299,6 +332,18 @@ export class TaskQueue {
     return this.available;
   }
 
+  private async flushOutbox(): Promise<void> {
+    if (!this.available || this.flushingOutbox) return;
+    this.flushingOutbox = true;
+    try {
+      for (const task of unfinishedAdmissions()) {
+        if (admissionState(task.taskId) === "failed") continue;
+        const id = await this.enqueue(task);
+        if (!id.startsWith("error:") && !id.startsWith("unavailable:")) updateAdmission(task.taskId, "queued");
+      }
+    } finally { this.flushingOutbox = false; }
+  }
+
   /**
    * Adds a task to the BullMQ queue.
    * Returns the BullMQ job ID, or null if Redis is unavailable.
@@ -318,6 +363,7 @@ export class TaskQueue {
         `task:${task.taskId}`,
         task,
         {
+          jobId: `message-${createHash("sha256").update(task.taskId).digest("hex")}`,
           // Priority: long tasks go first (lower number = higher priority).
           priority: task.estimatedDuration === "long" ? 1
                   : task.estimatedDuration === "medium" ? 5
@@ -406,6 +452,7 @@ export class TaskQueue {
       // Only cancel jobs that haven't started yet.
       if (state === "waiting" || state === "delayed" || state === "prioritized") {
         await job.remove();
+        updateAdmission(job.data.taskId, "failed");
         console.log(`[TaskQueue] Cancelled job ${jobId}`);
         return true;
       }
@@ -441,6 +488,8 @@ export class TaskQueue {
   }
 
   private async closeResources(): Promise<void> {
+    if (this.outboxTimer) clearInterval(this.outboxTimer);
+    this.outboxTimer = null;
     this.available = false;
     this.readyConnections.clear();
 

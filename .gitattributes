@@ -14,3 +14,5 @@
 *.png binary
 *.jpg binary
 *.gif binary
+# Native inference fixtures must retain exact upstream bytes on every platform.
+*.onnx binary

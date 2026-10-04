@@ -1,0 +1,30 @@
+import path from "node:path";
+import fs from "node:fs";
+import { pathToFileURL } from "node:url";
+const packagePath = path.resolve(process.argv[2] ?? "node_modules/@huggingface/transformers");
+const cache = path.resolve(process.argv[3] ?? "data/hf-cache");
+const version = JSON.parse(fs.readFileSync(path.join(packagePath, "package.json"))).version;
+const { pipeline, env } = await import(pathToFileURL(path.join(packagePath, "dist/transformers.node.mjs")));
+env.cacheDir = cache; env.localModelPath = cache + path.sep;
+env.allowLocalModels = true; env.allowRemoteModels = false;
+const start = performance.now();
+const pipe = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2", { dtype: "fp32", device: "cpu" });
+const loadMs = performance.now() - start;
+const texts = ["How can I recover records after a disk failure?", "Restore a database backup following storage damage.", "Create a colorful painting of a flower garden.", "A disk jockey records a dance music album."];
+const vectors = [], latency = [];
+for (const text of texts) {
+  const begun = performance.now(); const result = await pipe(text, { pooling: "mean", normalize: true });
+  latency.push(performance.now() - begun); vectors.push(result.data);
+}
+const cosine = (a, b) => a.reduce((sum, value, i) => sum + value * b[i], 0);
+const repeat = (await pipe(texts[0], { pooling: "mean", normalize: true })).data;
+const scores = vectors.slice(1).map(v => cosine(vectors[0], v));
+const norms = vectors.map(v => Math.sqrt(cosine(v, v)));
+const finite = vectors.every(v => v.length === 384 && [...v].every(Number.isFinite));
+const words = text => new Set(text.toLowerCase().match(/[a-z]+/g));
+const queryWords = words(texts[0]);
+const lexicalOverlap = texts.slice(1).map(t => [...words(t)].filter(w => queryWords.has(w)).length);
+const worked = finite && norms.every(n => Math.abs(n - 1) < 0.001) && cosine(vectors[0], repeat) > 0.9999 && scores[0] > Math.max(...scores.slice(1));
+console.log(JSON.stringify({ status: worked ? "Worked" : "Failed", version, offline: true, dimensions: vectors[0].length, loadMs, inferenceMs: latency, norms, repeatCosine: cosine(vectors[0], repeat), relevantVersusDistractorScores: scores, lexicalOverlap }, null, 2));
+await pipe.dispose();
+if (!worked) process.exitCode = 1;

@@ -14,6 +14,13 @@ function fakeJob(task: QueuedTask) {
 }
 
 describe("TaskQueue processor boundary", () => {
+  it("rejects an empty processor result rather than certifying skipped work", async () => {
+    const queue = new TaskQueue();
+    queue.setProcessor(async () => undefined);
+    const job = fakeJob({ conversationId: "c", taskId: "m", userMessage: "work", estimatedDuration: "short" });
+    await expect(queue.processJob(job)).rejects.toThrow(/completion receipt/i);
+    expect(job.updateProgress).not.toHaveBeenCalledWith(100);
+  });
   it("fails instead of reporting stub success when no processor is configured", async () => {
     const queue = new TaskQueue();
     await expect(queue.processJob(fakeJob({

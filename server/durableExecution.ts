@@ -1,9 +1,13 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import Database from "better-sqlite3";
 import { redactValue } from "./redaction.js";
+import { ExecutionFailure } from "./executionOutcome.js";
 
-export type DurableRunStatus = "running" | "completed" | "failed" | "cancelled";
+const processToken = crypto.randomUUID();
+
+export type DurableRunStatus = "running" | "completed" | "failed" | "cancelled" | "interrupted";
 export type DurableStepStatus = "started" | "completed" | "failed" | "skipped";
 
 export interface DurableRunInput {
@@ -55,6 +59,8 @@ export interface DurableRunRecord {
   metadata?: Record<string, unknown>;
   steps: DurableStepRecord[];
   events: DurableEventRecord[];
+  ownerPid?: number;
+  ownerToken?: string;
 }
 
 export interface DurableRunStartResult {
@@ -96,9 +102,44 @@ function now(): number {
 
 function writeJsonAtomic(target: string, value: unknown): void {
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2), "utf-8");
-  fs.renameSync(tmp, target);
+  const tmp = `${target}.${crypto.randomUUID()}.tmp`;
+  const fd = fs.openSync(tmp, "wx", 0o600);
+  try {
+    fs.writeFileSync(fd, JSON.stringify(value, null, 2), "utf-8");
+    fs.fsyncSync(fd);
+  } finally { fs.closeSync(fd); }
+  try { fs.renameSync(tmp, target); }
+  finally { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
+}
+
+function ownerAlive(run: Pick<DurableRunRecord, "ownerPid" | "ownerToken">): boolean {
+  if (!run.ownerPid || !run.ownerToken) return false;
+  if (run.ownerPid === process.pid) return run.ownerToken === processToken;
+  try { process.kill(run.ownerPid, 0); return true; }
+  catch (error: any) { return error?.code !== "ESRCH"; }
+}
+
+function claimFile(workflowId: string): string { return `${runPath(workflowId)}.lock`; }
+
+function claimRun(workflowId: string): void {
+  const target = claimFile(workflowId);
+  if (fs.existsSync(target)) {
+    const owner = readJson<Pick<DurableRunRecord, "ownerPid" | "ownerToken">>(target);
+    if (owner && !ownerAlive(owner)) fs.unlinkSync(target);
+  }
+  try {
+    const fd = fs.openSync(target, "wx", 0o600);
+    try { fs.writeFileSync(fd, JSON.stringify({ ownerPid: process.pid, ownerToken: processToken })); fs.fsyncSync(fd); }
+    finally { fs.closeSync(fd); }
+  } catch (error: any) {
+    if (error?.code === "EEXIST") throw new Error("Execution already active; refusing concurrent replay");
+    throw error;
+  }
+}
+
+/** Only pre-planning reads may be safely repeated. Tool/plan interruptions need owner review. */
+export function canResumeRun(run: DurableRunRecord): boolean {
+  return run.steps.every(step => ["orchestrator.accepted", "memory.recall", "skills.match"].includes(step.stepId));
 }
 
 function readJson<T>(target: string): T | null {
@@ -121,11 +162,25 @@ export function workflowIdFromMessage(messageId: string): string {
 
 export function beginDurableRun(input: DurableRunInput): DurableRunStartResult {
   ensureRoot();
+  // Serialize reclamation across processes. A killed process releases the SQLite
+  // transaction; a second claimant then reads the new owner's record, not stale JSON.
+  const mutex = new Database(path.join(durableRoot(), "claims.db"));
+  mutex.pragma("busy_timeout = 5000");
+  try { return mutex.transaction(() => beginRunUnderLock(input)).immediate(); }
+  finally { mutex.close(); }
+}
+
+function beginRunUnderLock(input: DurableRunInput): DurableRunStartResult {
+  ensureRoot();
 
   const existingByKey = readJson<{ workflowId: string }>(idempotencyPath(input.idempotencyKey));
-  if (existingByKey) {
-    const existing = getDurableRun(existingByKey.workflowId);
+  {
+    const existing = getDurableRun(existingByKey?.workflowId || input.workflowId);
     if (existing) {
+      if (existing.idempotencyKey !== input.idempotencyKey || existing.conversationId !== input.conversationId || existing.workflowId !== input.workflowId) {
+        throw new ExecutionFailure("workflow_conflict", "Workflow identifier or idempotency key already belongs to another request");
+      }
+      if (!existingByKey) writeJsonAtomic(idempotencyPath(input.idempotencyKey), { workflowId: existing.workflowId });
       existing.attempts += 1;
       existing.updatedAt = now();
       existing.events.push({
@@ -133,17 +188,23 @@ export function beginDurableRun(input: DurableRunInput): DurableRunStartResult {
         type: "duplicate_start",
         details: redactValue({ idempotencyKey: input.idempotencyKey }) as Record<string, unknown>,
       });
+      if (existing.status === "running" && !ownerAlive(existing)) {
+        if (!canResumeRun(existing)) {
+          existing.status = "interrupted";
+          existing.events.push({ timestamp: now(), type: "recovery_requires_review" });
+          persistRun(existing);
+          throw new ExecutionFailure("interrupted_execution", "Execution interrupted after planning or a side effect. Review its recorded actions before submitting a new request.");
+        }
+        // A dead owner's lock is never reclaimed while that process is alive.
+        if (fs.existsSync(claimFile(existing.workflowId))) fs.unlinkSync(claimFile(existing.workflowId));
+        claimRun(existing.workflowId);
+        existing.ownerPid = process.pid;
+        existing.ownerToken = processToken;
+        existing.events.push({ timestamp: now(), type: "safe_pre_execution_resume" });
+        return { run: persistRun(existing), created: true };
+      }
       return { run: persistRun(existing), created: false };
     }
-  }
-
-  const existingByWorkflow = getDurableRun(input.workflowId);
-  if (existingByWorkflow) {
-    existingByWorkflow.attempts += 1;
-    existingByWorkflow.updatedAt = now();
-    existingByWorkflow.events.push({ timestamp: existingByWorkflow.updatedAt, type: "workflow_restart" });
-    writeJsonAtomic(idempotencyPath(input.idempotencyKey), { workflowId: input.workflowId });
-    return { run: persistRun(existingByWorkflow), created: false };
   }
 
   const timestamp = now();
@@ -160,15 +221,35 @@ export function beginDurableRun(input: DurableRunInput): DurableRunStartResult {
     metadata: redactValue(input.metadata || {}) as Record<string, unknown>,
     steps: [],
     events: [{ timestamp, type: "run_started" }],
+    ownerPid: process.pid,
+    ownerToken: processToken,
   };
 
+  claimRun(input.workflowId);
+  persistRun(run);
   writeJsonAtomic(idempotencyPath(input.idempotencyKey), { workflowId: input.workflowId });
-  return { run: persistRun(run), created: true };
+  return { run, created: true };
 }
 
 export function getDurableRun(workflowId: string): DurableRunRecord | null {
   ensureRoot();
   return readJson<DurableRunRecord>(runPath(workflowId));
+}
+
+export function reconcileInterruptedRuns(): DurableRunRecord[] {
+  ensureRoot();
+  const interrupted: DurableRunRecord[] = [];
+  for (const filename of fs.readdirSync(path.join(durableRoot(), "runs"))) {
+    if (!filename.endsWith(".json")) continue;
+    const run = readJson<DurableRunRecord>(path.join(durableRoot(), "runs", filename));
+    if (run?.status !== "running" || ownerAlive(run) || canResumeRun(run)) continue;
+    run.status = "interrupted";
+    run.updatedAt = now();
+    run.events.push({ timestamp: run.updatedAt, type: "recovery_requires_review" });
+    persistRun(run);
+    interrupted.push(run);
+  }
+  return interrupted;
 }
 
 export function recordDurableStep(input: DurableStepInput): DurableStepRecord {
@@ -238,10 +319,15 @@ export function markDurableRunStatus(
     type: `run_${status}`,
     details: redactValue(details || {}) as Record<string, unknown>,
   });
-  return persistRun(run);
+  persistRun(run);
+  if (status !== "running" && run.ownerToken === processToken && fs.existsSync(claimFile(workflowId))) {
+    fs.unlinkSync(claimFile(workflowId));
+  }
+  return run;
 }
 
 export function classifyRetry(error: unknown): RetryClassification {
+  if (error instanceof ExecutionFailure) return { retryable: false, category: "validation", backoffMs: 0, reason: error.message };
   const raw = typeof error === "string" ? error : error instanceof Error ? error.message : JSON.stringify(error);
   const message = (raw || "unknown error").toLowerCase();
 

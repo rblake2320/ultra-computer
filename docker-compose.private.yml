@@ -1,0 +1,16 @@
+services:
+  redis:
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    restart: unless-stopped
+    command: redis-server --appendonly yes --appendfsync everysec
+    ports:
+      - "127.0.0.1:${ULTRA_PRIVATE_REDIS_PORT:?Run npm run setup:private first}:6379"
+    volumes:
+      - queue-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+volumes:
+  queue-data:

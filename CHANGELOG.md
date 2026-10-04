@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-10-04
+
+### Fixed
+- Preserve direct short questions with reply-format suffixes; deny occupied
+  ports during installer verification and isolate restored listener ports.
+- Add a private-owner installer with protected persistent keys, dedicated Redis,
+  loopback listeners, cached Chromium validation and a built code image.
+- Upgrade the published beta database additively, preserve existing rows and
+  snapshot old state before adding model connection columns.
+- Persist message admissions before dispatch, deduplicate queue delivery and
+  require an explicit orchestrator completion receipt.
+- Recover pre-execution interruptions; quarantine later interruptions without
+  repeating unknown effects. Reject empty/truncated output and iteration
+  exhaustion as success, and execute only the current message's tasks.
+- Discover installed Ollama tool capability and simplify short-question prompts.
+- Ship Python, Node, TypeScript and Bash in the sandbox. Scope cleanup by owner
+  and remove the misleading host-fallback label.
+- Add offline full-state backup/verified restore with live/undrained refusal.
+- Resolve dependency advisories, migrate Tailwind to v4, bound offline SBOM
+  generation and add private-install/crash checks to existing CI.
+
+### Added
+- Managed private background operation, bounded logs, restart/health recovery,
+  maintenance-stop controls and removable Windows login startup (ADR-0004).
+- A real-model sustained workload gate and a distinct CI lifecycle regression;
+  attested source/build/SBOM candidate artifacts and source integrity checks.
+- Pinned Transformers.js 4.3 CPU inference, MCP client SDK 2.3 with modern/legacy
+  negotiation, and OpenTelemetry 2.11 private bounded execution traces (ADR-0003).
+- Provider-constrained task plans with deterministic DAG admission; isolate
+  cached responses across models, formats, parameters and instructions.
+- Optional isolated CPU Laya diagnostic classifier with pinned artifacts,
+  structured input and an eight-case benchmark.
+- WHY-0030, ADR-0002 and the dated private deployment evidence report.
+
 ## [Unreleased] - 2026-07-16
 
 ### Audited

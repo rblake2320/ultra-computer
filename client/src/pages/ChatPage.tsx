@@ -1248,7 +1248,7 @@ function SaveToLibraryButton({ toolCall, conversationId }: { toolCall: ToolCallE
   );
 }
 
-// Sandbox status indicator — shows Docker vs Host execution mode
+// Sandbox status indicator — shell execution fails closed without Docker.
 function SandboxIndicator() {
   const { data } = useQuery<{ dockerAvailable: boolean; enabled: boolean; activeContainers: number }>({
     queryKey: ["/api/sandbox/status"],
@@ -1270,7 +1270,7 @@ function SandboxIndicator() {
       ) : (
         <>
           <Shield className="w-3 h-3" />
-          <span>Host</span>
+          <span>Code execution unavailable</span>
         </>
       )}
     </div>

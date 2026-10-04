@@ -23,7 +23,7 @@ Set these values in the deployment environment, never in committed files:
 
 ## Preflight
 
-1. Confirm Node.js 22, 23, or 24. CI verifies Node 22 and 24 on Linux and
+1. Confirm Node.js 22 or 24. CI verifies Node 22 and 24 on Linux and
    Windows; production containers use Node 24.
 2. Run `npm ci`.
 3. Review `policies/*-access.json` for the release. They are deny-by-default; do not add broad allow rules for launch convenience.
@@ -49,6 +49,11 @@ Set these values in the deployment environment, never in committed files:
 ## Operate
 
 - Health: `GET /api/health`.
+- Private execution diagnostics: authenticated `GET /api/diagnostics/traces`.
+  Local metadata includes workflow/model parent IDs, durations and outcomes.
+  Prompts, answers, exception text and credentials are excluded. Four 256 KiB
+  JSONL files under the database directory bound retention; `exportFailed`
+  indicates an observed write failure. No external collector is configured.
 - Logs: route server stdout/stderr to the platform log collector.
 - Policy audit: ship `data/policy/audit.jsonl` to the log collector. Records include domain/action, tool/action, allow/deny, reason, actor/session when available, and redacted command/URL/path/metadata.
 - Webhooks: reject unsigned Slack and GitHub webhooks; rotate secrets after incidents.

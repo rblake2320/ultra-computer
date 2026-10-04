@@ -1,5 +1,18 @@
 # Durable Execution Gate
 
+## Private deployment update — 2026-10-04
+
+The private production route now requires a live queue and persists admissions
+before acknowledgement. Stable queue IDs, explicit completion receipts and
+serialized claims prevent lost dispatch and false unfinished-duplicate success.
+Acceptance-only interruptions resume; later interruptions are reconciled into
+visible failed/interrupted state without replaying tools. Run
+`npm run test:private-runtime` for historical schema upgrade, real model chat,
+active-process interruption and persisted-admission recovery. Its latter test
+seeds the admission boundary as a declared fixture; subsequent runtime, Redis,
+provider and answer are real. This supersedes the production fallback description
+below. Exact activity replay remains PARK-0021.
+
 This gate exists because AI-agent work must not be claimed production-durable when it is only an in-process loop, a local queue, or a demo that loses state on restart.
 
 ## Required Evidence Labels

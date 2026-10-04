@@ -106,7 +106,8 @@ export async function startGrpcServer(port = 5001): Promise<Server> {
   }
 
   await new Promise<void>((resolve, reject) => {
-    server.bindAsync(`0.0.0.0:${port}`, ServerCredentials.createInsecure(), (err, boundPort) => {
+    const host = process.env.GRPC_HOST || process.env.HOST || "127.0.0.1";
+    server.bindAsync(`${host}:${port}`, ServerCredentials.createInsecure(), (err, boundPort) => {
       if (err) {
         reject(err);
         return;
