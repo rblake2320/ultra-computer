@@ -78,7 +78,10 @@ test("workflow 1d: live installed-model discovery can save, test and connect a d
   await page.getByTestId("button-sync-model-catalog").click();
   await expect(page.getByText(/Live catalog synchronized/)).toBeVisible();
   await page.getByTestId(`preset-${localModel}`).click();
-  await expect.poll(async () => (await api<any[]>("/api/models")).find(m => m.modelId === localModel)?.connectionStatus, { timeout: 180_000 }).toBe("connected");
+  await expect.poll(async () => {
+    const discovered = (await api<any[]>("/api/models")).find(m => m.modelId === localModel);
+    return { status: discovered?.connectionStatus, error: discovered?.connectionError ?? null };
+  }, { timeout: 180_000 }).toMatchObject({ status: "connected" });
   const model = (await api<any[]>("/api/models")).find(m => m.modelId === localModel);
   await expect(page.getByTestId(`model-card-${model.id}`)).toBeVisible();
   await expect(page.getByTestId("tab-connected")).toContainText("1 connected");
