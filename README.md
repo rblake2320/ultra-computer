@@ -4,11 +4,12 @@
 orchestration, governed tool execution, durable work queues, browser automation,
 skills, memory, and agent-to-agent protocols.
 
-> **Status:** Launch-candidate hardening branch. Repository, unit, local-process,
-> and Docker results are evidence only for the paths they exercise. Paid model
-> providers and third-party connectors require separate live verification. The
-> OpenAI catalog discovery attempted during the 2026-07-16 readiness pass
-> returned HTTP 401 and is therefore **not verified live**.
+> **Status:** Private single-owner release, verified at the Pilot-ready tier for
+> the [declared workload and operating receipt](reports/private-operating-20261004.json).
+> The installed build passed real local inference, five concurrent read
+> connections, Redis outage, app/supervisor crash recovery and drained maintenance.
+> Use the [operating contract](docs/decisions/0004-private-operating-and-release-contract.md)
+> and run `npm run verify:owner` in your own shell for final owner acceptance.
 
 ---
 

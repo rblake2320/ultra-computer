@@ -1,0 +1,476 @@
+{
+  "startedAt": "2026-10-04T16:16:20.594Z",
+  "platform": "win32",
+  "node": "v24.17.0",
+  "workload": {
+    "owners": 1,
+    "concurrentReadConnections": 5,
+    "activeQueueWorkers": 1,
+    "readRequestsPerSecond": 3,
+    "burstRequestsPerSecond": 5,
+    "burstSeconds": 10,
+    "seededConversations": 1000,
+    "seededMessages": 10000,
+    "model": "gemma3:latest",
+    "durationSeconds": 600,
+    "scenario": "declared production workload; varied arithmetic with format suffix"
+  },
+  "targets": {
+    "apiP95Ms": 250,
+    "apiP99Ms": 1000,
+    "unexpectedErrors": 0,
+    "jobP95Ms": 30000,
+    "jobP99Ms": 60000,
+    "appRecoveryMs": 60000,
+    "redisRecoveryMs": 30000,
+    "rssGrowthBytes": 100663296,
+    "maxRssBytes": 1073741824,
+    "controlledAvailabilityPercent": 99
+  },
+  "results": [
+    {
+      "name": "managed-start",
+      "status": "Worked",
+      "detail": {}
+    },
+    {
+      "name": "duplicate-supervisor-denied",
+      "status": "Worked",
+      "detail": {
+        "exitCode": 1
+      }
+    },
+    {
+      "name": "occupied-port-verification-denied",
+      "status": "Worked",
+      "detail": {
+        "exitCode": 1,
+        "managedAppPreserved": true
+      }
+    },
+    {
+      "name": "owner-auth",
+      "status": "Worked",
+      "detail": {
+        "unauthenticatedStatus": 401
+      }
+    },
+    {
+      "name": "runtime-diagnostics-auth",
+      "status": "Worked",
+      "detail": {
+        "unauthenticatedStatus": 401
+      }
+    },
+    {
+      "name": "bounded-process-memory",
+      "status": "Worked",
+      "detail": {
+        "warmRssBytes": 326692864,
+        "lastRssBytes": 333410304,
+        "maxRssBytes": 333410304,
+        "growthBytes": 6717440,
+        "samples": 361
+      }
+    },
+    {
+      "name": "sustained-authenticated-reads",
+      "status": "Worked",
+      "detail": {
+        "requests": 1805,
+        "p50Ms": 12,
+        "p95Ms": 38,
+        "p99Ms": 87,
+        "unexpectedErrors": 0,
+        "failures": [],
+        "maxConcurrentReads": 5
+      }
+    },
+    {
+      "name": "real-inference-and-three-job-burst",
+      "status": "Worked",
+      "detail": {
+        "completed": 29,
+        "p95Ms": 9203,
+        "p99Ms": 10490
+      }
+    },
+    {
+      "name": "controlled-availability",
+      "status": "Worked",
+      "detail": {
+        "samples": 580,
+        "percent": 100,
+        "excludesPlannedFaultInjection": true
+      }
+    },
+    {
+      "name": "redis-outage-denial-and-recovery",
+      "status": "Worked",
+      "detail": {
+        "healthHTTP": 503,
+        "admissionHTTP": 503,
+        "noGhost": true,
+        "recoveryMs": 1417
+      }
+    },
+    {
+      "name": "real-job-after-redis-recovery",
+      "status": "Worked",
+      "detail": {
+        "number": 29,
+        "expected": 7,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 4946,
+        "queued": false
+      }
+    },
+    {
+      "name": "managed-app-crash-recovery",
+      "status": "Worked",
+      "detail": {
+        "recoveryMs": 16355
+      }
+    },
+    {
+      "name": "real-job-after-app-recovery",
+      "status": "Worked",
+      "detail": {
+        "number": 30,
+        "expected": 8,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 7288,
+        "queued": false
+      }
+    },
+    {
+      "name": "supervisor-crash-orphan-cleanup-and-relaunch",
+      "status": "Worked",
+      "detail": {
+        "orphanGone": true,
+        "recoveryMs": 19857
+      }
+    },
+    {
+      "name": "real-job-after-supervisor-relaunch",
+      "status": "Worked",
+      "detail": {
+        "number": 31,
+        "expected": 9,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 2731,
+        "queued": false
+      }
+    },
+    {
+      "name": "sqlite-integrity-and-drained-outbox",
+      "status": "Worked",
+      "detail": {
+        "integrity": "ok",
+        "unfinishedAdmissions": 0,
+        "databaseBytes": 6598656
+      }
+    },
+    {
+      "name": "real-model-trace-receipts",
+      "status": "Worked",
+      "detail": {
+        "workedModelStreamSpans": 32
+      }
+    },
+    {
+      "name": "confirmed-maintenance-stop",
+      "status": "Worked",
+      "detail": {
+        "state": "stopped"
+      }
+    }
+  ],
+  "memoryMetricShape": [
+    "pid",
+    "parentPid",
+    "uptimeSeconds",
+    "memory",
+    "queueAvailable"
+  ],
+  "maxConcurrentReads": 5,
+  "api": {
+    "requests": 1805,
+    "p50Ms": 12,
+    "p95Ms": 38,
+    "p99Ms": 87,
+    "unexpectedErrors": 0,
+    "failures": []
+  },
+  "jobs": {
+    "completed": 29,
+    "p50Ms": 3575,
+    "p95Ms": 9203,
+    "p99Ms": 10490,
+    "receipts": [
+      {
+        "number": 0,
+        "expected": 2,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 3575,
+        "queued": false
+      },
+      {
+        "number": 1,
+        "expected": 3,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 4476,
+        "queued": false
+      },
+      {
+        "number": 2,
+        "expected": 4,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 2697,
+        "queued": false
+      },
+      {
+        "number": 3,
+        "expected": 5,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 2176,
+        "queued": false
+      },
+      {
+        "number": 4,
+        "expected": 6,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 2664,
+        "queued": true
+      },
+      {
+        "number": 5,
+        "expected": 7,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 4820,
+        "queued": true
+      },
+      {
+        "number": 6,
+        "expected": 8,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 9203,
+        "queued": true
+      },
+      {
+        "number": 7,
+        "expected": 3,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 4368,
+        "queued": false
+      },
+      {
+        "number": 8,
+        "expected": 4,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 4147,
+        "queued": false
+      },
+      {
+        "number": 9,
+        "expected": 5,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 2152,
+        "queued": false
+      },
+      {
+        "number": 10,
+        "expected": 6,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 4925,
+        "queued": false
+      },
+      {
+        "number": 11,
+        "expected": 7,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 2473,
+        "queued": false
+      },
+      {
+        "number": 12,
+        "expected": 8,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 2191,
+        "queued": false
+      },
+      {
+        "number": 13,
+        "expected": 9,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 3764,
+        "queued": false
+      },
+      {
+        "number": 14,
+        "expected": 4,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 10490,
+        "queued": false
+      },
+      {
+        "number": 15,
+        "expected": 5,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 4454,
+        "queued": false
+      },
+      {
+        "number": 16,
+        "expected": 6,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 2762,
+        "queued": false
+      },
+      {
+        "number": 17,
+        "expected": 7,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 3263,
+        "queued": false
+      },
+      {
+        "number": 18,
+        "expected": 8,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 2688,
+        "queued": false
+      },
+      {
+        "number": 19,
+        "expected": 9,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 4420,
+        "queued": false
+      },
+      {
+        "number": 20,
+        "expected": 10,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 4938,
+        "queued": false
+      },
+      {
+        "number": 21,
+        "expected": 5,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 2878,
+        "queued": false
+      },
+      {
+        "number": 22,
+        "expected": 6,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 3896,
+        "queued": false
+      },
+      {
+        "number": 23,
+        "expected": 7,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 2237,
+        "queued": false
+      },
+      {
+        "number": 24,
+        "expected": 8,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 4363,
+        "queued": false
+      },
+      {
+        "number": 25,
+        "expected": 9,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 4572,
+        "queued": false
+      },
+      {
+        "number": 26,
+        "expected": 10,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 2754,
+        "queued": false
+      },
+      {
+        "number": 27,
+        "expected": 11,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 3342,
+        "queued": false
+      },
+      {
+        "number": 28,
+        "expected": 6,
+        "assistantMessages": 1,
+        "admission": "completed",
+        "elapsedMs": 2195,
+        "queued": false
+      }
+    ]
+  },
+  "availability": {
+    "samples": 580,
+    "percent": 100,
+    "excludesPlannedFaultInjection": true
+  },
+  "memory": {
+    "warmRssBytes": 326692864,
+    "lastRssBytes": 333410304,
+    "maxRssBytes": 333410304,
+    "growthBytes": 6717440,
+    "samples": 361
+  },
+  "finishedAt": "2026-10-04T16:27:52.630Z",
+  "status": "Worked",
+  "testedSourceCommit": "645b29d7c024b218328faf4e6dcf2c707cf7630b",
+  "artifactSha256": "65428a3a5b83dcd1a3b3019d23e0621000aa6b20b2635006e87f2db691c5dddd",
+  "infrastructure": {
+    "os": "Windows",
+    "node": "24.17.0",
+    "dockerEngine": "29.5.3",
+    "dockerPlatform": "Linux Docker Desktop",
+    "ollama": "0.32.14",
+    "model": "gemma3:latest (4B)",
+    "database": "SQLite",
+    "queue": "dedicated loopback Redis",
+    "workers": 1
+  },
+  "readinessTier": "Pilot-ready for the declared private single-owner workload; human acceptance is separate"
+}
