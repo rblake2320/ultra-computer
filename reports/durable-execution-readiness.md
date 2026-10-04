@@ -1,5 +1,17 @@
 # Durable Execution Readiness Report
 
+> **2026-10-04 efficiency update — VERIFIED LOCALLY:** Installed local Gemma 4
+> arithmetic completed with one provider attempt; actual HTTP measurements for
+> two synthetic prompts dropped from six calls/12,401 provider-reported tokens
+> to two calls/110 tokens. All workers and fallbacks in a turn share admission
+> limits of 16 attempts, 64,000 estimated input tokens and 32,768 output tokens
+> including pending reservations. Unknown usage consumes its allowance. Real
+> OpenShell action receipts were checked against received file bytes; an executed
+> exit 1 kept the conversation in error. These are receiving outcomes plus
+> admission controls, not exact workflow replay. The crash/quarantine contract
+> below remains unchanged. Commands: `test:efficiency`, `verify:efficient-owner`;
+> regression controls: modelRunBudget, actionEvidence, singleQuestion. ADR-0006.
+
 > **2026-10-04 application update:** Private messages have persistent admission
 > and explicit terminal receipts. Acceptance-only interrupted work resumes;
 > later interruptions are quarantined and reconciled into visible failure.
