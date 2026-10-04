@@ -90,6 +90,7 @@ export function SandboxPage() {
   };
 
   const dockerOk = status?.dockerAvailable ?? false;
+  const openShell = status?.engine === "NVIDIA OpenShell";
   const isActive = dockerOk && (form?.enabled ?? config?.enabled ?? false);
 
   if (configLoading) {
@@ -144,7 +145,7 @@ export function SandboxPage() {
                   ? `${status?.activeContainers || 0} active container(s) of ${status?.maxContainers || 0} max`
                   : dockerOk
                     ? "Enable the sandbox below to isolate bash commands in containers"
-                    : "Install Docker and click 'Re-detect' to enable container isolation"
+                    : openShell ? "Check the OpenShell gateway, then click 'Re-detect'." : "Install Docker and click 'Re-detect' to enable container isolation"
                 }
               </p>
             </div>
@@ -180,7 +181,7 @@ export function SandboxPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                  <Container className="w-3.5 h-3.5" /> Docker Image
+                  <Container className="w-3.5 h-3.5" /> Container Image
                 </Label>
                 <div className="flex gap-2">
                   <Input
@@ -195,7 +196,7 @@ export function SandboxPage() {
                     onClick={() => pullImage.mutate()}
                     disabled={pullImage.isPending}
                     data-testid="button-pull-image"
-                    aria-label="Ensure configured Docker image is available"
+                    aria-label="Ensure configured container image is available"
                   >
                     <Download className={`w-3.5 h-3.5 ${pullImage.isPending ? "animate-pulse motion-reduce:animate-none" : ""}`} />
                   </Button>
@@ -288,12 +289,12 @@ export function SandboxPage() {
                 <Network className="w-4 h-4 text-primary" />
                 <div>
                   <Label className="text-sm font-semibold">Network Access</Label>
-                  <p className="text-xs text-muted-foreground">Allow containers to access the internet (disabled = maximum isolation)</p>
+                  <p className="text-xs text-muted-foreground">{openShell ? "The installed OpenShell policy denies network access." : "Allow containers to access the internet. Disabled by default."}</p>
                 </div>
               </div>
               <Switch
                 checked={form.networkEnabled}
-                disabled={status?.engine === "NVIDIA OpenShell"}
+                disabled={openShell}
                 onCheckedChange={v => setForm(f => f ? { ...f, networkEnabled: v } : f)}
                 data-testid="switch-network-enabled"
               />
@@ -306,7 +307,7 @@ export function SandboxPage() {
               </Button>
               <Button variant="destructive" size="sm" onClick={() => cleanup.mutate()} disabled={cleanup.isPending} data-testid="button-cleanup">
                 <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-                {cleanup.isPending ? "Cleaning..." : "Kill All Containers"}
+                {cleanup.isPending ? "Cleaning..." : "Stop This App's Containers"}
               </Button>
               {saveConfig.isSuccess && (
                 <span className="text-sm text-green-600">Saved</span>
@@ -357,12 +358,18 @@ export function SandboxPage() {
             Security Model
           </h3>
           <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-            <li>Each agent run gets its own ephemeral container — no cross-session leakage</li>
-            <li>Capabilities are dropped (CAP_DROP=ALL) with minimal add-backs for file operations</li>
-            <li>PID limit of 256 prevents fork bombs</li>
-            <li>Memory and swap are capped — no OOM cascading to host</li>
-            <li>{status?.engine === "NVIDIA OpenShell" ? "OpenShell network access is denied by the installed policy." : "Network isolation (--network=none) is the default."}</li>
-            <li>The sandbox directory is bind-mounted as /workspace for file persistence</li>
+            <li>Each execution session uses a separate container. Files in the app's sandbox directory persist between runs.</li>
+            {openShell ? <>
+              <li>Workloads run as user 1000 with a required Landlock filesystem policy.</li>
+              <li>The gateway authenticates the app with mTLS; workload network access is denied by policy.</li>
+              <li>CPU and memory limits are applied when creating the sandbox.</li>
+              <li>Checked files are transferred to /workspace and returned to the app after execution.</li>
+            </> : <>
+              <li>The root filesystem is read-only and Linux capabilities are dropped.</li>
+              <li>Containers have a PID limit of 256, CPU and memory limits, and disabled swap.</li>
+              <li>Network isolation (--network=none) is the default.</li>
+              <li>The app's sandbox directory is mounted at /workspace for file persistence.</li>
+            </>}
             <li>Containers auto-reap after idle timeout</li>
             <li>Code execution requires the configured sandbox engine. Unavailable isolation blocks execution.</li>
           </ul>

@@ -6,7 +6,7 @@ export function isSingleQuestion(input: string): boolean {
   const question = input.indexOf("?");
   if (question < 0 || input.indexOf("?", question + 1) !== -1) return false;
   const suffix = input.slice(question + 1).trim();
-  return !suffix || /^(?:please\s+)?(?:reply|answer|respond|return)\s+(?:with\s+|in\s+)?(?:only\s+)?(?:the\s+)?(?:number|answer|result|json|one\s+(?:word|sentence)|a\s+short\s+(?:answer|sentence))[.!]?$/i.test(suffix);
+  return !suffix || /^(?:please\s+)?(?:reply|answer|respond|return)\s+(?:with\s+|in\s+)?(?:only\s+)?(?:the\s+)?(?:name|number|answer|result|json|one\s+(?:word|sentence)|a\s+short\s+(?:answer|sentence))[.!]?$/i.test(suffix);
 }
 
 /** One request needs one worker; explicit sequential steps retain DAG planning. */

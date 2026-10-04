@@ -1,7 +1,7 @@
 # ADR-0006: Bounded model turns and an optional OpenShell sandbox
 
 Status: accepted for the private single-owner deployment, 2026-10-04.
-Related: WHY-0039, WHY-0040, ADR-0004, ADR-0005.
+Related: WHY-0039, WHY-0040, WHY-0041, WHY-0042, ADR-0004, ADR-0005.
 
 The installed chat generated speculative agent recommendations instead of
 performing a requested upgrade. Real Ollama measurements also observed three
@@ -13,6 +13,10 @@ or longer work. Plain answers omit tool schemas. Automatically injected KB
 content is capped at 2,048 tokens, recent dialogue at six messages/8,000 characters.
 Ollama optional thinking is disabled through its actual compatible HTTP field.
 Memory stores explicit original owner text; ordinary chat adds no extraction call.
+Short follow-ups with a name-only format also omit tool schemas; installed
+acceptance requires the remembered answer in one call below 1,000 estimated
+input tokens. Sandbox descriptions distinguish policy-controlled transfer from
+Docker bind mounts. Shell examples and receiving fixtures use approved commands.
 All parallel workers and fallbacks share an AsyncLocalStorage admission budget:
 16 provider attempts, 64,000 estimated input tokens and 32,768 output tokens plus
 pending reservations. Input accounting uses UTF-8 bytes/4, not an exact tokenizer.
@@ -25,6 +29,8 @@ It does not validate every sentence a model writes.
 NVIDIA OpenShell is an optional isolation engine on Windows with WSL Ubuntu 24.04
 and Docker Desktop integration. CLI and gateway/runtime/supervisor images are
 pinned by digest. Only the trusted gateway receives the Docker socket. Workloads
+are built from the `openshell` target of the same digest-pinned interpreter
+Dockerfile, avoiding reliance on a mutable local parent-image tag. Workloads
 run as UID/GID 1000, offline, with Landlock required. No automatic provider
 attachment, host-command fallback or automatic network approval exists. The
 gateway publishes authenticated gRPC and health on loopback ports 5671 and 5672.

@@ -19,7 +19,8 @@ try {
  record('one-call-arithmetic',/^\s*4[.!]?\s*$/.test(arithmetic.answer.content)&&budget.calls===1,{answer:arithmetic.answer.content,modelBudget:budget});
  await message(conv,'My synthetic verification project is named Atlas. Reply with only OK.');
  const follow=await message(conv,'What is my verification project named? Reply with only the name.');
- record('bounded-follow-up-context',/^\s*Atlas[.!]?\s*$/i.test(follow.answer.content),{answer:follow.answer.content,modelBudget:JSON.parse(follow.answer.metadata).modelBudget});
+ const followBudget=JSON.parse(follow.answer.metadata).modelBudget;
+ record('bounded-follow-up-context',/^\s*Atlas[.!]?\s*$/i.test(follow.answer.content)&&followBudget.calls===1&&followBudget.estimatedInputTokens<1000,{answer:follow.answer.content,modelBudget:followBudget});
  record('no-automatic-invented-memory',!(await api('/api/memory')).some(m=>m.sessionId===conv.id),{automaticMemoryEntries:0});
  await message(conv,'Remember that I prefer concise replies for my verification project.');
  record('explicit-verbatim-memory',(await api('/api/memory')).some(m=>m.sessionId===conv.id&&m.content==='I prefer concise replies for my verification project.'),{originalOwnerTextStored:true});
@@ -37,11 +38,12 @@ try {
  record('offline-network-denial',deniedNetwork.exitCode!==0,{exitCode:deniedNetwork.exitCode});
  const identity=await api('/api/protocols/code/interpret',{language:'bash',code:'id -u'});record('non-root-workload',identity.exitCode===0&&identity.stdout.trim()==='1000',{uid:identity.stdout.trim()});
  const file='verification-'+randomUUID()+'.txt';const actionConv=await api('/api/conversations',{title:'Release verification: actual tool action',orchestratorModelId:model.id});
- const action=await message(actionConv,`Use the bash tool to run: printf 42 > ${file}. Reply briefly after the tool succeeds.`);
+ const action=await message(actionConv,`Use the bash tool to run exactly this command:\necho -n 42 > ${file}\nReply briefly after the tool succeeds.`);
  const calls=action.agents.flatMap(a=>JSON.parse(a.toolCalls||'[]'));
  record('real-agent-file-receipt',calls.some(c=>c.tool==='bash'&&c.result.success)&&fs.readFileSync(path.join(root,'sandbox',file),'utf8')==='42',{successfulBashReceipts:calls.filter(c=>c.tool==='bash'&&c.result.success).length,received:'42',modelBudget:JSON.parse(action.answer.metadata).modelBudget});
  const failedConv=await api('/api/conversations',{title:'Release verification: failed action',orchestratorModelId:model.id});
- const failed=await message(failedConv,'Use the bash tool to run exit 7 once. Report the exit status.',true);
- record('failed-tool-never-reported-complete',failed.status==='error'&&failed.agents.some(a=>JSON.parse(a.toolCalls||'[]').some(c=>c.tool==='bash'&&!c.result.success)),{conversationStatus:failed.status});
+ const missing='missing-'+randomUUID()+'.txt';
+ const failed=await message(failedConv,`Use the bash tool to run exactly this command once:\ncat ${missing}\nReport the exit status.`,true);
+ record('failed-tool-never-reported-complete',failed.status==='error'&&failed.agents.some(a=>JSON.parse(a.toolCalls||'[]').some(c=>c.tool==='bash'&&!c.result.success&&c.result.error==='Exit code 1')),{conversationStatus:failed.status,executedExitCode:1});
 } catch(error){receipt.error=String(error.message).replaceAll(config.apiKey,'[redacted]').replaceAll(config.encryptionKey,'[redacted]');console.error(receipt.error);process.exitCode=1;}
 finally{receipt.status=receipt.error?'Failed':'Worked';fs.writeFileSync(path.join(data,'private-efficient-receipt.json'),JSON.stringify(receipt,null,2),{mode:0o600});}
