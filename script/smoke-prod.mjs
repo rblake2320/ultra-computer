@@ -45,6 +45,7 @@ const stop = async () => {
   fs.rmSync(smokeDirectory, { recursive: true, force: true });
 };
 
+async function main() {
 try {
   const deadline = Date.now() + 15_000;
   let lastError = "";
@@ -60,7 +61,7 @@ try {
         const body = await response.json();
         console.log(`production smoke passed on port ${port}: ${body.status ?? response.status}`);
         await stop();
-        process.exit(0);
+        return;
       }
       lastError = `health returned ${response.status}`;
     } catch (error) {
@@ -76,5 +77,7 @@ try {
   console.error(error instanceof Error ? error.message : error);
   const tail = output.join("").split(/\r?\n/).slice(-40).join("\n");
   if (tail.trim()) console.error(tail);
-  process.exit(1);
+  process.exitCode = 1;
 }
+}
+await main();

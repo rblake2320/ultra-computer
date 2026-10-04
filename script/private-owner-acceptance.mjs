@@ -49,7 +49,7 @@ try {
   await page.screenshot({ path: path.join(data, "private-owner-browser.png"), fullPage: true });
   record("installed-browser-unlock", removed, { credentialFormRemoved: true, screenshot: "data/private-owner-browser.png" });
   record("private-diagnostics", (await api("/api/diagnostics/runtime")).queueAvailable && !(await api("/api/diagnostics/traces")).exportFailed, { liveQueue: true, traceExport: "Worked" });
-} catch (error) { receipt.error = error.message; console.error(error.message); process.exitCode = 1; }
+} catch (error) { receipt.error = String(error.message || "Owner acceptance failed").replaceAll(config.apiKey, "[redacted]").replaceAll(config.encryptionKey, "[redacted]"); console.error(receipt.error); process.exitCode = 1; }
 finally {
   await browser?.close(); receipt.status = receipt.error ? "Failed" : "Worked";
   fs.writeFileSync(path.join(data, "private-owner-receipt.json"), JSON.stringify(receipt, null, 2), { mode: 0o600 });

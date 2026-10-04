@@ -29,7 +29,7 @@ function appendLog(chunk) {
   } catch { logFailed = true; }
 }
 async function healthy(config) {
-  try { return (await fetch(`http://127.0.0.1:${config.httpPort}/api/health`, { signal: AbortSignal.timeout(2000) })).ok; } catch { return false; }
+  try { const response = await fetch(`http://127.0.0.1:${config.httpPort}/api/health`, { signal: AbortSignal.timeout(2000) }); const body = await response.json(); return response.ok && body.status === "ok"; } catch { return false; }
 }
 async function stopChild(child) {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
@@ -94,14 +94,14 @@ async function supervise(config) {
     lease.close();
   }
 }
-try {
+async function main() {
   const config = loadConfig();
   if (mode === "run") await supervise(config);
   else if (mode === "start") {
     let lastLaunch = 0;
     for (let i = 0; i < 120; i++) {
       const status = readState();
-      if (fresh(status) && status.state === "ready" && await healthy(config)) { console.log(`Worked: private service ready at http://127.0.0.1:${config.httpPort}`); process.exit(0); }
+      if (fresh(status) && status.state === "ready" && await healthy(config)) { console.log(`Worked: private service ready at http://127.0.0.1:${config.httpPort}`); return; }
       if (!fresh(status) && Date.now() - lastLaunch >= 15000) {
         // No PID from disk is killed; the exclusive lease arbitrates starts.
         const child = spawn(process.execPath, [path.join(root, "script/private-service.mjs"), "run"], { cwd: root, detached: true, windowsHide: true, stdio: "ignore" });
@@ -118,7 +118,7 @@ try {
       if (reader.prepare("SELECT COUNT(*) AS n FROM execution_outbox WHERE state IN ('pending','queued')").get().n > 0) throw new Error("Work is unfinished. Drain or cancel it before maintenance stop.");
     } finally { reader.close(); }
     fs.writeFileSync(stopFile, JSON.stringify({ instance: prior.instance }), { mode: 0o600 });
-    for (let i = 0; i < 80; i++) { const status = readState(); if (status?.instance === prior.instance && status.state === "stopped") { console.log("Worked: private service stopped."); process.exit(0); } await delay(500); }
+    for (let i = 0; i < 80; i++) { const status = readState(); if (status?.instance === prior.instance && status.state === "stopped") { console.log("Worked: private service stopped."); return; } await delay(500); }
     throw new Error("Stop was requested but not confirmed; inspect service:status before backup.");
   } else if (mode === "status") {
     const state = readState(); const ready = fresh(state) && state.state === "ready" && await healthy(config);
@@ -136,4 +136,5 @@ try {
       console.log("Worked: private service autostart registered for this user's Windows login.");
     } else { execFileSync("reg.exe", ["delete", registry, "/v", name, "/f"], { stdio: "ignore", windowsHide: true }); console.log("Worked: this installation's login autostart removed."); }
   } else throw new Error(`Unknown service operation: ${mode}`);
-} catch (error) { console.error(error.message); process.exitCode = 1; }
+}
+try { await main(); } catch (error) { console.error(error.message); process.exitCode = 1; }

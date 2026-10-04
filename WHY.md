@@ -736,3 +736,20 @@ hold detailed decisions that affect architecture or long-lived behavior.
   checks. The existing core CI adds a separate managed-service regression.
 - **Residual:** Host/model availability and post-effect uncertainty remain in
   the declared private contract, ADR-0004. Human acceptance is Constitution R14.
+
+### Windows receiving corrections for WHY-0033
+
+The signed-archive run completed its API/model workload, Redis recovery and
+app recovery, then exposed a native libuv assertion during supervisor relaunch.
+The launcher forced process.exit immediately after a fetch whose body was not
+consumed. Use natural CLI returns and consume the health body; the real Windows
+retest completed eight start commands, supervisor kill/orphan cleanup/relaunch
+and confirmed stop without assertions. The class sweep removed forced exits
+from fetch-based smoke/build/Docker helpers and the TCP readiness CLI; the
+cliExitSafety gate forbids reintroducing the fetch/forced-exit combination.
+Upstream receiving report: [nodejs/node#58091](https://github.com/nodejs/node/issues/58091).
+
+Legacy import now copies/fsyncs the empty prior target and atomically replaces
+the canonical DB. A real Windows probe returned EPERM when fsync used an 'r'
+handle; an 'r+' handle passed. The import regression and receiving check require
+that Windows-compatible flush while retaining the source and original target.
