@@ -1,5 +1,12 @@
 # Durable Execution Readiness Report
 
+> **2026-10-04 application update:** Private messages have persistent admission
+> and explicit terminal receipts. Acceptance-only interrupted work resumes;
+> later interruptions are quarantined and reconciled into visible failure.
+> `npm run test:private-runtime` exercises real message recovery. See
+> `private-readiness-20261004.md` and PARK-0021 for the current contract. Historical
+> Temporal sample evidence below remains a separate infrastructure result.
+
 Date: 2026-06-13 (VERIFIED LIVE update)
 
 Status: `SUPERSEDED FOR APPLICATION READINESS — sample proof only`

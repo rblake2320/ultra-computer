@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] - 2026-10-04
+
+### Fixed
+- Add a private-owner installer with protected persistent keys, dedicated Redis,
+  loopback listeners, cached Chromium validation and a built code image.
+- Upgrade the published beta database additively, preserve existing rows and
+  snapshot old state before adding model connection columns.
+- Persist message admissions before dispatch, deduplicate queue delivery and
+  require an explicit orchestrator completion receipt.
+- Recover pre-execution interruptions; quarantine later interruptions without
+  repeating unknown effects. Reject empty/truncated output and iteration
+  exhaustion as success, and execute only the current message's tasks.
+- Discover installed Ollama tool capability and simplify short-question prompts.
+- Ship Python, Node, TypeScript and Bash in the sandbox. Scope cleanup by owner
+  and remove the misleading host-fallback label.
+- Add offline full-state backup/verified restore with live/undrained refusal.
+- Resolve dependency advisories, migrate Tailwind to v4, bound offline SBOM
+  generation and add private-install/crash checks to existing CI.
+
+### Added
+- Optional isolated CPU Laya diagnostic classifier with pinned artifacts,
+  structured input and an eight-case benchmark.
+- WHY-0030, ADR-0002 and the dated private deployment evidence report.
+
 ## [Unreleased] - 2026-07-16
 
 ### Audited

@@ -12,7 +12,72 @@ skills, memory, and agent-to-agent protocols.
 
 ---
 
-## What Is This?
+## Private single-owner installation
+
+Use Git, Node.js 24 (22 also supported) and Docker Desktop with its Linux engine
+running. The app runs on the host with its own Redis and isolated code containers.
+
+```sh
+git clone https://github.com/rblake2320/ultra-computer.git
+cd ultra-computer
+npm run setup:private
+npm run start:private
+```
+
+Setup installs locked dependencies, audits them, checks Chromium, builds the
+app and sandbox image, generates protected persistent keys, starts a dedicated
+queue and verifies authenticated APIs plus Python, Node, TypeScript and Bash.
+It prints the local URL. Unlock with `data/owner-access.key`. HTTP, gRPC and
+Redis bind to loopback. Repeated setup retains configuration and keys. Stop
+the app before repeating setup or running `npm run verify:private`.
+
+Install Ollama separately, pull a model, then add it on Models using
+`http://127.0.0.1:11434/v1` and **Save and connect**. `gemma3:270m` is the small
+model used for arithmetic acceptance; choose a model with advertised tool
+support for agent actions. Setup does not download a chat model or call paid
+providers. Laya is a separate optional classifier.
+
+```sh
+# Docker and Ollama with gemma3:270m are required:
+npm run test:private-runtime
+# Stop the app and drain/cancel queued work first:
+npm run state:backup -- /path/to/new-backup-directory
+# In a new checkout, after npm ci, with empty data/ipc/sandbox:
+npm run state:restore -- /path/to/backup-directory
+npm run setup:private
+```
+
+Use an absolute backup path appropriate to your OS. Backups contain secrets;
+keep them private. They retain SQLite, encrypted credentials, owner/encryption
+keys, run records, IPC and sandbox artifacts. Restore verifies checksums and
+refuses existing state. Stop the original queue before recovering on its port.
+Completed Redis job/cache history and reinstallable Laya runtime/model cache
+are excluded. Unfinished queue/outbox work must be drained before backup.
+
+Accepted messages persist before Redis dispatch. Pre-execution interruptions
+can resume. Later interruptions are marked interrupted with visible guidance;
+inspect artifacts before submitting a new request. See
+[ADR-0002](docs/decisions/0002-private-owner-install-and-execution-outcomes.md)
+and [the release evidence](reports/private-readiness-20261004.md).
+
+### Optional Laya diagnostics
+
+With Python 3.12 available:
+
+```sh
+npm run setup:laya
+npm run doctor:laya
+# JSON containing only phase, status, errorCode and summary:
+npm run doctor:laya -- /path/to/structured-diagnostics.json
+```
+
+This installs [convaiinnovations/laya](https://huggingface.co/convaiinnovations/laya)
+in an isolated CPU Python environment and pins the evaluated model revision.
+It receives structured text and has no tool/action authority. The local routing
+benchmark got 7/8 cases correct and reported a calibration warning; scores are
+advisory. Re-run `setup:laya` after restore if wanted.
+
+## Platform overview
 
 Ultra Computer is a complete agent orchestration system that manages AI model routing, tool execution, browser automation, skill libraries, and multi-agent coordination. It provides the infrastructure for agents to operate autonomously with human-in-the-loop safety controls.
 

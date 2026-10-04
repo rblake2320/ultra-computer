@@ -26,6 +26,8 @@ import {
 } from "./models/index.js";
 import { storage } from "./storage.js";
 import { isModelRoutable } from "./modelReadiness.js";
+import { createGovernedProviderFetch } from "./models/providerFetch.js";
+import { requireProviderCompletion } from "./executionOutcome.js";
 import {
   reserveModelRequest,
   settleModelReservation,
@@ -112,7 +114,7 @@ const TASK_CAPABILITY_MAP: Readonly<Record<TaskType, readonly ModelCapability[]>
   speed: ["chat"],
 };
 
-function modelCapabilities(model: Pick<Model, "capabilities">): string[] {
+export function modelCapabilities(model: Pick<Model, "capabilities">): string[] {
   try {
     const parsed = JSON.parse(model.capabilities || "[]");
     return Array.isArray(parsed)
@@ -362,7 +364,8 @@ export async function chat(
   const adapter = createProviderAdapter(model);
   assertAdapterSupports(model, adapter, request, false);
   const result = await guardedGenerate(adapter, model, request, options.signal);
-  const content = result.text || result.reasoning || "";
+  requireProviderCompletion(Boolean(result.text.trim()), result.toolCalls.length, result.finishReason);
+  const content = result.text || "";
   const finalContent = content + toolCallBlocks(result.toolCalls);
 
   if (cacheKey) {
@@ -410,6 +413,7 @@ export async function* chatStream(
   let reasoning = "";
   let usage: ModelResponse["usage"];
   let providerCompleted = false;
+  let finishReason: string | undefined;
   let settled = false;
   const toolCalls = new Map<number, { name: string; arguments: string }>();
 
@@ -420,7 +424,7 @@ export async function* chatStream(
     })) {
       switch (event.type) {
         case "output_text.delta":
-          emittedText = true;
+          emittedText ||= Boolean(event.delta.trim());
           yield event.delta;
           break;
         case "reasoning.delta":
@@ -438,6 +442,7 @@ export async function* chatStream(
           break;
         case "response.completed":
           providerCompleted = true;
+          finishReason = event.finishReason;
           break;
         case "response.error":
           throw new Error(
@@ -449,6 +454,8 @@ export async function* chatStream(
     settleModelReservation(reservation, model, providerCompleted ? usage : undefined);
     settled = true;
 
+    requireProviderCompletion(emittedText, toolCalls.size, finishReason, providerCompleted);
+
     if (toolCalls.size) {
       yield toolCallBlocks(
         [...toolCalls.entries()]
@@ -459,8 +466,6 @@ export async function* chatStream(
             arguments: call.arguments,
           })),
       );
-    } else if (!emittedText && reasoning) {
-      yield reasoning;
     }
   } finally {
     if (!settled) {
@@ -478,13 +483,31 @@ export async function testModelConnection(
   try {
     const adapter = createProviderAdapter(model);
     const request = connectionTestRequest(model);
-    const result = await guardedGenerate(adapter, model, request);
+    let result = await guardedGenerate(adapter, model, request);
+    if (model.provider === "ollama" && !result.text.trim() && !result.toolCalls.length) {
+      result = await guardedGenerate(adapter, model, { ...request, maxOutputTokens: 128, temperature: 0 });
+    }
     if (!result.text.trim() && result.toolCalls.length === 0) {
       throw new Error("Provider returned an empty connection-test response");
     }
 
     const capabilities = new Set(modelCapabilities(model));
     capabilities.add("chat");
+    if (model.provider === "ollama" && model.baseUrl) {
+      // Native metadata belongs to the specific installed model, not its adapter.
+      const url = new URL(model.baseUrl);
+      url.pathname = "/api/show";
+      url.search = "";
+      const response = await createGovernedProviderFetch(`model-capabilities:${model.id}`)(url, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: model.modelId }), signal: AbortSignal.timeout(5000),
+      }).catch(() => null);
+      if (response?.ok) {
+        const metadata = await response.json().catch(() => ({})) as { capabilities?: string[] };
+        if (metadata.capabilities?.includes("tools")) capabilities.add("tools");
+        else capabilities.delete("tools");
+      }
+    }
     storage.updateModel(model.id, {
       capabilities: JSON.stringify([...capabilities]),
     });

@@ -63,7 +63,7 @@ export const TOOL_SCHEMAS: ToolSchema[] = [
   ...IMAGE_GEN_TOOL_SCHEMAS,
   {
     name: "bash",
-    description: "Execute a shell command in an isolated Docker container (or Linux sandbox fallback). Use for running scripts, installing packages, processing data, compiling code, or any system operation. The working directory is /workspace (the sandbox folder). Commands have a configurable timeout (default 30s). Standard output and stderr are returned. The container has CPU, memory, and PID limits enforced.",
+    description: "Execute a command in an isolated Docker container when the sandbox is available. The working directory is /workspace. Standard output and stderr are returned with CPU, memory, PID, network and timeout limits enforced.",
     parameters: {
       type: "object",
       properties: {
@@ -197,7 +197,8 @@ export function getAllToolSchemas(): ToolSchema[] {
       }
     }
   }
-  return [...TOOL_SCHEMAS, ...mcpSchemas];
+  const shellAvailable = dockerSandbox.getStatus().dockerAvailable && dockerSandbox.getConfig().enabled;
+  return [...TOOL_SCHEMAS.filter(tool => tool.name !== "bash" || shellAvailable), ...mcpSchemas];
 }
 
 /** Eagerly load the MCP module so getAllToolSchemas works synchronously after boot */

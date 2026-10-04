@@ -72,6 +72,12 @@ jobs:
         env:
           E2E_OLLAMA_MODEL: gemma3:270m
         run: npm run test:e2e
+      - name: Verify clean private installation and real message crash recovery
+        env:
+          E2E_OLLAMA_MODEL: gemma3:270m
+        run: |
+          npm run setup:private
+          npm run test:private-runtime
       - name: Capture Ollama log
         if: failure()
         run: cat /tmp/ollama.log

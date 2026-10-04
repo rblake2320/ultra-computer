@@ -1153,7 +1153,7 @@ export async function executeCodeInterpreter(
     typescript: "ts",
   };
   const executable: Record<SupportedLanguage, string> = {
-    bash: "/bin/sh",
+    bash: "/bin/bash",
     python3: "python3",
     node: "node",
     typescript: "tsx",

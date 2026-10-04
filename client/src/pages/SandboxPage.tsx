@@ -135,7 +135,7 @@ export function SandboxPage() {
                   ? "Docker isolation active"
                   : dockerOk
                     ? "Docker available but sandbox disabled"
-                    : "Docker not detected — using host fallback"
+                    : "Docker not detected — code execution unavailable"
                 }
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
@@ -194,12 +194,13 @@ export function SandboxPage() {
                     onClick={() => pullImage.mutate()}
                     disabled={pullImage.isPending}
                     data-testid="button-pull-image"
+                    aria-label="Ensure configured Docker image is available"
                   >
-                    <Download className={`w-3.5 h-3.5 ${pullImage.isPending ? "animate-bounce" : ""}`} />
+                    <Download className={`w-3.5 h-3.5 ${pullImage.isPending ? "animate-pulse motion-reduce:animate-none" : ""}`} />
                   </Button>
                 </div>
                 {pullImage.isSuccess && (
-                  <p className="text-xs text-green-600">Image pulled successfully</p>
+                  <p className="text-xs text-green-600">Image available</p>
                 )}
                 {pullImage.isError && (
                   <p className="text-xs text-red-500">Pull failed: {(pullImage.error as Error).message}</p>
@@ -361,7 +362,7 @@ export function SandboxPage() {
             <li>Network isolation (--network=none) is the default — toggle above to enable</li>
             <li>The sandbox directory is bind-mounted as /workspace for file persistence</li>
             <li>Containers auto-reap after idle timeout</li>
-            <li>If Docker is unavailable, commands run on the host scoped to the sandbox directory (reduced isolation)</li>
+            <li>Code execution requires Docker. Commands fail closed when Docker is unavailable.</li>
           </ul>
         </div>
       </div>

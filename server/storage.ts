@@ -4,6 +4,7 @@ import { eq, desc, and, sql } from "drizzle-orm";
 import fs from "fs";
 import path from "path";
 import { encrypt, decrypt } from "./encryption.js";
+import { migrateSchema, assertSchemaReady } from "./schemaMigrations.js";
 import {
   models, modelCatalog, modelProbeResults,
   conversations, messages, tasks, agentRuns, skills, connectors, memory, settings,
@@ -44,9 +45,12 @@ export const db = drizzle(sqlite);
 
 // Enable WAL mode for better concurrency and durability
 sqlite.pragma("journal_mode = WAL");
+sqlite.pragma("synchronous = FULL");
 sqlite.pragma("foreign_keys = ON");
+sqlite.pragma("busy_timeout = 5000");
+migrateSchema(sqlite);
 
-// Create tables
+// Canonical fresh-install schema. Existing tables are upgraded above.
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS schema_migrations (
     id TEXT PRIMARY KEY,
@@ -428,6 +432,7 @@ sqlite.prepare(`
   INSERT OR IGNORE INTO schema_migrations (id, applied_at)
   VALUES (?, ?)
 `).run("20260716_model_catalog_v1", Date.now());
+assertSchemaReady(sqlite);
 
 export interface IStorage {
   // Models

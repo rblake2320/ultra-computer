@@ -19,7 +19,7 @@
  */
 
 import { execFile, spawn, spawnSync } from "child_process";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { promisify } from "util";
 import path from "path";
 import fs from "fs";
@@ -27,6 +27,12 @@ import { isPathInside } from "./pathSafety.js";
 import { resolveSandboxPath, SANDBOX_DIR } from "./sandboxPaths.js";
 
 const execFileAsync = promisify(execFile);
+const sandboxOwner = createHash("sha256").update(path.resolve(SANDBOX_DIR)).digest("hex").slice(0, 16);
+const sandboxProcess = randomUUID();
+export function sandboxContainerFilters(owner = sandboxOwner, processId: string | null = sandboxProcess): string[] {
+  return ["--filter", "label=ultra-computer=sandbox", "--filter", `label=ultra-owner=${owner}`,
+    ...(processId ? ["--filter", `label=ultra-process=${processId}`] : [])];
+}
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -50,7 +56,7 @@ export interface DockerSandboxConfig {
 }
 
 const DEFAULT_CONFIG: DockerSandboxConfig = {
-  image: "ubuntu:22.04",
+  image: process.env.ULTRA_SANDBOX_IMAGE || "ultra-computer-sandbox:local",
   cpuLimit: "1.0",
   memoryLimit: "512m",
   execTimeoutMs: 30_000,
@@ -258,7 +264,7 @@ export class DockerSandbox {
   private async createContainer(sessionId: string, sandboxDir: string): Promise<ContainerState> {
     const sessionSlug = sessionId.replace(/[^a-zA-Z0-9_.-]/g, "-").slice(0, 24);
     const sessionHash = createHash("sha256").update(sessionId).digest("hex").slice(0, 8);
-    const label = `ultra-sandbox-${sessionSlug || "session"}-${sessionHash}`;
+    const label = `ultra-sandbox-${sandboxOwner}-${sessionSlug || "session"}-${sessionHash}`;
 
     const containedDir = resolveSandboxPath(sandboxDir);
     if (!containedDir) throw new Error("Sandbox mount must remain inside the application sandbox");
@@ -284,6 +290,8 @@ export class DockerSandbox {
         "run", "-d",
         "--name", label,
         "--label", "ultra-computer=sandbox",
+        "--label", `ultra-owner=${sandboxOwner}`,
+        "--label", `ultra-process=${sandboxProcess}`,
         // Resource limits
         "--cpus", this.config.cpuLimit,
         "--memory", this.config.memoryLimit,
@@ -478,11 +486,11 @@ export class DockerSandbox {
     );
     await Promise.all(removals);
 
-    // Also clean up any orphaned ultra-sandbox containers from previous runs
+    // Limit final cleanup to containers created by this process.
     try {
       const { stdout } = await execFileAsync(
         "docker",
-        ["ps", "-aq", "--filter", "label=ultra-computer=sandbox"],
+        ["ps", "-aq", ...sandboxContainerFilters()],
         { timeout: 10_000 },
       );
       const ids = stdout.split(/\s+/).filter(Boolean);
@@ -493,6 +501,15 @@ export class DockerSandbox {
     } catch { /* ok */ }
   }
 
+  /** Private state ownership lock must be held before calling this on startup. */
+  async recoverPrivateContainers(): Promise<void> {
+    if (process.env.ULTRA_PRIVATE_INSTALL !== "1" || !await this.isDockerAvailable()) return;
+    const { stdout } = await execFileAsync("docker", ["ps", "-aq", ...sandboxContainerFilters(sandboxOwner, null)], { timeout: 10000 });
+    const ids = stdout.split(/\s+/).filter(Boolean);
+    if (!ids.every(isValidContainerId)) throw new Error("Docker returned an invalid container ID");
+    if (ids.length) await execFileAsync("docker", ["rm", "-f", ...ids], { timeout: 10000 });
+  }
+
   /** Pull the configured Docker image if not already present */
   async pullImage(): Promise<{ pulled: boolean; error?: string }> {
     // Validate image name to prevent command injection: allow only safe Docker image name chars
@@ -500,6 +517,10 @@ export class DockerSandbox {
       return { pulled: false, error: "Invalid Docker image name" };
     }
     try {
+      try {
+        await execFileAsync("docker", ["image", "inspect", this.config.image], { timeout: 10000 });
+        return { pulled: true };
+      } catch { /* Image absent: try the configured registry reference. */ }
       await execFileAsync("docker", ["pull", this.config.image], { timeout: 120_000 });
       return { pulled: true };
     } catch (err: any) {
@@ -529,7 +550,7 @@ export const dockerSandbox = new DockerSandbox();
 process.on("exit", () => {
   // Synchronous cleanup — best effort (async shutdown already runs on SIGTERM/SIGINT)
   try {
-    const listed = spawnSync("docker", ["ps", "-aq", "--filter", "label=ultra-computer=sandbox"], {
+    const listed = spawnSync("docker", ["ps", "-aq", ...sandboxContainerFilters()], {
       timeout: 5000,
       encoding: "utf8",
       shell: false,

@@ -22,7 +22,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:e2e": "playwright test",
     "audit": "npm audit --audit-level=moderate",
-    "sbom": "cyclonedx-npm --package-lock-only --output-reproducible --output-file reports/sbom.cdx.json",
+    "sbom": "node script/sbom.mjs",
     "smoke:prod": "node script/smoke-prod.mjs",
     "doctor": "node script/doctor.mjs",
     "live:docker": "node script/live-local-docker.mjs",
@@ -32,7 +32,15 @@
     "temporal:worker": "RUN_TEMPORAL_WORKER=1 tsx server/temporalWorker.ts",
     "temporal:verify": "echo 'Start the stack first: docker compose up -d && npm run temporal:install && npm run temporal:worker' && echo 'Then run: npx vitest run tests/integration/temporal-durable-live.test.ts'",
     "temporal:proof": "TEMPORAL_ADDRESS=localhost:7233 tsx scripts/temporal-proof-run.ts",
-    "temporal:namespace": "docker exec codex-ultra-computer-temporal-1 sh -c 'tctl --address $(hostname -i | awk \"{print $1}\"):7233 namespace register --retention 1 default 2>/dev/null || echo already-registered'"
+    "temporal:namespace": "docker exec codex-ultra-computer-temporal-1 sh -c 'tctl --address $(hostname -i | awk \"{print $1}\"):7233 namespace register --retention 1 default 2>/dev/null || echo already-registered'",
+    "setup:private": "node script/private-install.mjs setup",
+    "start:private": "node script/private-install.mjs start",
+    "verify:private": "node script/private-install.mjs verify",
+    "state:backup": "node script/private-state.mjs backup",
+    "state:restore": "node script/private-state.mjs restore",
+    "setup:laya": "node script/laya-setup.mjs setup",
+    "doctor:laya": "node script/laya-setup.mjs diagnose",
+    "test:private-runtime": "node script/private-runtime-acceptance.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
@@ -141,7 +149,7 @@
     "@types/react-dom": "^18.3.1",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.2",
-    "@vitest/coverage-v8": "^4.1.5",
+    "@vitest/coverage-v8": "^4.1.11",
     "autoprefixer": "^10.4.20",
     "cross-env": "^10.1.0",
     "drizzle-kit": "^0.31.10",
@@ -149,20 +157,20 @@
     "lightningcss": "^1.32.0",
     "postcss": "^8.4.47",
     "protobufjs-cli": "^2.0.1",
-    "tailwindcss": "^3.4.17",
+    "tailwindcss": "^4.3.3",
     "ts-proto": "^2.11.6",
     "tsx": "^4.20.5",
     "typescript": "^7.0.2",
     "vite": "^8.0.16",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.11"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"
   },
   "overrides": {
-    "adm-zip": "0.6.0",
+    "adm-zip": "0.6.1",
     "linkify-it": "6.0.0",
-    "markdown-it": "14.3.0",
+    "markdown-it": "14.3.1",
     "drizzle-kit": {
       "@esbuild-kit/esm-loader": "npm:tsx@^4.20.4"
     }

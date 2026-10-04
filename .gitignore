@@ -44,5 +44,6 @@ data/
 # Temp
 tmp/
 .tmp/
+backups/
 ipc/
 sandbox/

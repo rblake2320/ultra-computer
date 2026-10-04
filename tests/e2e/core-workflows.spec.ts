@@ -102,7 +102,19 @@ test("workflow 3: a real local model persists a real assistant response", async 
     if (conversation.status === "error") throw new Error("Conversation entered error state before producing a response");
     const messages = await api<any[]>(`/api/conversations/${conversationId}/messages`);
     return messages.findLast((message) => message.role === "assistant")?.content ?? "";
-  }, { timeout: 360_000, intervals: [3000] }).not.toBe("");
+  }, { timeout: 360_000, intervals: [3000] }).toMatch(/\b4\b/);
+  const messages = await api<any[]>(`/api/conversations/${conversationId}/messages`);
+  expect(messages.findLast(m => m.role === "assistant")?.content).not.toMatch(/max iterations|LLM call failed|\[FAILED:/i);
+  await expect.poll(async () => (await api<any>(`/api/conversations/${conversationId}`)).status).toBe("idle");
+  const firstTasks = await api<any[]>(`/api/conversations/${conversationId}/tasks`);
+  await page.getByTestId("input-message").fill("Reply with one short sentence: what is 3+3?");
+  await page.getByTestId("button-send").click();
+  await expect.poll(async () => {
+    const history = await api<any[]>(`/api/conversations/${conversationId}/messages`);
+    return history.filter(m => m.role === "assistant").length >= 2 ? history.findLast(m => m.role === "assistant")?.content : "";
+  }, { timeout: 120_000 }).toMatch(/\b6\b/);
+  const currentTasks = await api<any[]>(`/api/conversations/${conversationId}/tasks`);
+  for (const previous of firstTasks) expect(currentTasks.find(t => t.id === previous.id)?.completedAt).toBe(previous.completedAt);
 });
 
 test("workflow 3b: no-model chat persists guidance instead of crashing", async () => {

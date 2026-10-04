@@ -1,5 +1,27 @@
 # Why Ledger
 
+### WHY-0030: Install and recover the declared private-owner product
+
+- **Status:** Accepted implementation
+- **Date:** 2026-10-04
+- **Problem:** Real beta upgrades failed model reads; a killed queued run was
+  incorrectly completed; exhaustion placeholders passed chat tests; container
+  code execution lacked a runtime. Install and recovery lacked operator commands.
+- **Decision:** Provide host/private installation, a dedicated queue and code
+  image, additive schema readiness, persistent admission, serialized claims,
+  truthful terminal outcomes and verified offline recovery. Quarantine uncertain
+  effects instead of repeating them. Keep Laya optional and advisory.
+- **Why:** The chosen single-owner deployment needs receiving outcomes from the
+  built app and an installation command, not healthy services alone. A replay
+  that silently skips or repeats work is worse than a visible interruption.
+- **Alternatives:** Mount Docker into the app container, retry whole workflows,
+  or migrate all activities to Temporal now. The first widens host authority;
+  the second duplicates unknown effects; the third requires a larger redesign.
+- **Evidence:** `setup:private`, `test:private-runtime`, nine real browser
+  workflows, full-state recovery and existing verification/Docker gates. CI runs
+  private installation and crash recovery in the existing core-e2e job.
+- **Related:** ADR-0002, PARK-0021, `reports/private-readiness-20261004.md`.
+
 This ledger records why consequential changes exist. It complements the
 changelog, which records what changed, and the ADRs in `docs/decisions/`, which
 hold detailed decisions that affect architecture or long-lived behavior.

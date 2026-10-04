@@ -24,8 +24,12 @@ import { shutdownBrowser } from "./browserTool.js";
 import { stopWatchdog } from "./processWatchdog.js";
 import { buildRuntimeHealth, type RuntimeCheckState } from "./runtimeHealth.js";
 import { shutdownRuntime } from "./lifecycle.js";
+import { recoverInterruptedExecutions } from "./orchestrator.js";
+import { acquirePrivateStateLock } from "./privateStateLock.js";
 
 assertProductionEnvironment();
+const releasePrivateState = acquirePrivateStateLock();
+recoverInterruptedExecutions();
 const app = express();
 const httpServer = createServer(app);
 
@@ -46,6 +50,7 @@ function shutdown(reason: string, exitCode: number): Promise<void> {
         { name: "Docker sandbox", close: () => dockerSandbox.shutdown() },
         { name: "cache", close: () => cacheEngine.shutdown() },
         { name: "SQLite", close: () => sqlite.close() },
+        { name: "private state lock", close: () => releasePrivateState?.() },
       ],
     });
 
@@ -205,7 +210,7 @@ app.get("/api/health", (_req, res) => {
 
   // Check SQLite — run a trivial synchronous query
   try {
-    db.run(sql`SELECT 1`);
+    db.run(sql`SELECT auth_method, connection_status FROM models LIMIT 0`);
   } catch {
     databaseState = "unavailable";
   }
@@ -277,6 +282,7 @@ app.use((req, res, next) => {
 
 (async () => {
   try {
+  await dockerSandbox.recoverPrivateContainers();
   // Honeypot: register canary routes before real routes — any hit is an attacker probe
   registerHoneypot(app);
 

@@ -8,6 +8,7 @@
 
 import { storage } from "./storage.js";
 import type { Model } from "@shared/schema";
+import { isModelRoutable } from "./modelReadiness.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -127,7 +128,7 @@ export function getFallbackModel(failedModelId: string): string | null {
   }
 
   const enabledModels = allModels.filter(
-    (m) => m.enabled && m.id !== failedModelId
+    (m) => isModelRoutable(m) && m.id !== failedModelId
   );
 
   if (enabledModels.length === 0) {
@@ -186,7 +187,7 @@ export async function withRetryAndFallback<T>(
       );
 
       // Auth and model errors won't resolve with retries — skip straight to fallback.
-      if (errClass === "auth" || errClass === "model_error") {
+      if ((lastError as Error & { retryable?: boolean }).retryable === false || errClass === "auth" || errClass === "model_error") {
         console.warn(
           `[ErrorRecovery] Non-retryable error class "${errClass}" — ` +
             "skipping remaining retries on primary model."
