@@ -418,7 +418,7 @@ Click **Settings** in the sidebar to configure:
 - **Theme** — light or dark
 - **System name** — what the AI calls itself
 - **Default model** — which model is used when nothing more specific applies
-- **Max tool iterations** — how many times an agent can use tools in one turn (default 10)
+- **Max tool iterations** — maximum worker rounds per turn (default 6, range 1–20); the shared turn budget also limits provider attempts and tokens
 - **Sandbox auto-enable** — automatically enable the Docker sandbox for every new session
 
 ---

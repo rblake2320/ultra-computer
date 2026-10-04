@@ -189,7 +189,7 @@ export class OpenShellSandbox extends DockerSandbox {
         const safe=resolveInside(dir,file.name);
         if (!safe) throw new Error('Sandbox transfer escaped the workspace');
         const temporary=path.join(path.dirname(safe),`.openshell-${randomUUID()}.tmp`);
-        fs.writeFileSync(temporary,Buffer.from(file.data,'base64'),{flag:'wx',mode:0o600});
+        fs.writeFileSync(temporary,Buffer.from(file.data,'base64'),{flag:'wx',mode:0o600,flush:true});
         fs.renameSync(temporary,safe);
       }
       return {stdout,stderr,exitCode,timedOut};
