@@ -1,0 +1,11 @@
+{
+  "name": "ultra-computer-sandbox-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "tsx": "4.23.1"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
+  }
+}

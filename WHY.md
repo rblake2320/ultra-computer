@@ -788,3 +788,12 @@ dependency-audit job, keep publication enabled, and retain its report. A static
 regression guards top-level/job env and defaults, runner and permitted actions.
 The live default-branch publisher is the receiving acceptance gate.
 Source: https://github.com/ossf/scorecard-action#workflow-restrictions
+### 0038 — Lock the sandbox interpreter's full package graph
+
+The repaired default-branch Scorecard publisher flagged Dockerfile.sandbox's
+global npm install: its direct tsx version was pinned, but transitive packages
+had no committed integrity hashes. Install the same interpreter from a dedicated
+package-lock with npm ci, scripts disabled, and the tested esbuild version
+pinned. A regression requires hashes for every package and rejects global
+installation. Receiving acceptance rebuilds the image and executes all four
+languages, including TypeScript with the packaged native esbuild binary.
