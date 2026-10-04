@@ -82,6 +82,11 @@ jobs:
         run: |
           npm run setup:private
           npm run test:private-runtime
+      - name: Verify managed private operation and dependency recovery
+        env:
+          E2E_OLLAMA_MODEL: gemma3:270m
+          ULTRA_SOAK_SECONDS: "60"
+        run: npm run test:private-production
       - name: Capture Ollama log
         if: failure()
         run: cat /tmp/ollama.log
@@ -94,6 +99,8 @@ jobs:
             data/install-verification.log
             data/private-acceptance-*/receipt.json
             data/private-acceptance-*/*.log
+            data/private-production-receipt.json
+            data/private-service.log*
           if-no-files-found: warn
 
   verify:

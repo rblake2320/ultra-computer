@@ -24,6 +24,13 @@ npm run setup:private
 npm run start:private
 ```
 
+For managed background operation, use `npm run service:start` and
+`npm run service:status`. On Windows, `npm run service:install` enables startup
+at this user's login; `service:uninstall` removes that entry. Use
+`npm run service:stop` after draining/cancelling work before verification or
+backup. Logs are bounded under protected `data/`. See
+[the private operating contract](docs/decisions/0004-private-operating-and-release-contract.md).
+
 Setup installs locked dependencies, audits them, checks Chromium, builds the
 app and sandbox image, generates protected persistent keys, starts a dedicated
 queue and verifies authenticated APIs plus Python, Node, TypeScript and Bash.
@@ -55,7 +62,8 @@ npm run setup:private
 Use an absolute backup path appropriate to your OS. Backups contain secrets;
 keep them private. They retain SQLite, encrypted credentials, owner/encryption
 keys, run records, IPC and sandbox artifacts. Restore verifies checksums and
-refuses existing state. Stop the original queue before recovering on its port.
+refuses existing state. Restore chooses free, distinct listener ports and an
+independent queue, retaining owner/encryption keys.
 Completed Redis job/cache history and reinstallable Laya runtime/model cache
 are excluded. Unfinished queue/outbox work must be drained before backup.
 

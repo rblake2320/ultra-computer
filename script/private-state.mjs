@@ -5,6 +5,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import Database from "better-sqlite3";
 import { Queue } from "bullmq";
+import { chooseInstallPorts, loadConfig } from "./private-runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const [mode, suppliedPath] = process.argv.slice(2);
@@ -106,8 +107,11 @@ try {
     }
     protect(path.join(root, "data"));
     const configFile = path.join(root, "data/private-install.json");
-    const config = JSON.parse(fs.readFileSync(configFile, "utf8"));
+    const config = loadConfig();
     config.projectName = `ultra-private-${randomBytes(5).toString("hex")}`;
+    // A restored installation gets an independent queue and must never probe
+    // another copy merely because the preserved owner key still authenticates.
+    Object.assign(config, await chooseInstallPorts({ httpPort: config.httpPort, grpcPort: config.grpcPort, redisPort: config.redisPort }));
     fs.writeFileSync(configFile, JSON.stringify(config, null, 2), { mode: 0o600 });
     console.log("Worked: verified state restored into this new checkout. Run npm run setup:private to install dependencies, start a new drained queue and verify the restored app.");
   }

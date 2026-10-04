@@ -712,3 +712,27 @@ hold detailed decisions that affect architecture or long-lived behavior.
 - **Consequence:** Schema compliance aids formatting; logical admission and
   owner authority remain deterministic application checks. Same-model offline
   embedding comparisons establish compatibility rather than a quality claim.
+
+## WHY-0033 — Private readiness includes operating and distribution checks
+
+- **Problem:** A foreground-only install had no managed recovery. A question
+  followed by a formatting instruction was routed into planning and the real
+  tiny model acknowledged a template rather than answering. Restores retained
+  listener ports; installer probes could reach a different copy's health.
+- **Decision:** Preserve the direct-question route for explicit format suffixes;
+  preflight listener ownership; select independent restored ports; add managed
+  restart/log/maintenance controls and a sustained real-model workload gate.
+  Keep tiny-model failures distinct from the 4B release acceptance. Offline
+  legacy import retains history, reencrypts credentials and requires model
+  retesting rather than automatically calling old paid endpoints.
+- **Escape and sweep:** Short questions ending in '?' passed previous checks;
+  suffixes and sustained operation were absent. Installer/start/restore and
+  supervisor startup now share the same port controls. Source and built health
+  are checked together; duplicate supervision and real receiving identity are
+  required. Worker queue outcomes and model answers are independently checked.
+- **Controls:** singleQuestion/privatePorts/legacyPrivateImport regressions;
+  real varied inference, five concurrent reads, outage/kill/relaunch gates;
+  source/build/SBOM archives with GitHub cryptographic attestation and integrity
+  checks. The existing core CI adds a separate managed-service regression.
+- **Residual:** Host/model availability and post-effect uncertainty remain in
+  the declared private contract, ADR-0004. Human acceptance is Constitution R14.

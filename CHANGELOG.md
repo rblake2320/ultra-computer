@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - 2026-10-04
 
 ### Fixed
+- Preserve direct short questions with reply-format suffixes; deny occupied
+  ports during installer verification and isolate restored listener ports.
 - Add a private-owner installer with protected persistent keys, dedicated Redis,
   loopback listeners, cached Chromium validation and a built code image.
 - Upgrade the published beta database additively, preserve existing rows and
@@ -22,6 +24,10 @@ All notable changes to this project will be documented in this file.
   generation and add private-install/crash checks to existing CI.
 
 ### Added
+- Managed private background operation, bounded logs, restart/health recovery,
+  maintenance-stop controls and removable Windows login startup (ADR-0004).
+- A real-model sustained workload gate and a distinct CI lifecycle regression;
+  attested source/build/SBOM candidate artifacts and source integrity checks.
 - Pinned Transformers.js 4.3 CPU inference, MCP client SDK 2.3 with modern/legacy
   negotiation, and OpenTelemetry 2.11 private bounded execution traces (ADR-0003).
 - Provider-constrained task plans with deterministic DAG admission; isolate

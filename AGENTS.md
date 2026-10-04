@@ -5,6 +5,11 @@
 - Private owner install/start: `npm run setup:private`, `npm run start:private`
 - Install acceptance: `npm run verify:private` (stop the app first)
 - Real message acceptance: `npm run test:private-runtime` (Docker and Ollama required)
+- Managed private lifecycle: `service:start`, `service:stop`, `service:status`;
+  Windows login startup: `service:install` / `service:uninstall`.
+- Sustained receiving acceptance: `npm run test:private-production` in a fresh
+  private install only. Default 600s uses real installed gemma3:latest 4B;
+  shorter CI runs are explicitly service regression evidence, not a release soak.
 - Offline recovery: `npm run state:backup -- <new-directory>` / `npm run state:restore -- <backup-directory>`
 - Build: `npm run build`
 - Full gate: `npm run verify`

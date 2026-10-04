@@ -40,7 +40,18 @@
     "state:restore": "node script/private-state.mjs restore",
     "setup:laya": "node script/laya-setup.mjs setup",
     "doctor:laya": "node script/laya-setup.mjs diagnose",
-    "test:private-runtime": "node script/private-runtime-acceptance.mjs"
+    "test:private-runtime": "node script/private-runtime-acceptance.mjs",
+    "test:private-production": "node script/private-production-acceptance.mjs",
+    "service:run": "node script/private-service.mjs run",
+    "service:start": "node script/private-service.mjs start",
+    "service:stop": "node script/private-service.mjs stop",
+    "service:status": "node script/private-service.mjs status",
+    "service:install": "node script/private-service.mjs install",
+    "service:uninstall": "node script/private-service.mjs uninstall",
+    "package:private": "node script/package-private-release.mjs",
+    "verify:artifact": "node script/verify-private-release.mjs",
+    "verify:owner": "node script/private-owner-acceptance.mjs",
+    "migrate:legacy-private": "node script/migrate-legacy-private.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",

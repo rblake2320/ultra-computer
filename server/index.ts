@@ -77,6 +77,9 @@ function shutdown(reason: string, exitCode: number): Promise<void> {
 
 process.once("SIGTERM", () => void shutdown("SIGTERM", 0));
 process.once("SIGINT", () => void shutdown("SIGINT", 0));
+if (process.env.ULTRA_PRIVATE_SUPERVISED === "1" && process.connected) {
+  process.once("disconnect", () => void shutdown("private supervisor disconnected", 1));
+}
 process.on("uncaughtException", (err) => {
   logger.error({ err }, "[uncaughtException]");
   void shutdown("uncaughtException", 1);
@@ -163,6 +166,9 @@ app.use(createAuthMiddleware());
 app.get("/api/diagnostics/traces", (_req, res) => {
   try { res.json({ ...privateTraceExporter.status(), spans: privateTraceExporter.read() }); }
   catch { res.status(503).json({ error: "Private traces are unavailable", ...privateTraceExporter.status() }); }
+});
+app.get("/api/diagnostics/runtime", (_req, res) => {
+  res.json({ pid: process.pid, parentPid: process.ppid, uptimeSeconds: process.uptime(), memory: process.memoryUsage(), queueAvailable: taskQueue.isAvailable() });
 });
 
 app.use(

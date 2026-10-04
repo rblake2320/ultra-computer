@@ -23,7 +23,7 @@ import { TOOL_SCHEMAS, getAllToolSchemas, executeTool, dockerSandbox, type ToolR
 import { compactContext } from "./contextCompactor.js";
 import { detectChain, buildChainPlan } from "./skillChaining.js";
 import { withRetryAndFallback } from "./errorRecovery.js";
-import { TASK_PLAN_FORMAT, validateTaskPlan } from "./taskPlan.js";
+import { TASK_PLAN_FORMAT, validateTaskPlan, isSingleQuestion } from "./taskPlan.js";
 import { analyzeTaskComplexity, routeToOptimalModel } from "./modelSpeedRouter.js";
 import { logExecution } from "./selfLearning.js";
 import { knowledgeEngine } from "./knowledgeEngine.js";
@@ -388,7 +388,7 @@ export async function runOrchestrator(
         tasks: chainTasks.map(t => ({ ...t, taskType: t.taskType as TaskType })),
         skillIds: [],
       } as TaskPlan;
-    } else if (userMessage.length < 500 && /\?\s*$/.test(userMessage)) {
+    } else if (isSingleQuestion(userMessage)) {
       plan = { thinking: "Single question", tasks: [{ id: "t1", title: "Answer question", description: userMessage, taskType: "general", dependsOn: [], parallel: false }], skillIds: [] } as TaskPlan;
     } else {
       recordDurableStep({ workflowId, stepId: "plan.decompose", status: "started", idempotencyKey: `${workflowId}:plan.decompose` });

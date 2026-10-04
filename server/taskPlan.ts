@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+/** A format suffix does not turn one short question into a planning task. */
+export function isSingleQuestion(input: string): boolean {
+  if (input.length >= 500) return false;
+  const question = input.indexOf("?");
+  if (question < 0 || input.indexOf("?", question + 1) !== -1) return false;
+  const suffix = input.slice(question + 1).trim();
+  return !suffix || /^(?:please\s+)?(?:reply|answer|respond|return)\s+(?:with\s+|in\s+)?(?:only\s+)?(?:the\s+)?(?:number|answer|result|json|one\s+(?:word|sentence)|a\s+short\s+(?:answer|sentence))[.!]?$/i.test(suffix);
+}
+
 const task = z.object({
   id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
   title: z.string().min(1).max(200),
